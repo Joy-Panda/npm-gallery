@@ -2,7 +2,7 @@
 
 Browse, search, and manage npm packages directly from VS Code with bundle analysis, download stats, and smart package management.
 
-<img width="1919" height="928" alt="Image" src="https://github.com/BetaVersion-io/NPM-Gallery/blob/main/media/example.png" />
+![example](https://storage.googleapis.com/nprep-f64b1.firebasestorage.app/admin/example.png)
 
 ## Features
 
