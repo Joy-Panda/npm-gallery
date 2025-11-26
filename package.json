@@ -1,0 +1,246 @@
+{
+  "name": "npm-gallery",
+  "displayName": "NPM Gallery",
+  "description": "Browse, search, and manage npm packages directly from VS Code with security scanning, bundle analysis, and smart suggestions",
+  "version": "0.0.1",
+  "publisher": "BetaVersion",
+  "icon": "media/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BetaVersion-io/npm-gallery"
+  },
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Other",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "npm",
+    "package",
+    "manager",
+    "node",
+    "dependencies",
+    "registry"
+  ],
+  "activationEvents": [
+    "workspaceContains:**/package.json"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "npmGallery.openPanel",
+        "title": "Open NPM Gallery",
+        "category": "NPM Gallery",
+        "icon": "$(package)"
+      },
+      {
+        "command": "npmGallery.searchPackages",
+        "title": "Search Packages",
+        "category": "NPM Gallery"
+      },
+      {
+        "command": "npmGallery.installPackage",
+        "title": "Install Package",
+        "category": "NPM Gallery"
+      },
+      {
+        "command": "npmGallery.updatePackage",
+        "title": "Update Package",
+        "category": "NPM Gallery"
+      },
+      {
+        "command": "npmGallery.updateAllPackages",
+        "title": "Update All Packages",
+        "category": "NPM Gallery"
+      },
+      {
+        "command": "npmGallery.removePackage",
+        "title": "Remove Package",
+        "category": "NPM Gallery"
+      },
+      {
+        "command": "npmGallery.runSecurityAudit",
+        "title": "Run Security Audit",
+        "category": "NPM Gallery"
+      },
+      {
+        "command": "npmGallery.showPackageDetails",
+        "title": "Show Package Details",
+        "category": "NPM Gallery"
+      },
+      {
+        "command": "npmGallery.refreshView",
+        "title": "Refresh",
+        "category": "NPM Gallery",
+        "icon": "$(refresh)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "npmGallery",
+          "title": "NPM Gallery",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "npmGallery": [
+        {
+          "type": "webview",
+          "id": "npmGallery.searchView",
+          "name": "Search"
+        },
+        {
+          "id": "npmGallery.installedView",
+          "name": "Installed Packages"
+        },
+        {
+          "id": "npmGallery.updatesView",
+          "name": "Available Updates"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "npmGallery.refreshView",
+          "when": "view == npmGallery.installedView || view == npmGallery.updatesView",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "npmGallery.updatePackage",
+          "when": "view == npmGallery.updatesView",
+          "group": "inline"
+        },
+        {
+          "command": "npmGallery.removePackage",
+          "when": "view == npmGallery.installedView"
+        },
+        {
+          "command": "npmGallery.showPackageDetails",
+          "when": "view == npmGallery.installedView || view == npmGallery.updatesView"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "NPM Gallery",
+      "properties": {
+        "npmGallery.defaultRegistry": {
+          "type": "string",
+          "default": "https://registry.npmjs.org",
+          "description": "Default npm registry URL"
+        },
+        "npmGallery.packageManager": {
+          "type": "string",
+          "enum": [
+            "npm",
+            "yarn",
+            "pnpm"
+          ],
+          "default": "npm",
+          "description": "Preferred package manager"
+        },
+        "npmGallery.showBundleSize": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show bundle size in search results and hover"
+        },
+        "npmGallery.showSecurityInfo": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show security vulnerability information"
+        },
+        "npmGallery.autoCheckUpdates": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically check for package updates on startup"
+        },
+        "npmGallery.licenseWhitelist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "MIT",
+            "Apache-2.0",
+            "ISC",
+            "BSD-2-Clause",
+            "BSD-3-Clause"
+          ],
+          "description": "Allowed licenses (warn if package uses different license)"
+        },
+        "npmGallery.bundleSizeWarningThreshold": {
+          "type": "number",
+          "default": 100,
+          "description": "Show warning if package bundle size exceeds this value (in KB)"
+        },
+        "npmGallery.cacheTimeout": {
+          "type": "number",
+          "default": 3600,
+          "description": "Cache timeout in seconds"
+        }
+      }
+    },
+    "languages": [
+      {
+        "id": "json",
+        "filenames": [
+          "package.json"
+        ]
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run package",
+    "compile": "npm run check-types && npm run lint && node esbuild.js",
+    "watch": "npm-run-all -p watch:*",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
+    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "compile-tests": "tsc -p . --outDir out",
+    "watch-tests": "tsc -p . -w --outDir out",
+    "pretest": "npm run compile-tests && npm run compile && npm run lint",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint src",
+    "test": "vscode-test"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@types/vscode": "^1.74.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "esbuild": "^0.27.0",
+    "eslint": "^9.39.1",
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.3"
+  },
+  "dependencies": {
+    "@radix-ui/react-separator": "^1.1.8",
+    "@radix-ui/react-tabs": "^1.1.13",
+    "@radix-ui/react-tooltip": "^1.2.8",
+    "@tanstack/react-query": "^5.59.0",
+    "@uiw/react-markdown-preview": "^5.1.1",
+    "@vscode/codicons": "^0.0.36",
+    "@vscode/webview-ui-toolkit": "^1.4.0",
+    "autoprefixer": "^10.4.22",
+    "axios": "^1.7.7",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.555.0",
+    "postcss": "^8.5.6",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tailwind-merge": "^3.4.0",
+    "tailwindcss": "^4.1.17"
+  }
+}
