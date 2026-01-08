@@ -165,7 +165,7 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
             {details.score && (
               <div className="stat-item success">
                 <Star size={14} />
-                <span>{Math.round(details.score.final * 100)}%</span>
+                <span>{Math.round(details.score.final * 100)}</span>
               </div>
             )}
             {details.license && (

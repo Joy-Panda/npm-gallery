@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, X, Loader2 } from 'lucide-react';
+import { Search, X, Loader2, Filter } from 'lucide-react';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
 
@@ -7,9 +7,17 @@ interface SearchBarProps {
   value: string;
   onChange: (value: string) => void;
   isLoading?: boolean;
+  onAdvancedSearchToggle?: () => void;
+  isAdvancedSearchOpen?: boolean;
 }
 
-export const SearchBar: React.FC<SearchBarProps> = ({ value, onChange, isLoading }) => {
+export const SearchBar: React.FC<SearchBarProps> = ({ 
+  value, 
+  onChange, 
+  isLoading, 
+  onAdvancedSearchToggle,
+  isAdvancedSearchOpen = false
+}) => {
   return (
     <div className="search-container">
       <div className="search-wrapper">
@@ -28,16 +36,29 @@ export const SearchBar: React.FC<SearchBarProps> = ({ value, onChange, isLoading
           className="search-input"
           autoFocus
         />
-        {value && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="clear-btn"
-            onClick={() => onChange('')}
-          >
-            <X size={14} />
-          </Button>
-        )}
+        <div className="search-actions">
+          {value && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="clear-btn"
+              onClick={() => onChange('')}
+            >
+              <X size={14} />
+            </Button>
+          )}
+          {onAdvancedSearchToggle && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className={`advanced-btn ${isAdvancedSearchOpen ? 'active' : ''}`}
+              onClick={onAdvancedSearchToggle}
+              title="Advanced Search"
+            >
+              <Filter size={16} />
+            </Button>
+          )}
+        </div>
       </div>
 
       <style>{`
@@ -72,20 +93,30 @@ export const SearchBar: React.FC<SearchBarProps> = ({ value, onChange, isLoading
 
         .search-input {
           padding-left: 38px !important;
-          padding-right: 40px !important;
+          padding-right: 80px !important;
           height: 40px !important;
           border-radius: 10px !important;
           font-size: 13px !important;
         }
 
-        .clear-btn {
+        .search-actions {
           position: absolute;
           right: 6px;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+
+        .clear-btn, .advanced-btn {
           width: 26px !important;
           height: 26px !important;
           min-width: 26px !important;
           border-radius: 50% !important;
           padding: 0 !important;
+        }
+
+        .advanced-btn.active {
+          background: var(--vscode-button-secondaryBackground);
         }
 
         @keyframes spin {

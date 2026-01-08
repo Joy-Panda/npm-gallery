@@ -56,7 +56,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({
       : pkg.author.name || ""
     : pkg.publisher?.username || "";
 
-  const scorePercent = pkg.score ? Math.round(pkg.score.final * 100) : null;
+  const score = pkg.score ? pkg.score.final : null;
   const downloads = formatDownloads(pkg.downloads);
 
   const cardStyles: React.CSSProperties = {
@@ -185,11 +185,21 @@ export const PackageCard: React.FC<PackageCardProps> = ({
                 </Badge>
               )}
 
-              {scorePercent !== null && (
-                <Badge variant="green">
-                  <Star style={iconStyles} />
-                  {scorePercent}
-                </Badge>
+              {score !== null && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div>
+                      <Badge variant="green">
+                        <Star style={iconStyles} />
+                        {score}
+                      </Badge>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    Search Score
+                  </TooltipContent>
+                </Tooltip>
+                
               )}
 
               {pkg.license && (

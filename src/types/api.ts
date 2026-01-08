@@ -110,6 +110,9 @@ export interface NpmSearchObject {
       maintenance: number;
     };
   };
+  downloads: {
+    weekly: number;
+  };
   searchScore: number;
 }
 

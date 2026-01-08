@@ -79,6 +79,7 @@ export interface SearchMessage {
   query: string;
   from?: number;
   size?: number;
+  sortBy?: 'relevance' | 'popularity' | 'quality' | 'maintenance' | 'name';
 }
 
 export interface GetPackageDetailsMessage {

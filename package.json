@@ -120,11 +120,11 @@
         },
         {
           "command": "npmGallery.removePackage",
-          "when": "view == npmGallery.installedView"
+          "when": "view == npmGallery.installedView && viewItem == installedPackage"
         },
         {
           "command": "npmGallery.showPackageDetails",
-          "when": "view == npmGallery.installedView || view == npmGallery.updatesView"
+          "when": "(view == npmGallery.installedView && viewItem == installedPackage) || view == npmGallery.updatesView"
         }
       ]
     },

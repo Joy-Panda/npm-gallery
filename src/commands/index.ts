@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { getServices } from '../services';
 import type { PackageCodeLensProvider, InstalledPackagesProvider, UpdatesProvider } from '../providers';
+import { PackageDetailsPanel } from '../providers';
 
 /**
  * Register all commands
@@ -111,26 +112,99 @@ export function registerCommands(
 
   // Update all packages
   context.subscriptions.push(
-    vscode.commands.registerCommand('npmGallery.updateAllPackages', async (_section?: string) => {
-      const confirm = await vscode.window.showWarningMessage(
-        'Update all packages? This may include breaking changes.',
-        'Update',
-        'Cancel'
-      );
+    vscode.commands.registerCommand('npmGallery.updateAllPackages', async (section?: string) => {
+      const activeEditor = vscode.window.activeTextEditor;
+      if (!activeEditor || !activeEditor.document.fileName.endsWith('package.json')) {
+        vscode.window.showErrorMessage('Please open a package.json file');
+        return;
+      }
 
-      if (confirm !== 'Update') return;
+      const document = activeEditor.document;
+      const text = document.getText();
 
-      const terminal = vscode.window.createTerminal('NPM Gallery');
-      terminal.show();
+      try {
+        const packageJson = JSON.parse(text);
 
-      const packageManager = await services.install.detectPackageManager();
-      const commands: Record<string, string> = {
-        npm: 'npm update',
-        yarn: 'yarn upgrade',
-        pnpm: 'pnpm update',
-      };
+        // If section is specified, only update packages in that section
+        if (section && packageJson[section]) {
+          const confirm = await vscode.window.showWarningMessage(
+            `Update all packages in "${section}"? This may include breaking changes.`,
+            'Update',
+            'Cancel'
+          );
 
-      terminal.sendText(commands[packageManager]);
+          if (confirm !== 'Update') return;
+
+          // Get CodeLenses which already contain the list of packages that need updates
+          const codeLenses = await providers.codelens.provideCodeLenses(document, new vscode.CancellationTokenSource().token);
+          
+          // Filter CodeLenses for individual package updates in this section
+          // CodeLens command is 'npmGallery.updatePackage' with arguments [name, latestVersion]
+          const packagesToUpdate: Array<{ name: string; latestVersion: string }> = [];
+          
+          for (const codeLens of codeLenses) {
+            if (codeLens.command?.command === 'npmGallery.updatePackage' && codeLens.command.arguments) {
+              const [name, latestVersion] = codeLens.command.arguments as [string, string];
+              
+              // Verify this package is in the target section
+              if (packageJson[section] && packageJson[section][name]) {
+                packagesToUpdate.push({ name, latestVersion });
+              }
+            }
+          }
+
+          if (packagesToUpdate.length === 0) {
+            vscode.window.showInformationMessage('No packages to update in this section');
+            return;
+          }
+
+          // Update each package individually using install command with version
+          let updateCount = 0;
+          for (const { name, latestVersion } of packagesToUpdate) {
+            try {
+              await services.install.update(name, latestVersion);
+              updateCount++;
+            } catch {
+              // Continue with other packages if one fails
+            }
+          }
+
+          if (updateCount > 0) {
+            vscode.window.showInformationMessage(
+              `Updated ${updateCount} package(s) in ${section}`
+            );
+            providers.codelens.refresh();
+            providers.updates.refresh();
+          } else {
+            vscode.window.showWarningMessage('Failed to update packages');
+          }
+        } else {
+          // No section specified, update all packages (original behavior)
+          const confirm = await vscode.window.showWarningMessage(
+            'Update all packages? This may include breaking changes.',
+            'Update',
+            'Cancel'
+          );
+
+          if (confirm !== 'Update') return;
+
+          const terminal = vscode.window.createTerminal('NPM Gallery');
+          terminal.show();
+
+          const packageManager = await services.install.detectPackageManager();
+          const commands: Record<string, string> = {
+            npm: 'npm update',
+            yarn: 'yarn upgrade',
+            pnpm: 'pnpm update',
+          };
+
+          terminal.sendText(commands[packageManager]);
+        }
+      } catch (error) {
+        vscode.window.showErrorMessage(
+          `Failed to update packages: ${error instanceof Error ? error.message : 'Unknown error'}`
+        );
+      }
     })
   );
 
@@ -210,8 +284,8 @@ export function registerCommands(
 
       if (!packageName) return;
 
-      // Focus the webview and send message to show details
-      vscode.commands.executeCommand('npmGallery.searchView.focus');
+      // Open package details panel
+      await PackageDetailsPanel.createOrShow(context.extensionUri, packageName);
     })
   );
 

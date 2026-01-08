@@ -46,9 +46,41 @@ export class NpmRegistryClient extends BaseApiClient {
       quality?: number;
       popularity?: number;
       maintenance?: number;
+      sortBy?: 'relevance' | 'popularity' | 'quality' | 'maintenance';
     } = {}
   ): Promise<NpmSearchResponse> {
-    const { from = 0, size = 20, quality = 0.65, popularity = 0.98, maintenance = 0.5 } = options;
+    const { from = 0, size = 20, sortBy = 'relevance' } = options;
+
+    // Map sortBy to weight values for npm registry API
+    // npm registry uses weights (0-1) to control sorting
+    let quality = 0.65;
+    let popularity = 0.98;
+    let maintenance = 0.5;
+
+    switch (sortBy) {
+      case 'popularity':
+        quality = 0.1;
+        popularity = 1.0;
+        maintenance = 0.1;
+        break;
+      case 'quality':
+        quality = 1.0;
+        popularity = 0.5;
+        maintenance = 0.5;
+        break;
+      case 'maintenance':
+        quality = 0.5;
+        popularity = 0.5;
+        maintenance = 1.0;
+        break;
+      case 'relevance':
+      default:
+        // Default optimal weights
+        quality = 0.65;
+        popularity = 0.98;
+        maintenance = 0.5;
+        break;
+    }
 
     return this.get<NpmSearchResponse>('/-/v1/search', {
       params: {

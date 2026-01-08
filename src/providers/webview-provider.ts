@@ -47,6 +47,7 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
             query: message.query,
             from: message.from,
             size: message.size,
+            sortBy: message.sortBy,
           });
           this.postMessage({ type: 'searchResults', data: results });
         } catch (error) {

@@ -12,6 +12,8 @@ export class NpmsApiClient extends BaseApiClient {
 
   /**
    * Search packages with enhanced scoring
+   * Note: npms.io API doesn't support explicit sorting parameters
+   * Results are sorted by relevance/score by default
    */
   async search(
     query: string,

@@ -19,9 +19,26 @@ export class PackageService {
     const clients = getApiClients();
 
     try {
-      // Try npms.io first for enhanced data
+      // Try npm registry first
+      const pkg = await clients.npmRegistry.getPackage(name);
+      const latestVersion = pkg['dist-tags'].latest;
+      const versionData = pkg.versions[latestVersion];
+      const downloads = await clients.npmRegistry.getDownloads(name).catch(() => ({ downloads: 0 }));
+
+      return {
+        name: pkg.name,
+        version: latestVersion,
+        description: pkg.description,
+        keywords: pkg.keywords,
+        license: versionData?.license || pkg.license,
+        author: pkg.author,
+        repository: pkg.repository,
+        downloads: downloads.downloads,
+      };
+    } catch {
+      // Fallback to npms.io for enhanced data
       const analysis = await clients.npms.getPackageAnalysis(name);
-      const downloads = await clients.npmRegistry.getDownloads(name);
+      const downloads = await clients.npmRegistry.getDownloads(name).catch(() => ({ downloads: 0 }));
 
       return {
         name: analysis.collected.metadata.name,
@@ -32,21 +49,6 @@ export class PackageService {
         repository: analysis.collected.metadata.repository,
         downloads: downloads.downloads,
         score: analysis.score,
-      };
-    } catch {
-      // Fallback to npm registry
-      const pkg = await clients.npmRegistry.getPackage(name);
-      const latestVersion = pkg['dist-tags'].latest;
-      const versionData = pkg.versions[latestVersion];
-
-      return {
-        name: pkg.name,
-        version: latestVersion,
-        description: pkg.description,
-        keywords: pkg.keywords,
-        license: versionData?.license || pkg.license,
-        author: pkg.author,
-        repository: pkg.repository,
       };
     }
   }
@@ -61,9 +63,9 @@ export class PackageService {
     const latestData = pkg.versions[latestVersion];
 
     // Get additional data in parallel
-    const [downloads, analysis, bundleSize, security] = await Promise.all([
+    const [downloads, bundleSize, security] = await Promise.all([
       clients.npmRegistry.getDownloads(name).catch(() => ({ downloads: 0 })),
-      clients.npms.getPackageAnalysis(name).catch(() => null),
+      //clients.npms.getPackageAnalysis(name).catch(() => null),
       clients.bundlephobia.getSize(name, latestVersion).catch(() => null),
       clients.audit.checkPackage(name, latestVersion).catch(() => null),
     ]);
@@ -81,7 +83,7 @@ export class PackageService {
       repository: pkg.repository,
       homepage: pkg.homepage,
       downloads: downloads.downloads,
-      score: analysis?.score,
+      //score: pkg?.score,
       bundleSize: bundleSize || undefined,
       readme: pkg.readme,
       versions,

@@ -1,10 +1,10 @@
 import React from 'react';
 import { PackageCard } from './PackageCard';
-import { Search, Loader2, Package } from 'lucide-react';
+import { Search, Loader2, Package, SortAsc } from 'lucide-react';
 import { Badge } from './ui/badge';
 import { Card } from './ui/card';
 import { Separator } from './ui/separator';
-import type { PackageInfo } from '../../types/package';
+import type { PackageInfo, SearchSortBy } from '../../types/package';
 
 interface SearchResultsProps {
   packages: PackageInfo[];
@@ -12,6 +12,8 @@ interface SearchResultsProps {
   isLoading: boolean;
   onPackageSelect: (pkg: PackageInfo) => void;
   onInstall: (pkg: PackageInfo, type: 'dependencies' | 'devDependencies') => void;
+  sortBy?: SearchSortBy;
+  onSortChange?: (sortBy: SearchSortBy) => void;
 }
 
 export const SearchResults: React.FC<SearchResultsProps> = ({
@@ -20,6 +22,8 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
   isLoading,
   onPackageSelect,
   onInstall,
+  sortBy = 'relevance',
+  onSortChange,
 }) => {
   // Loading state
   if (isLoading && packages.length === 0) {
@@ -69,11 +73,29 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
           <Package size={14} />
           <span><strong>{total.toLocaleString()}</strong> packages found</span>
         </div>
-        {packages.length < total && (
-          <Badge variant="secondary">
-            Showing {packages.length}
-          </Badge>
-        )}
+        <div className="results-controls">
+          {onSortChange && (
+            <div className="sort-control">
+              <SortAsc size={14} />
+              <select
+                value={sortBy}
+                onChange={(e) => onSortChange(e.target.value as SearchSortBy)}
+                className="sort-select"
+              >
+                {(['relevance', 'popularity', 'quality', 'maintenance'] as SearchSortBy[]).map((option) => (
+                  <option key={option} value={option}>
+                    {option.charAt(0).toUpperCase() + option.slice(1)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {packages.length < total && (
+            <Badge variant="secondary">
+              Showing {packages.length}
+            </Badge>
+          )}
+        </div>
       </div>
 
       <Separator />
@@ -188,6 +210,53 @@ const styles = `
   .results-info strong {
     color: var(--vscode-foreground);
     font-weight: 600;
+  }
+
+  .results-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .sort-control {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
+  }
+
+  .sort-select {
+    background: var(--vscode-dropdown-background, var(--vscode-editor-background));
+    color: var(--vscode-foreground);
+    border: 1px solid var(--vscode-dropdown-border);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    cursor: pointer;
+    outline: none;
+    appearance: none;
+    -moz-appearance: none;
+    -webkit-appearance: none;
+  }
+
+  .sort-select:hover {
+    background: var(--vscode-list-hoverBackground);
+  }
+
+  .sort-select:focus {
+    border-color: var(--vscode-focusBorder);
+    background: var(--vscode-dropdown-background, var(--vscode-editor-background));
+  }
+
+  .sort-select option {
+    background: var(--vscode-dropdown-background, var(--vscode-editor-background));
+    color: var(--vscode-foreground);
+  }
+
+  .sort-select option:checked {
+    background: var(--vscode-list-activeSelectionBackground);
+    color: var(--vscode-list-activeSelectionForeground);
   }
 
   /* Results List */

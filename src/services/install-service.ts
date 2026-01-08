@@ -46,12 +46,39 @@ export class InstallService {
     version?: string
   ): Promise<{ success: boolean; message: string }> {
     const packageManager = await this.detectPackageManager();
-    const versionSpec = version ? `${packageName}@${version}` : packageName;
 
+    // If version is specified, use install command instead of update
+    // npm update doesn't accept version numbers, only package names
+    if (version) {
+      const versionSpec = `${packageName}@${version}`;
+      const commands: Record<PackageManager, string> = {
+        npm: `npm install ${versionSpec}`,
+        yarn: `yarn add ${versionSpec}`,
+        pnpm: `pnpm add ${versionSpec}`,
+      };
+
+      try {
+        const terminal = this.getOrCreateTerminal();
+        terminal.show();
+        terminal.sendText(commands[packageManager]);
+
+        return {
+          success: true,
+          message: `Updating ${packageName} to ${version}...`,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          message: error instanceof Error ? error.message : 'Update failed',
+        };
+      }
+    }
+
+    // No version specified, use update command
     const commands: Record<PackageManager, string> = {
-      npm: `npm update ${versionSpec}`,
-      yarn: `yarn upgrade ${versionSpec}`,
-      pnpm: `pnpm update ${versionSpec}`,
+      npm: `npm update ${packageName}`,
+      yarn: `yarn upgrade ${packageName}`,
+      pnpm: `pnpm update ${packageName}`,
     };
 
     try {

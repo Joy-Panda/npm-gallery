@@ -16,7 +16,7 @@ interface VSCodeContextValue {
   packageDetails: PackageDetails | null;
 
   // Actions
-  search: (query: string, from?: number, size?: number) => void;
+  search: (query: string, from?: number, size?: number, sortBy?: 'relevance' | 'popularity' | 'quality' | 'maintenance' | 'name') => void;
   getPackageDetails: (packageName: string) => void;
   installPackage: (packageName: string, options: { type: string; version?: string }) => void;
   openExternal: (url: string) => void;
@@ -81,9 +81,9 @@ export const VSCodeProvider: React.FC<VSCodeProviderProps> = ({ vscode, children
 
   // Actions
   const search = useCallback(
-    (query: string, from = 0, size = 20) => {
+    (query: string, from = 0, size = 20, sortBy?: 'relevance' | 'popularity' | 'quality' | 'maintenance' | 'name') => {
       setError(null);
-      postMessage({ type: 'search', query, from, size });
+      postMessage({ type: 'search', query, from, size, sortBy });
     },
     [postMessage]
   );
