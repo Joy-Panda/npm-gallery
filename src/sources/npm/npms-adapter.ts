@@ -12,9 +12,11 @@ import type {
   SearchResult,
   SearchOptions,
   SearchSortBy,
+  SearchFilter,
   BundleSize,
   SecurityInfo,
 } from '../../types/package';
+import { createSortOption, getSortValue, createFilterOption } from '../../types/package';
 import type { SourceType, ProjectType } from '../../types/project';
 
 /**
@@ -27,13 +29,18 @@ export class NpmsSourceAdapter extends NpmBaseAdapter {
   readonly displayName = 'npms.io';
   readonly projectType: ProjectType = 'npm';
   readonly supportedSortOptions: SearchSortBy[] = [
-    'relevance',
-    'popularity',
-    'quality',
-    'maintenance',
-    'name',
+    createSortOption('relevance', 'Relevance'),
+    createSortOption('popularity', 'Popularity'),
+    createSortOption('quality', 'Quality'),
+    createSortOption('maintenance', 'Maintenance'),
+    createSortOption('name', 'Name'),
   ];
-  readonly supportedFilters = ['author', 'maintainer', 'scope', 'keywords'];
+  readonly supportedFilters: SearchFilter[] = [
+    createFilterOption('author', 'Author', 'author username'),
+    createFilterOption('maintainer', 'Maintainer', 'maintainer username'),
+    createFilterOption('scope', 'Scope', 'scope (e.g., @foo/bar)'),
+    createFilterOption('keywords', 'Keywords', 'keywords: Use + for AND, , for OR, - to exclude'),
+  ];
 
   private transformer: NpmsTransformer;
 
@@ -96,8 +103,9 @@ export class NpmsSourceAdapter extends NpmBaseAdapter {
       // Continue without download data
     }
 
-    // Apply sorting
-    if (sortBy !== 'relevance') {
+    // Apply sorting (npms.io API doesn't support server-side sorting, so we do it client-side)
+    const sortValue = getSortValue(sortBy);
+    if (sortValue !== 'relevance') {
       result.packages = this.sortPackages(result.packages, sortBy);
     }
 
@@ -261,8 +269,9 @@ export class NpmsSourceAdapter extends NpmBaseAdapter {
    * Sort packages by criteria
    */
   private sortPackages(packages: PackageInfo[], sortBy: SearchSortBy): PackageInfo[] {
+    const sortValue = getSortValue(sortBy);
     return [...packages].sort((a, b) => {
-      switch (sortBy) {
+      switch (sortValue) {
         case 'name':
           return a.name.localeCompare(b.name);
         case 'popularity':

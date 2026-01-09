@@ -38,6 +38,7 @@ export const API_ENDPOINTS = {
   BUNDLEPHOBIA: 'https://bundlephobia.com/api',
   GITHUB_API: 'https://api.github.com',
   OSV_API: 'https://api.osv.dev',
+  LIBRARIES_IO: 'https://libraries.io/api',
 } as const;
 
 /**

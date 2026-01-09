@@ -1,6 +1,7 @@
 import React from 'react';
 import { ShieldCheck, ShieldAlert } from 'lucide-react';
 import type { PackageDetails } from '../../types/package';
+import type { SourceInfo } from '../context/VSCodeContext';
 
 interface PackageSidebarProps {
   details: PackageDetails;
@@ -8,6 +9,7 @@ interface PackageSidebarProps {
   formatBytes: (bytes: number) => string;
   formatRelativeTime: (dateString?: string) => string;
   formatFullDate: (dateString?: string) => string;
+  sourceInfo: SourceInfo;
 }
 
 const sidebarStyles = `
@@ -125,6 +127,7 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
   formatBytes,
   formatRelativeTime,
   formatFullDate,
+  sourceInfo,
 }) => {
   const isSecure = !details.security || details.security.summary.total === 0;
   const repoUrl = details.repository
@@ -132,6 +135,33 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
       ? details.repository
       : details.repository.url?.replace(/^git\+/, '').replace(/\.git$/, '') || ''
     : '';
+
+  // Determine registry link and label based on project type (package manager platform)
+  const projectType = sourceInfo?.currentProjectType || 'unknown';
+  
+  let registryLink: string;
+  let registryLabel: string;
+  
+  switch (projectType) {
+    case 'maven':
+      // Build Sonatype Central URL from package name (groupId:artifactId format)
+      // Replace colon with slash for URL path
+      const urlPath = details.name.replace(':', '/');
+      registryLink = `https://central.sonatype.com/artifact/${urlPath}`;
+      registryLabel = 'Sonatype';
+      break;
+    case 'go':
+      registryLink = `https://pkg.go.dev/${details.name}`;
+      registryLabel = 'pkg.go.dev';
+      break;
+    case 'npm':
+    case 'unknown':
+    default:
+      // Default to npm registry for npm projects
+      registryLink = `https://www.npmjs.com/package/${details.name}`;
+      registryLabel = 'npm';
+      break;
+  }
 
   return (
     <>
@@ -156,7 +186,7 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
       <div className="sidebar-section">
         <span className="section-label">Resources</span>
         <div className="links-inline">
-          <a onClick={() => onOpenExternal(`https://www.npmjs.com/package/${details.name}`)}>npm</a>
+          <a onClick={() => onOpenExternal(registryLink)}>{registryLabel}</a>
           {details.homepage && <a onClick={() => onOpenExternal(details.homepage!)}>Homepage</a>}
           {repoUrl && <a onClick={() => onOpenExternal(repoUrl)}>Repository</a>}
           {details.bugs?.url && <a onClick={() => onOpenExternal(details.bugs!.url!)}>Issues</a>}

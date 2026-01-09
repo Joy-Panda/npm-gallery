@@ -109,6 +109,22 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
         break;
       }
 
+      case 'copySnippet': {
+        try {
+          const result = await services.install.copySnippet(message.packageName, message.options);
+          if (result.success) {
+            vscode.window.showInformationMessage(result.message);
+          } else {
+            vscode.window.showErrorMessage(result.message);
+          }
+        } catch (error) {
+          vscode.window.showErrorMessage(
+            `Failed to copy snippet: ${error instanceof Error ? error.message : String(error)}`
+          );
+        }
+        break;
+      }
+
       case 'refresh': {
         // Trigger a refresh
         break;
@@ -153,14 +169,28 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
       }
     }
     
+    const sortOptionsWithLabels = services.search.getSupportedSortOptionsWithLabels();
+    const filterOptionsWithLabels = services.search.getSupportedFiltersWithLabels();
     const sourceInfo: SourceInfoMessage = {
       type: 'sourceInfo',
       data: {
         currentProjectType: services.getCurrentProjectType(),
         currentSource: services.getCurrentSourceType(),
         availableSources: services.getAvailableSources(),
-        supportedSortOptions: services.getSupportedSortOptions(),
-        supportedFilters: services.getSupportedFilters(),
+        supportedSortOptions: services.getSupportedSortOptions(), // For backward compatibility
+        supportedSortOptionsWithLabels: sortOptionsWithLabels.map(opt => {
+          if (typeof opt === 'string') {
+            return { value: opt, label: opt.charAt(0).toUpperCase() + opt.slice(1) };
+          }
+          return { value: opt.value, label: opt.label };
+        }),
+        supportedFilters: services.getSupportedFilters(), // For backward compatibility
+        supportedFiltersWithLabels: filterOptionsWithLabels.map(filter => {
+          if (typeof filter === 'string') {
+            return { value: filter, label: filter.charAt(0).toUpperCase() + filter.slice(1) };
+          }
+          return { value: filter.value, label: filter.label, placeholder: filter.placeholder };
+        }),
         supportedCapabilities: supportedCapabilities.map(c => c.toString()),
         capabilitySupport,
       },

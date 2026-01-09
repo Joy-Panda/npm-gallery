@@ -188,15 +188,27 @@ export class PackageService {
     version?: string
   ): Promise<Record<string, string> | null> {
     try {
-      const details = await this.getPackageDetails(name);
+      if (!this.sourceSelector) {
+        throw new Error('PackageService not initialized: SourceSelector is required');
+      }
+
+      // Get package details for the specific version
+      const adapter = this.sourceSelector.selectSource();
       
-      // If version is specified, try to get that version's dependencies
-      if (version && details.versions) {
-        const versionInfo = details.versions.find(v => v.version === version);
-        if (versionInfo) {
-          // For now, return latest version's dependencies
-          // In the future, we might need to fetch specific version details
+      // For sonatype and libraries-io adapters, getPackageDetails supports optional version parameter
+      // For other adapters, we'll get latest version details
+      let details: PackageDetails;
+      if (version && (adapter.sourceType === 'sonatype' || adapter.sourceType === 'libraries-io')) {
+        // Sonatype and Libraries.io adapters support version parameter
+        const adapterWithVersion = adapter as any;
+        try {
+          details = await adapterWithVersion.getPackageDetails(name, version);
+        } catch {
+          // Fallback to getting latest version details
+          details = await adapter.getPackageDetails(name);
         }
+      } else {
+        details = await adapter.getPackageDetails(name);
       }
       
       // Merge all dependency types for dependency tree support

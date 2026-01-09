@@ -1,12 +1,25 @@
 import React from 'react';
 import { Input } from './ui/input';
-import type { SearchOptions } from '../../types/package';
+import type { SearchOptions, SearchFilter } from '../../types/package';
+import { getFilterValue, getFilterLabel, getFilterPlaceholder } from '../../types/package';
 
+// FilterState should match the one in App.tsx
 interface FilterState {
+  // Common filters (for npm sources)
   author: string;
   maintainer: string;
   scope: string;
   keywords: string;
+  // Maven-specific filters (for Sonatype source)
+  groupId: string;
+  artifactId: string;
+  version: string;
+  tags: string;
+  // Libraries.io specific filters
+  languages: string;
+  licenses: string;
+  platforms: string;
+  // Package status filters
   excludeUnstable: boolean;
   excludeInsecure: boolean;
   includeUnstable: boolean;
@@ -19,67 +32,134 @@ interface AdvancedSearchProps {
   currentOptions?: SearchOptions;
   filters: FilterState; // Controlled from parent
   onFilterChange: (filters: FilterState) => void; // Callback to parent
+  supportedFilters?: SearchFilter[]; // Supported filters from source
+  currentSource?: string; // Current source type to determine if Package Status should be shown
+  onReset?: () => void; // Callback to reset filters
+  onApplyFilters?: () => void; // Callback to apply filters and close panel
+  onClose?: () => void; // Callback to close the panel
 }
 
 export const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
   isOpen,
   filters,
   onFilterChange,
+  supportedFilters = [],
+  currentSource,
+  onReset,
+  onApplyFilters,
+  onClose,
 }) => {
   if (!isOpen) return null;
+
+  // Check if current source is npm (npm-registry or npms-io)
+  const isNpmSource = currentSource === 'npm-registry';
 
   // Helper function: update a single field in filters
   const updateField = (field: keyof FilterState, value: any) => {
     onFilterChange({ ...filters, [field]: value });
   };
 
+  // Get filter field value from FilterState
+  const getFilterFieldValue = (filterValue: string): string => {
+    // Direct mapping: filter value matches FilterState field name
+    const field = filterValue as keyof FilterState;
+    if (field && field in filters) {
+      const value = filters[field];
+      // Only return string values, convert boolean to empty string
+      return typeof value === 'string' ? value : '';
+    }
+    return '';
+  };
+
+  // Set filter field value in FilterState
+  const setFilterFieldValue = (filterValue: string, value: string) => {
+    // Direct mapping: filter value matches FilterState field name
+    const field = filterValue as keyof FilterState;
+    if (field && field in filters) {
+      updateField(field, value);
+    }
+  };
+
   return (
     <div className="advanced-search-panel">
       <div className="advanced-search-content">
-        {/* Special Qualifiers */}
-        <div className="search-section">
-          <h4>Filters</h4>
-          
-          <div className="search-field">
-            <Input
-              placeholder="author username"
-              value={filters.author}
-              onChange={(e) => updateField('author', e.target.value)}
-              className="advanced-input"
-            />
-          </div>
+        {/* Dynamic Filters based on source */}
+        {supportedFilters.length > 0 && (
+          <div className="search-section">
+            <h4>Filters</h4>
+            
+            {supportedFilters.map((filter) => {
+              const filterValue = getFilterValue(filter);
+              const label = getFilterLabel(filter);
+              const placeholder = getFilterPlaceholder(filter);
+              const fieldValue = getFilterFieldValue(filterValue);
 
-          <div className="search-field">
-            <Input
-              placeholder="maintainer username"
-              value={filters.maintainer}
-              onChange={(e) => updateField('maintainer', e.target.value)}
-              className="advanced-input"
-            />
+              return (
+                <div key={filterValue} className="search-field">
+                  <label className="field-label">{label}</label>
+                  <Input
+                    placeholder={placeholder}
+                    value={fieldValue}
+                    onChange={(e) => setFilterFieldValue(filterValue, e.target.value)}
+                    className="advanced-input"
+                  />
+                </div>
+              );
+            })}
           </div>
+        )}
 
-          <div className="search-field">
-            <Input
-              placeholder="scope (e.g., @foo/bar)"
-              value={filters.scope}
-              onChange={(e) => updateField('scope', e.target.value)}
-              className="advanced-input"
-            />
+        {/* Fallback: Show default filters if no supportedFilters provided */}
+        {supportedFilters.length === 0 && (
+          <div className="search-section">
+            <h4>Filters</h4>
+            
+            <div className="search-field">
+              <label className="field-label">Author</label>
+              <Input
+                placeholder="author username"
+                value={filters.author}
+                onChange={(e) => updateField('author', e.target.value)}
+                className="advanced-input"
+              />
+            </div>
+
+            <div className="search-field">
+              <label className="field-label">Maintainer</label>
+              <Input
+                placeholder="maintainer username"
+                value={filters.maintainer}
+                onChange={(e) => updateField('maintainer', e.target.value)}
+                className="advanced-input"
+              />
+            </div>
+
+            <div className="search-field">
+              <label className="field-label">Scope</label>
+              <Input
+                placeholder="scope (e.g., @foo/bar)"
+                value={filters.scope}
+                onChange={(e) => updateField('scope', e.target.value)}
+                className="advanced-input"
+              />
+            </div>
+
+            <div className="search-field">
+              <label className="field-label">Keywords</label>
+              <Input
+                placeholder="keywords: Use + for AND, , for OR, - to exclude"
+                value={filters.keywords}
+                onChange={(e) => updateField('keywords', e.target.value)}
+                className="advanced-input"
+              />
+            </div>
           </div>
+        )}
 
-          <div className="search-field">
-            <Input
-              placeholder="keywords: Use + for AND, , for OR, - to exclude (e.g., react,redux | comment+json | -eslint)"
-              value={filters.keywords}
-              onChange={(e) => updateField('keywords', e.target.value)}
-              className="advanced-input"
-            />
-          </div>
-        </div>
-
-        {/* Package Status */}
-        <div className="search-section">
-          <h4>Package Status</h4>
+        {/* Package Status - Only show for npm sources */}
+        {isNpmSource && (
+          <div className="search-section">
+            <h4>Package Status</h4>
           
           <div className="checkbox-group">
             <label className="checkbox-label">
@@ -142,6 +222,36 @@ export const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
               <span>Show only insecure packages</span>
             </label>
           </div>
+          </div>
+        )}
+
+        {/* Action Buttons */}
+        <div className="search-actions">
+          <button
+            type="button"
+            className="action-button reset-button"
+            onClick={() => {
+              if (onReset) {
+                onReset();
+              }
+            }}
+          >
+            Reset
+          </button>
+          <button
+            type="button"
+            className="action-button apply-button"
+            onClick={() => {
+              if (onApplyFilters) {
+                onApplyFilters();
+              }
+              if (onClose) {
+                onClose();
+              }
+            }}
+          >
+            Apply
+          </button>
         </div>
       </div>
 
@@ -183,10 +293,12 @@ export const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
           gap: 6px;
         }
 
-        .search-field label {
+        .search-field label,
+        .field-label {
           font-size: 12px;
           color: var(--vscode-descriptionForeground);
           font-weight: 500;
+          margin-bottom: 4px;
         }
 
         .field-header {
@@ -248,6 +360,42 @@ export const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
         .checkbox-label input[type="checkbox"],
         .radio-label input[type="radio"] {
           cursor: pointer;
+        }
+
+        .search-actions {
+          display: flex;
+          gap: 8px;
+          justify-content: flex-end;
+          padding-top: 8px;
+          border-top: 1px solid var(--vscode-widget-border);
+        }
+
+        .action-button {
+          padding: 8px 16px;
+          border-radius: 6px;
+          font-size: 12px;
+          font-weight: 500;
+          cursor: pointer;
+          border: 1px solid var(--vscode-button-border, transparent);
+          transition: all 0.15s ease;
+        }
+
+        .reset-button {
+          background: var(--vscode-button-secondaryBackground);
+          color: var(--vscode-button-secondaryForeground);
+        }
+
+        .reset-button:hover {
+          background: var(--vscode-button-secondaryHoverBackground);
+        }
+
+        .apply-button {
+          background: var(--vscode-button-background);
+          color: var(--vscode-button-foreground);
+        }
+
+        .apply-button:hover {
+          background: var(--vscode-button-hoverBackground);
         }
 
         @keyframes slideDown {

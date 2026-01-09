@@ -1,6 +1,11 @@
 import { NpmBaseAdapter } from './npm-base-adapter';
 import { SourceCapability, CapabilityNotSupportedError } from '../base/capabilities';
 import { NpmTransformer } from './npm-transformer';
+import { LibrariesIoClient } from '../../api/libraries-io';
+import type { 
+  LibrariesIoProject, 
+  LibrariesIoVersion
+} from '../../api/libraries-io';
 import type { NpmRegistryClient } from '../../api/npm-registry';
 import type { BundlephobiaClient } from '../../api/bundlephobia';
 import type { OSVClient } from '../../api/osv';
@@ -11,9 +16,11 @@ import type {
   SearchResult,
   SearchOptions,
   SearchSortBy,
+  SearchFilter,
   BundleSize,
   SecurityInfo,
 } from '../../types/package';
+import { createSortOption, getSortValue, createFilterOption } from '../../types/package';
 import type { SourceType, ProjectType } from '../../types/project';
 
 /**
@@ -25,20 +32,26 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
   readonly displayName = 'npm Registry';
   readonly projectType: ProjectType = 'npm';
   readonly supportedSortOptions: SearchSortBy[] = [
-    'relevance',
-    'popularity',
-    'quality',
-    'maintenance',
-    'name',
+    createSortOption('relevance', 'Relevance'),
+    createSortOption('popularity', 'Popularity'),
+    createSortOption('quality', 'Quality'),
+    createSortOption('maintenance', 'Maintenance'),
+    createSortOption('name', 'Name'),
   ];
-  readonly supportedFilters = ['author', 'maintainer', 'scope', 'keywords'];
+  readonly supportedFilters: SearchFilter[] = [
+    createFilterOption('author', 'Author', 'author username'),
+    createFilterOption('maintainer', 'Maintainer', 'maintainer username'),
+    createFilterOption('scope', 'Scope', 'scope (e.g., @foo/bar)'),
+    createFilterOption('keywords', 'Keywords', 'keywords: Use + for AND, , for OR, - to exclude'),
+  ];
 
   private transformer: NpmTransformer;
 
   constructor(
     private client: NpmRegistryClient,
     private bundlephobiaClient?: BundlephobiaClient,
-    private osvClient?: OSVClient
+    private osvClient?: OSVClient,
+    private librariesIoClient?: LibrariesIoClient
   ) {
     super();
     this.transformer = new NpmTransformer();
@@ -74,23 +87,77 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
       return { packages: [], total: 0, hasMore: false };
     }
 
+    const sortValue = getSortValue(sortBy);
     // Map sortBy to npm registry format
-    const apiSortBy = sortBy === 'name' ? 'relevance' : sortBy;
+    const apiSortBy = sortValue === 'name' ? 'relevance' : sortValue;
 
-    const response = await this.client.search(query, {
-      from,
-      size,
-      sortBy: apiSortBy as 'relevance' | 'popularity' | 'quality' | 'maintenance',
-    });
+    try {
+      const response = await this.client.search(query, {
+        from,
+        size,
+        sortBy: apiSortBy as 'relevance' | 'popularity' | 'quality' | 'maintenance',
+      });
 
-    const result = this.transformer.transformSearchResult(response, from, size);
+      const result = this.transformer.transformSearchResult(response, from, size);
 
-    // Client-side name sorting if needed
-    if (sortBy === 'name') {
-      result.packages = this.sortPackagesByName(result.packages);
+      // Client-side name sorting if needed
+      if (sortValue === 'name') {
+        result.packages = this.sortPackagesByName(result.packages);
+      }
+
+      return result;
+    } catch (error) {
+      // Fallback to Libraries.io if primary search fails
+      if (this.librariesIoClient) {
+        try {
+          const page = Math.floor(from / size) + 1;
+          const platform = LibrariesIoClient.getPlatformForProjectType(this.projectType);
+          const librariesIoResponse = await this.librariesIoClient.search(query, platform, {
+            page,
+            per_page: size,
+          });
+          
+          // Handle both array and object response formats
+          const projectsArray = Array.isArray(librariesIoResponse) 
+            ? librariesIoResponse 
+            : librariesIoResponse.projects || [];
+          
+          const total = Array.isArray(librariesIoResponse)
+            ? librariesIoResponse.length
+            : librariesIoResponse.total || projectsArray.length;
+          
+          // Transform Libraries.io response to SearchResult format
+          const packages: PackageInfo[] = projectsArray.map((project) => ({
+            name: project.name,
+            version: project.latest_release_number || project.latest_stable_release_number || '0.0.0',
+            description: project.description,
+            keywords: project.keywords || [],
+            license: project.licenses || project.normalized_licenses?.[0],
+            repository: project.repository_url ? { url: project.repository_url } : undefined,
+            homepage: project.homepage,
+            downloads: project.dependents_count,
+            deprecated: project.deprecation_reason || undefined,
+          }));
+
+          // Client-side name sorting if needed
+          const sortValue = getSortValue(sortBy);
+          const sortedPackages = sortValue === 'name' 
+            ? this.sortPackagesByName(packages)
+            : packages;
+
+          return {
+            packages: sortedPackages,
+            total,
+            hasMore: from + size < total,
+          };
+        } catch (fallbackError) {
+          // If both fail, throw the original error
+          throw error;
+        }
+      } else {
+        throw error;
+      }
     }
-
-    return result;
   }
 
   /**
@@ -124,51 +191,148 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
    * Only fetches data for supported capabilities
    */
   async getPackageDetails(name: string): Promise<PackageDetails> {
-    const pkg = await this.client.getPackage(name);
-    const details = this.transformer.transformPackageDetails(pkg);
-    const latestVersion = pkg['dist-tags']?.latest;
+    try {
+      const pkg = await this.client.getPackage(name);
+      const details = this.transformer.transformPackageDetails(pkg);
+      const latestVersion = pkg['dist-tags']?.latest;
 
-    // Only fetch data for supported capabilities
-    const promises: Promise<unknown>[] = [];
+      // Only fetch data for supported capabilities
+      const promises: Promise<unknown>[] = [];
 
-    // Download stats (if supported)
-    if (this.supportsCapability(SourceCapability.DOWNLOAD_STATS)) {
-      promises.push(
-        this.client.getDownloads(name).catch(() => ({ downloads: 0 }))
-      );
+      // Download stats (if supported)
+      if (this.supportsCapability(SourceCapability.DOWNLOAD_STATS)) {
+        promises.push(
+          this.client.getDownloads(name).catch(() => ({ downloads: 0 }))
+        );
+      }
+
+      // Bundle size (if supported)
+      if (this.supportsCapability(SourceCapability.BUNDLE_SIZE) && this.bundlephobiaClient) {
+        promises.push(
+          this.bundlephobiaClient.getSize(name, latestVersion).catch(() => null)
+        );
+      }
+
+      // Security info (if supported)
+      if (this.supportsCapability(SourceCapability.SECURITY) && latestVersion && this.osvClient) {
+        promises.push(
+          this.osvClient.queryVulnerabilities(name, latestVersion).catch(() => null)
+        );
+      }
+
+      const results = await Promise.all(promises);
+      let resultIndex = 0;
+
+      // Fill in supported data
+      if (this.supportsCapability(SourceCapability.DOWNLOAD_STATS)) {
+        details.downloads = (results[resultIndex++] as { downloads: number }).downloads;
+      }
+
+      if (this.supportsCapability(SourceCapability.BUNDLE_SIZE)) {
+        details.bundleSize = results[resultIndex++] as BundleSize | null || undefined;
+      }
+
+      if (this.supportsCapability(SourceCapability.SECURITY)) {
+        details.security = results[resultIndex++] as SecurityInfo | null || undefined;
+      }
+
+      return details;
+    } catch (error) {
+      // Fallback to Libraries.io if primary API fails
+      if (this.librariesIoClient) {
+        try {
+          const platform = LibrariesIoClient.getPlatformForProjectType(this.projectType);
+          const librariesIoResponse = await this.librariesIoClient.getProject(platform, name);
+          let dependencies;
+          try {
+            dependencies = await this.librariesIoClient.getDependencies(platform, name);
+          } catch {
+            // Continue without dependencies if fetch fails
+          }
+
+          // Handle different response formats from Libraries.io
+          let project: LibrariesIoProject;
+          let versionsArray: LibrariesIoVersion[] = [];
+          
+          if (Array.isArray(librariesIoResponse)) {
+            // Array format: [project with versions]
+            if (librariesIoResponse.length === 0) {
+              throw new Error(`Package ${name} not found`);
+            }
+            const projectData = librariesIoResponse[0] as LibrariesIoProject & { versions?: LibrariesIoVersion[] };
+            project = projectData;
+            versionsArray = projectData.versions || [];
+          } else if ('name' in librariesIoResponse && 'platform' in librariesIoResponse) {
+            // Direct project object
+            project = librariesIoResponse as LibrariesIoProject;
+            versionsArray = (librariesIoResponse as LibrariesIoProject & { versions?: LibrariesIoVersion[] }).versions || [];
+          } else if ('project' in librariesIoResponse && librariesIoResponse.project) {
+            // Wrapped in project field
+            project = librariesIoResponse.project;
+            versionsArray = librariesIoResponse.versions || [];
+          } else {
+            throw new Error(`Invalid project response for ${name}`);
+          }
+
+          // Transform Libraries.io response to PackageDetails format
+          const versions: VersionInfo[] = versionsArray.map((v) => ({
+            version: v.number,
+            publishedAt: v.published_at,
+            tag: v.number === project.latest_stable_release_number ? 'latest' : undefined,
+          }));
+
+          const deps: Record<string, string> = {};
+          if (dependencies?.dependencies) {
+            for (const dep of dependencies.dependencies) {
+              if (dep.requirements) {
+                deps[dep.name] = dep.requirements;
+              } else if (dep.latest) {
+                deps[dep.name] = dep.latest;
+              }
+            }
+          }
+
+          const time: Record<string, string> = {};
+          for (const v of versionsArray) {
+            if (v.published_at) {
+              time[v.number] = v.published_at;
+            }
+          }
+
+          // Try to get security info
+          let security: SecurityInfo | undefined;
+          if (this.supportsCapability(SourceCapability.SECURITY) && this.osvClient) {
+            try {
+              const packageVersion = dependencies?.version || project.latest_release_number || project.latest_stable_release_number || '0.0.0';
+              security = await this.osvClient.queryVulnerabilities(name, packageVersion);
+            } catch {
+              // Continue without security info
+            }
+          }
+
+          return {
+            name: project.name,
+            version: dependencies?.version || project.latest_release_number || project.latest_stable_release_number || '0.0.0',
+            description: project.description,
+            keywords: project.keywords || [],
+            license: project.licenses || project.normalized_licenses?.[0],
+            repository: project.repository_url ? { url: project.repository_url } : undefined,
+            homepage: project.homepage,
+            downloads: project.dependents_count,
+            deprecated: project.deprecation_reason || undefined,
+            versions,
+            dependencies: Object.keys(deps).length > 0 ? deps : undefined,
+            time: Object.keys(time).length > 0 ? time : undefined,
+            security: security || undefined,
+          };
+        } catch (fallbackError) {
+          // If both fail, throw the original error
+          throw error;
+        }
+      } else {
+        throw error;
+      }
     }
-
-    // Bundle size (if supported)
-    if (this.supportsCapability(SourceCapability.BUNDLE_SIZE) && this.bundlephobiaClient) {
-      promises.push(
-        this.bundlephobiaClient.getSize(name, latestVersion).catch(() => null)
-      );
-    }
-
-    // Security info (if supported)
-    if (this.supportsCapability(SourceCapability.SECURITY) && latestVersion && this.osvClient) {
-      promises.push(
-        this.osvClient.queryVulnerabilities(name, latestVersion).catch(() => null)
-      );
-    }
-
-    const results = await Promise.all(promises);
-    let resultIndex = 0;
-
-    // Fill in supported data
-    if (this.supportsCapability(SourceCapability.DOWNLOAD_STATS)) {
-      details.downloads = (results[resultIndex++] as { downloads: number }).downloads;
-    }
-
-    if (this.supportsCapability(SourceCapability.BUNDLE_SIZE)) {
-      details.bundleSize = results[resultIndex++] as BundleSize | null || undefined;
-    }
-
-    if (this.supportsCapability(SourceCapability.SECURITY)) {
-      details.security = results[resultIndex++] as SecurityInfo | null || undefined;
-    }
-
-    return details;
   }
 
   /**

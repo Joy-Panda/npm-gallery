@@ -6,6 +6,7 @@ import {
   Scale,
   AlertTriangle,
   Plus,
+  Copy,
 } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -17,19 +18,29 @@ import {
   TooltipTrigger,
 } from "./ui/tooltip";
 import type { PackageInfo } from "../../types/package";
+import type { ProjectType } from "../../types/project";
 
 interface PackageCardProps {
   package: PackageInfo;
   onClick: () => void;
   onInstall: (type: "dependencies" | "devDependencies") => void;
+  currentProjectType?: ProjectType;
+  onCopy?: (packageName: string, version: string) => void;
 }
 
 export const PackageCard: React.FC<PackageCardProps> = ({
   package: pkg,
   onClick,
   onInstall,
+  currentProjectType,
+  onCopy,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
+  
+  // Check if current project type requires copy
+  // All Java/Scala build tools (maven, gradle, sbt, mill, ivy, grape, leiningen, buildr) require copy
+  // ProjectType 'maven' represents all Java/Scala projects regardless of the specific build tool
+  const requiresCopy = currentProjectType === 'maven';
 
   const formatDownloads = (count?: number) => {
     if (!count) return null;
@@ -48,6 +59,13 @@ export const PackageCard: React.FC<PackageCardProps> = ({
   const handleInstallClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     onInstall("dependencies");
+  };
+
+  const handleCopyClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onCopy) {
+      onCopy(pkg.name, pkg.version);
+    }
   };
 
   const authorName = pkg.author
@@ -219,10 +237,23 @@ export const PackageCard: React.FC<PackageCardProps> = ({
             )}
           </div>
 
-          {/* Install Button */}
-          <Button size="icon" style={buttonStyles} onClick={handleInstallClick}>
-            <Plus style={{ width: "16px", height: "16px" }} />
-          </Button>
+          {/* Install/Copy Button */}
+          {requiresCopy ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button size="icon" style={buttonStyles} onClick={handleCopyClick}>
+                  <Copy style={{ width: "16px", height: "16px" }} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                Copy dependency snippet
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <Button size="icon" style={buttonStyles} onClick={handleInstallClick}>
+              <Plus style={{ width: "16px", height: "16px" }} />
+            </Button>
+          )}
         </div>
       </Card>
     </TooltipProvider>

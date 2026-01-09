@@ -1,13 +1,15 @@
 import React from 'react';
-import { Download, Package, Star, Scale, User, Plus, Loader2 } from 'lucide-react';
+import { Download, Package, Star, Scale, User, Plus, Loader2, Copy } from 'lucide-react';
 import type { PackageDetails } from '../../types/package';
 
 interface PackageHeaderProps {
   details: PackageDetails;
   installing: boolean;
-  onInstall: (type: 'dependencies' | 'devDependencies') => void;
+  onInstall: (type: 'dependencies' | 'devDependencies', version?: string) => void;
   formatDownloads: (count: number) => string;
   formatBytes: (bytes: number) => string;
+  requiresCopy?: boolean;
+  onCopy?: (type: 'dependencies' | 'devDependencies', version?: string) => void;
 }
 
 const headerStyles = `
@@ -131,6 +133,8 @@ export const PackageHeader: React.FC<PackageHeaderProps> = ({
   onInstall,
   formatDownloads,
   formatBytes,
+  requiresCopy = false,
+  onCopy,
 }) => {
   const authorName = details.author
     ? typeof details.author === 'string'
@@ -185,13 +189,27 @@ export const PackageHeader: React.FC<PackageHeaderProps> = ({
 
       {/* Actions */}
       <div className="actions">
-        <button className="btn primary" onClick={() => onInstall('dependencies')} disabled={installing}>
-          {installing ? <Loader2 size={14} className="spinner" /> : <Plus size={14} />}
-          {installing ? 'Installing...' : 'Install'}
-        </button>
-        <button className="btn secondary" onClick={() => onInstall('devDependencies')} disabled={installing}>
-          Install as Dev
-        </button>
+        {requiresCopy && onCopy ? (
+          <>
+            <button className="btn primary" onClick={() => onCopy('dependencies')}>
+              {installing ? <Loader2 size={14} className="spinner" /> : <Copy size={14} />}
+              Copy
+            </button>
+            <button className="btn secondary" onClick={() => onCopy('devDependencies')}>
+              Copy as Dev
+            </button>
+          </>
+        ) : (
+          <>
+            <button className="btn primary" onClick={() => onInstall('dependencies')} disabled={installing}>
+              {installing ? <Loader2 size={14} className="spinner" /> : <Plus size={14} />}
+              {installing ? 'Installing...' : 'Install'}
+            </button>
+            <button className="btn secondary" onClick={() => onInstall('devDependencies')} disabled={installing}>
+              Install as Dev
+            </button>
+          </>
+        )}
       </div>
     </header>
     </>

@@ -5,6 +5,8 @@ import { Badge } from './ui/badge';
 import { Card } from './ui/card';
 import { Separator } from './ui/separator';
 import type { PackageInfo, SearchSortBy } from '../../types/package';
+import type { ProjectType } from '../../types/project';
+import { getSortValue, getSortLabel } from '../../types/package';
 
 interface SearchResultsProps {
   packages: PackageInfo[];
@@ -14,6 +16,9 @@ interface SearchResultsProps {
   onInstall: (pkg: PackageInfo, type: 'dependencies' | 'devDependencies') => void;
   sortBy?: SearchSortBy;
   onSortChange?: (sortBy: SearchSortBy) => void;
+  supportedSortOptions?: SearchSortBy[];
+  currentProjectType?: ProjectType;
+  onCopy?: (packageName: string, version: string) => void;
 }
 
 export const SearchResults: React.FC<SearchResultsProps> = ({
@@ -24,6 +29,14 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
   onInstall,
   sortBy = 'relevance',
   onSortChange,
+  supportedSortOptions = [
+    'relevance',
+    'popularity',
+    'quality',
+    'maintenance',
+  ] as SearchSortBy[],
+  currentProjectType,
+  onCopy,
 }) => {
   // Loading state
   if (isLoading && packages.length === 0) {
@@ -74,19 +87,32 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
           <span><strong>{total.toLocaleString()}</strong> packages found</span>
         </div>
         <div className="results-controls">
-          {onSortChange && (
+          {onSortChange && supportedSortOptions && supportedSortOptions.length > 0 && (
             <div className="sort-control">
               <SortAsc size={14} />
               <select
-                value={sortBy}
-                onChange={(e) => onSortChange(e.target.value as SearchSortBy)}
+                value={getSortValue(sortBy)}
+                onChange={(e) => {
+                  const selectedValue = e.target.value;
+                  // Find the matching option from supportedSortOptions
+                  const selectedOption = supportedSortOptions.find(
+                    (opt) => getSortValue(opt) === selectedValue
+                  );
+                  if (selectedOption && onSortChange) {
+                    onSortChange(selectedOption);
+                  }
+                }}
                 className="sort-select"
               >
-                {(['relevance', 'popularity', 'quality', 'maintenance'] as SearchSortBy[]).map((option) => (
-                  <option key={option} value={option}>
-                    {option.charAt(0).toUpperCase() + option.slice(1)}
-                  </option>
-                ))}
+                {supportedSortOptions.map((option) => {
+                  const value = getSortValue(option);
+                  const label = getSortLabel(option);
+                  return (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  );
+                })}
               </select>
             </div>
           )}
@@ -108,6 +134,8 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
             package={pkg}
             onClick={() => onPackageSelect(pkg)}
             onInstall={(type) => onInstall(pkg, type)}
+            currentProjectType={currentProjectType}
+            onCopy={onCopy}
           />
         ))}
       </div>

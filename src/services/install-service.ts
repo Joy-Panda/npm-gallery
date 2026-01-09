@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { InstallOptions, CopyOptions } from '../types/package';
+import type { InstallOptions, CopyOptions, PackageManager, BuildTool } from '../types/package';
 import type { SourceSelector } from '../registry/source-selector';
 import type { ProjectType } from '../types/project';
 import { SourceCapability } from '../sources/base/capabilities';
@@ -178,8 +178,72 @@ export class InstallService {
   }
 
   /**
+   * Detect build tool from workspace
+   * Checks for build files to determine which build tool is being used
+   */
+  async detectBuildTool(): Promise<BuildTool | null> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+      return null;
+    }
+
+    const rootPath = workspaceFolder.uri.fsPath;
+    
+    try {
+      // Use require for synchronous file system access in Node.js
+      const fs = require('fs');
+      const path = require('path');
+
+      // Check for build files (priority order)
+      // Note: All of these build tools (maven, gradle, sbt, mill, ivy, grape, leiningen, buildr)
+      // require copy functionality instead of direct installation
+      const buildFiles: Array<{ file: string; tool: BuildTool }> = [
+        { file: 'build.gradle', tool: 'gradle' },
+        { file: 'build.gradle.kts', tool: 'gradle' },
+        { file: 'build.sbt', tool: 'sbt' },
+        { file: 'build.sc', tool: 'mill' },
+        { file: 'ivy.xml', tool: 'ivy' },
+        { file: 'project.clj', tool: 'leiningen' },
+        { file: 'buildfile', tool: 'buildr' },
+        { file: 'grapeConfig.xml', tool: 'grape' },
+        { file: 'pom.xml', tool: 'maven' }, // Maven last as it's most common
+      ];
+
+      // First check for standard build files
+      for (const { file, tool } of buildFiles) {
+        try {
+          const buildFilePath = path.join(rootPath, file);
+          if (fs.existsSync(buildFilePath)) {
+            return tool;
+          }
+        } catch {
+          // Continue checking
+        }
+      }
+
+      // Check for Grape (Groovy dependency management)
+      // Look for .groovy files (grapeConfig.xml is already checked in buildFiles above)
+      // Only return grape if no other build tool is detected
+      try {
+        const groovyFiles = await vscode.workspace.findFiles('**/*.groovy', null, 1);
+        if (groovyFiles.length > 0) {
+          return 'grape';
+        }
+      } catch {
+        // Continue checking
+      }
+    } catch {
+      // If fs check fails, return null
+    }
+
+    return null;
+    
+  }
+
+  /**
    * Get copy snippet and copy to clipboard
-   * For package managers that require copying snippets (Maven, Gradle, etc.)
+   * For build tools that require copying snippets to build files
+   * All Java/Scala build tools (maven, gradle, sbt, mill, ivy, grape, leiningen, buildr) require copy
    */
   async copySnippet(
     packageName: string,
@@ -201,14 +265,36 @@ export class InstallService {
         return { success: false, message: 'Copy snippet generation is not supported' };
       }
       
-      const snippet = adapter.getCopySnippet(packageName, options);
+      // Auto-detect build tool if not provided
+      let buildTool = options.buildTool;
+      if (!buildTool) {
+        buildTool = await this.detectBuildTool() || 'maven'; // Default to maven
+      }
+      
+      // Map build tool to format
+      let format: 'xml' | 'gradle' | 'sbt' | 'grape' | 'other' = 'xml';
+      if (buildTool === 'gradle') {
+        format = 'gradle';
+      } else if (buildTool === 'sbt') {
+        format = 'sbt';
+      } else if (buildTool === 'grape') {
+        format = 'grape';
+      } else if (buildTool === 'maven') {
+        format = 'xml';
+      } else {
+        // For other build tools, try to use appropriate format
+        format = 'other';
+      }
+      
+      // Generate snippet with detected format
+      const snippet = adapter.getCopySnippet(packageName, { ...options, format });
       
       // Copy to clipboard
       await vscode.env.clipboard.writeText(snippet);
       
       return {
         success: true,
-        message: `Copied ${packageName} snippet to clipboard!`,
+        message: `Copied ${packageName} snippet (${buildTool}) to clipboard!`,
       };
     } catch (error) {
       return {
@@ -243,6 +329,56 @@ export class InstallService {
     }
   }
 
+
+  /**
+   * Detect package manager from workspace
+   * Checks for lock files to determine which package manager is being used
+   */
+  async detectPackageManager(): Promise<PackageManager> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+      return this.getConfiguredPackageManager();
+    }
+
+    const rootPath = workspaceFolder.uri.fsPath;
+    
+    try {
+      // Use require for synchronous file system access in Node.js
+      const fs = require('fs');
+      const path = require('path');
+
+      // Check for lock files (priority order: pnpm > yarn > npm)
+      const lockFiles: Array<{ file: string; manager: PackageManager }> = [
+        { file: 'pnpm-lock.yaml', manager: 'pnpm' },
+        { file: 'yarn.lock', manager: 'yarn' },
+        { file: 'package-lock.json', manager: 'npm' },
+      ];
+
+      for (const { file, manager } of lockFiles) {
+        try {
+          const lockFilePath = path.join(rootPath, file);
+          if (fs.existsSync(lockFilePath)) {
+            return manager;
+          }
+        } catch {
+          // Continue checking
+        }
+      }
+    } catch {
+      // If fs check fails, fall back to configured
+    }
+
+    return this.getConfiguredPackageManager();
+  }
+
+  /**
+   * Get configured package manager from settings
+   */
+  private getConfiguredPackageManager(): PackageManager {
+    const config = vscode.workspace.getConfiguration('npmGallery');
+    const packageManager = config.get<PackageManager>('packageManager', 'npm');
+    return packageManager;
+  }
 
   /**
    * Get or create terminal for commands

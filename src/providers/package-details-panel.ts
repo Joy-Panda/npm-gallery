@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { getServices } from '../services';
-import type { WebviewToExtensionMessage } from '../types/messages';
+import type { WebviewToExtensionMessage, SourceInfoMessage } from '../types/messages';
 
 /**
  * Manages package details webview panels that open in the editor area
@@ -75,13 +75,66 @@ export class PackageDetailsPanel {
     }
   }
 
+  private sendSourceInfo(): void {
+    const services = getServices();
+    const supportedCapabilities = services.package.getSupportedCapabilities();
+    
+    // Build capability support map
+    const capabilitySupport: Record<string, { capability: string; supported: boolean; reason?: string }> = {};
+    for (const cap of supportedCapabilities) {
+      const support = services.package.getCapabilitySupport(cap);
+      if (support) {
+        capabilitySupport[cap] = {
+          capability: cap,
+          supported: support.supported,
+          reason: support.reason,
+        };
+      }
+    }
+    
+    const sortOptionsWithLabels = services.search.getSupportedSortOptionsWithLabels();
+    const filterOptionsWithLabels = services.search.getSupportedFiltersWithLabels();
+    const sourceInfo: SourceInfoMessage = {
+      type: 'sourceInfo',
+      data: {
+        currentProjectType: services.getCurrentProjectType(),
+        currentSource: services.getCurrentSourceType(),
+        availableSources: services.getAvailableSources(),
+        supportedSortOptions: services.getSupportedSortOptions(), // For backward compatibility
+        supportedSortOptionsWithLabels: sortOptionsWithLabels.map(opt => {
+          if (typeof opt === 'string') {
+            return { value: opt, label: opt.charAt(0).toUpperCase() + opt.slice(1) };
+          }
+          return { value: opt.value, label: opt.label };
+        }),
+        supportedFilters: services.getSupportedFilters(), // For backward compatibility
+        supportedFiltersWithLabels: filterOptionsWithLabels.map(filter => {
+          if (typeof filter === 'string') {
+            return { value: filter, label: filter.charAt(0).toUpperCase() + filter.slice(1) };
+          }
+          return { value: filter.value, label: filter.label, placeholder: filter.placeholder };
+        }),
+        supportedCapabilities: supportedCapabilities.map(c => c.toString()),
+        capabilitySupport,
+      },
+    };
+    
+    this._panel.webview.postMessage(sourceInfo);
+  }
+
   private async handleMessage(message: WebviewToExtensionMessage): Promise<void> {
     const services = getServices();
 
     switch (message.type) {
       case 'ready': {
-        // React app is ready, load and send package details
+        // React app is ready, send source info and load package details
+        this.sendSourceInfo();
         await this.loadPackageDetails();
+        break;
+      }
+
+      case 'getSourceInfo': {
+        this.sendSourceInfo();
         break;
       }
 
@@ -112,6 +165,38 @@ export class PackageDetailsPanel {
       case 'copyToClipboard': {
         await vscode.env.clipboard.writeText(message.text);
         vscode.window.showInformationMessage('Copied to clipboard!');
+        break;
+      }
+
+      case 'copySnippet': {
+        try {
+          const result = await services.install.copySnippet(message.packageName, message.options);
+          if (result.success) {
+            this._panel.webview.postMessage({
+              type: 'copySuccess',
+              packageName: message.packageName,
+              message: result.message,
+            });
+            vscode.window.showInformationMessage(result.message);
+          } else {
+            this._panel.webview.postMessage({
+              type: 'copyError',
+              packageName: message.packageName,
+              error: result.message,
+            });
+            vscode.window.showErrorMessage(result.message);
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          this._panel.webview.postMessage({
+            type: 'copyError',
+            packageName: message.packageName,
+            error: `Failed to copy snippet: ${errorMessage}`,
+          });
+          vscode.window.showErrorMessage(
+            `Failed to copy snippet: ${errorMessage}`
+          );
+        }
         break;
       }
     }

@@ -193,10 +193,28 @@ export interface InstallOptions {
 /**
  * Copy options for package managers that require copying snippets (Maven, Gradle, etc.)
  */
+/**
+ * Build tool types for Java/Scala projects
+ * All of these build tools require copy functionality instead of direct installation
+ */
+export type BuildTool = 'maven' | 'gradle' | 'sbt' | 'mill' | 'ivy' | 'grape' | 'leiningen' | 'buildr';
+
+/**
+ * Check if a build tool requires copy functionality
+ * All Java/Scala build tools require copying snippets to build files
+ * @param buildTool The build tool to check
+ * @returns true if the build tool requires copy, false otherwise
+ */
+export function buildToolRequiresCopy(buildTool: BuildTool | null): boolean {
+  // All build tools in the BuildTool type require copy
+  return buildTool !== null;
+}
+
 export interface CopyOptions {
   version?: string;
   scope?: 'compile' | 'test' | 'runtime' | 'provided';
-  format?: 'xml' | 'gradle' | 'sbt' | 'other';
+  format?: 'xml' | 'gradle' | 'sbt' | 'grape' | 'other';
+  buildTool?: BuildTool; // Auto-detect if not provided
 }
 
 /**
@@ -225,14 +243,146 @@ export interface SearchOptions {
 }
 
 /**
- * Search sorting options
+ * Sort option with display label and actual value
  */
-export type SearchSortBy =
-  | 'relevance'
-  | 'popularity'
-  | 'quality'
-  | 'maintenance'
-  | 'name';
+export interface SortOption {
+  value: string;
+  label: string;
+}
+
+/**
+ * Search sorting option - can be a string (for backward compatibility) or SortOption
+ * When used as string, it represents the value directly
+ * When used as SortOption, it provides both display label and value
+ */
+export type SearchSortBy = string | SortOption;
+
+/**
+ * Helper function to get the sort value from SearchSortBy
+ */
+export function getSortValue(sortBy: SearchSortBy): string {
+  if (typeof sortBy === 'string') {
+    return sortBy;
+  }
+  return sortBy.value;
+}
+
+/**
+ * Helper function to get the sort label from SearchSortBy
+ */
+export function getSortLabel(sortBy: SearchSortBy): string {
+  if (typeof sortBy === 'string') {
+    // Default labels for common sort options
+    const labels: Record<string, string> = {
+      relevance: 'Relevance',
+      popularity: 'Popularity',
+      quality: 'Quality',
+      maintenance: 'Maintenance',
+      name: 'Name',
+      score: 'Score',
+      timestamp: 'Timestamp',
+      groupId: 'Group ID',
+      artifactId: 'Artifact ID',
+    };
+    return labels[sortBy] || sortBy.charAt(0).toUpperCase() + sortBy.slice(1);
+  }
+  return sortBy.label;
+}
+
+/**
+ * Helper function to create a SortOption from a string (for backward compatibility)
+ */
+export function createSortOption(value: string, label?: string): SortOption {
+  return {
+    value,
+    label: label || getSortLabel(value),
+  };
+}
+
+/**
+ * Filter option with display label, placeholder, and actual value
+ */
+export interface FilterOption {
+  value: string;
+  label: string;
+  placeholder?: string;
+}
+
+/**
+ * Search filter option - can be a string (for backward compatibility) or FilterOption
+ * When used as string, it represents the value directly
+ * When used as FilterOption, it provides display label, placeholder, and value
+ */
+export type SearchFilter = string | FilterOption;
+
+/**
+ * Helper function to get the filter value from SearchFilter
+ */
+export function getFilterValue(filter: SearchFilter): string {
+  if (typeof filter === 'string') {
+    return filter;
+  }
+  return filter.value;
+}
+
+/**
+ * Helper function to get the filter label from SearchFilter
+ */
+export function getFilterLabel(filter: SearchFilter): string {
+  if (typeof filter === 'string') {
+    // Default labels for common filter options
+    const labels: Record<string, string> = {
+      author: 'Author',
+      maintainer: 'Maintainer',
+      scope: 'Scope',
+      keywords: 'Keywords',
+      groupId: 'Group ID',
+      artifactId: 'Artifact ID',
+      version: 'Version',
+      tags: 'Tags',
+      languages: 'Languages',
+      licenses: 'Licenses',
+      platforms: 'Platforms',
+    };
+    return labels[filter] || filter.charAt(0).toUpperCase() + filter.slice(1);
+  }
+  return filter.label;
+}
+
+/**
+ * Helper function to get the filter placeholder from SearchFilter
+ */
+export function getFilterPlaceholder(filter: SearchFilter): string {
+  if (typeof filter === 'string') {
+    // Default placeholders for common filter options
+    const placeholders: Record<string, string> = {
+      author: 'author username',
+      maintainer: 'maintainer username',
+      scope: 'scope (e.g., @foo/bar)',
+      keywords: 'keywords: Use + for AND, , for OR, - to exclude',
+      groupId: 'groupId (e.g., com.google.inject)',
+      artifactId: 'artifactId (e.g., guice)',
+      version: 'version (e.g., 1.0.0)',
+      tags: 'tags (comma-separated)',
+      languages: 'languages (comma-separated, e.g., Java,JavaScript)',
+      licenses: 'licenses (comma-separated, e.g., MIT,Apache-2.0)',
+      platforms: 'platforms (comma-separated, e.g., Maven,NPM)',
+    };
+    return placeholders[filter] || `Enter ${filter}`;
+  }
+  return filter.placeholder || `Enter ${filter.label}`;
+}
+
+/**
+ * Helper function to create a FilterOption from a string (for backward compatibility)
+ */
+export function createFilterOption(value: string, label?: string, placeholder?: string): FilterOption {
+  return {
+    value,
+    label: label || getFilterLabel(value),
+    placeholder: placeholder || getFilterPlaceholder(value),
+  };
+}
 
 /**
  * Search filters

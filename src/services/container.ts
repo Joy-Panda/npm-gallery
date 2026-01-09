@@ -7,8 +7,8 @@ import { ProjectDetector, getProjectDetector } from '../registry/project-detecto
 import { SourceSelector, initSourceSelector } from '../registry/source-selector';
 import { SourceConfigManager, initSourceConfigManager } from '../config/source-config';
 import { NpmRegistrySourceAdapter } from '../sources/npm/npm-adapter';
-import { NpmsSourceAdapter } from '../sources/npm/npms-adapter';
 import { SonatypeSourceAdapter } from '../sources/sonatype/sonatype-adapter';
+import { LibrariesIoSourceAdapter } from '../sources/libraries-io';
 import { getApiClients } from '../api/clients';
 import type { ProjectType, SourceType } from '../types/project';
 
@@ -68,30 +68,29 @@ export class ServiceContainer {
 
   /**
    * Register all source adapters
+   * Note: libraries-io is also registered as a standalone source for direct use
    */
   private registerAdapters(): void {
     const clients = getApiClients();
 
-    // Register npm registry adapter
+    // Register npm registry adapter (with libraries-io as internal fallback)
     const npmAdapter = new NpmRegistrySourceAdapter(
       clients.npmRegistry,
       clients.bundlephobia,
-      clients.audit
+      clients.audit,
+      clients.librariesIo // Pass libraries-io client for fallback
     );
     this.sourceRegistry.register('npm-registry', npmAdapter);
 
-    // Register npms.io adapter as fallback
-    const npmsAdapter = new NpmsSourceAdapter(
-      clients.npms,
-      clients.npmRegistry,
-      clients.bundlephobia,
-      clients.audit
-    );
-    this.sourceRegistry.register('npms-io', npmsAdapter);
-
-    // Register Sonatype Central adapter for Maven/Gradle
-    const sonatypeAdapter = new SonatypeSourceAdapter(clients.sonatype);
+    // Register Sonatype Central adapter for Maven/Gradle (with libraries-io as internal fallback)
+    const sonatypeAdapter = new SonatypeSourceAdapter(clients.sonatype, clients.audit, clients.librariesIo);
     this.sourceRegistry.register('sonatype', sonatypeAdapter);
+
+    // Register Libraries.io as a standalone source adapter
+    // It can be used directly or as a fallback for other sources
+    // Pass sourceSelector so it can determine the correct platform based on current project type
+    const librariesIoAdapter = new LibrariesIoSourceAdapter(clients.librariesIo, clients.audit, this.sourceSelector);
+    this.sourceRegistry.register('libraries-io', librariesIoAdapter);
   }
 
   /**

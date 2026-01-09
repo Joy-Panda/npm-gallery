@@ -1,4 +1,5 @@
-import type { PackageInfo, SearchResult, SearchOptions } from '../types/package';
+import type { PackageInfo, SearchResult, SearchOptions, SearchSortBy, SearchFilter } from '../types/package';
+import { createSortOption, createFilterOption } from '../types/package';
 import type { SourceSelector } from '../registry/source-selector';
 
 /**
@@ -73,7 +74,7 @@ export class SearchService {
   }
 
   /**
-   * Get supported sort options for current source
+   * Get supported sort options for current source (as strings for backward compatibility)
    */
   getSupportedSortOptions(): string[] {
     if (!this.sourceSelector) {
@@ -83,12 +84,43 @@ export class SearchService {
   }
 
   /**
-   * Get supported filters for current source
+   * Get supported sort options with labels
+   */
+  getSupportedSortOptionsWithLabels(): SearchSortBy[] {
+    if (!this.sourceSelector) {
+      return [
+        createSortOption('relevance', 'Relevance'),
+        createSortOption('popularity', 'Popularity'),
+        createSortOption('quality', 'Quality'),
+        createSortOption('maintenance', 'Maintenance'),
+        createSortOption('name', 'Name'),
+      ];
+    }
+    return this.sourceSelector.getSupportedSortOptionsWithLabels();
+  }
+
+  /**
+   * Get supported filters for current source (as strings for backward compatibility)
    */
   getSupportedFilters(): string[] {
     if (!this.sourceSelector) {
       return ['author', 'maintainer', 'scope', 'keywords'];
     }
     return this.sourceSelector.getSupportedFilters();
+  }
+
+  /**
+   * Get supported filters with labels and placeholders
+   */
+  getSupportedFiltersWithLabels(): SearchFilter[] {
+    if (!this.sourceSelector) {
+      return [
+        createFilterOption('author', 'Author', 'author username'),
+        createFilterOption('maintainer', 'Maintainer', 'maintainer username'),
+        createFilterOption('scope', 'Scope', 'scope (e.g., @foo/bar)'),
+        createFilterOption('keywords', 'Keywords', 'keywords: Use + for AND, , for OR, - to exclude'),
+      ];
+    }
+    return this.sourceSelector.getSupportedFiltersWithLabels();
   }
 }

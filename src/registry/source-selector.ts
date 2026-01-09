@@ -3,6 +3,8 @@ import type { SourceType, ProjectType } from '../types/project';
 import type { SourceRegistry } from './source-registry';
 import type { ProjectDetector } from './project-detector';
 import type { SourceConfigManager } from '../config/source-config';
+import type { SearchSortBy, SearchFilter } from '../types/package';
+import { createSortOption, createFilterOption, getFilterValue } from '../types/package';
 
 /**
  * Source selector
@@ -79,27 +81,35 @@ export class SourceSelector {
    */
   selectSource(userSelection?: SourceType): ISourceAdapter {
     const effectiveSelection = userSelection || this.userSelectedSource;
+    console.log(`[SourceSelector] selectSource called, userSelection: ${userSelection}, userSelectedSource: ${this.userSelectedSource}, effectiveSelection: ${effectiveSelection}`);
 
     // If user has selected a specific source, use it
     if (effectiveSelection) {
       const adapter = this.registry.getAdapter(effectiveSelection);
       if (adapter) {
+        console.log(`[SourceSelector] Using user-selected source: ${effectiveSelection}, adapter: ${adapter.displayName}`);
         return adapter;
+      } else {
+        console.log(`[SourceSelector] User-selected source ${effectiveSelection} not found in registry`);
       }
     }
 
     // Get primary source for current project type
     const primarySource = this.configManager.getPrimarySource(this.currentProjectType);
+    console.log(`[SourceSelector] Current project type: ${this.currentProjectType}, primary source: ${primarySource}`);
     const primaryAdapter = this.registry.getAdapter(primarySource);
     if (primaryAdapter) {
+      console.log(`[SourceSelector] Using primary source: ${primarySource}, adapter: ${primaryAdapter.displayName}`);
       return primaryAdapter;
     }
 
     // Try fallback sources
     const fallbacks = this.configManager.getFallbackSources(this.currentProjectType);
+    console.log(`[SourceSelector] Fallback sources: ${fallbacks.join(', ')}`);
     for (const fallback of fallbacks) {
       const adapter = this.registry.getAdapter(fallback);
       if (adapter) {
+        console.log(`[SourceSelector] Using fallback source: ${fallback}, adapter: ${adapter.displayName}`);
         return adapter;
       }
     }
@@ -107,6 +117,7 @@ export class SourceSelector {
     // Last resort: return any available adapter
     const allAdapters = this.registry.getAllAdapters();
     if (allAdapters.length > 0) {
+      console.log(`[SourceSelector] Using first available adapter: ${allAdapters[0].sourceType}, adapter: ${allAdapters[0].displayName}`);
       return allAdapters[0];
     }
 
@@ -115,19 +126,38 @@ export class SourceSelector {
 
   /**
    * Get available sources for the current project type
+   * Returns all registered sources to allow manual switching between different source types
    */
   getAvailableSources(): SourceType[] {
-    return this.configManager.getAllSources(this.currentProjectType);
+    // Return all registered adapters to allow manual switching
+    // This enables users to switch from npm to sonatype, etc.
+    const allAdapters = this.registry.getAllAdapters();
+    return allAdapters.map(adapter => adapter.sourceType);
   }
 
   /**
    * Get the currently active source type
+   * Returns the actual source being used, not just the configured primary
    */
   getCurrentSourceType(): SourceType {
     if (this.userSelectedSource) {
       return this.userSelectedSource;
     }
-    return this.configManager.getPrimarySource(this.currentProjectType);
+    
+    // Try to get the primary source adapter
+    const primarySource = this.configManager.getPrimarySource(this.currentProjectType);
+    if (this.registry.getAdapter(primarySource)) {
+      return primarySource;
+    }
+    
+    // If primary is not available, get the first available adapter
+    const adapters = this.registry.getAdaptersForProject(this.currentProjectType);
+    if (adapters.length > 0) {
+      return adapters[0].sourceType;
+    }
+    
+    // Fallback to primary source from config (even if not registered)
+    return primarySource;
   }
 
   /**
@@ -144,15 +174,23 @@ export class SourceSelector {
       ? [this.userSelectedSource]
       : this.configManager.getAllSources(this.currentProjectType);
 
+    console.log(`[SourceSelector] executeWithFallback, sourcesToTry: ${sourcesToTry.join(', ')}, userSelectedSource: ${this.userSelectedSource}`);
+
     for (const sourceType of sourcesToTry) {
       const adapter = this.registry.getAdapter(sourceType);
       if (!adapter) {
+        console.log(`[SourceSelector] Adapter not found for source: ${sourceType}`);
         continue;
       }
 
+      console.log(`[SourceSelector] Trying source: ${sourceType}, adapter: ${adapter.displayName}`);
       try {
-        return await operation(adapter);
+        const result = await operation(adapter);
+        console.log(`[SourceSelector] Operation succeeded with source: ${sourceType}`);
+        return result;
       } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.error(`[SourceSelector] Operation failed with source ${sourceType}: ${errorMsg}`);
         errors.push(error instanceof Error ? error : new Error(String(error)));
         // Continue to next source
       }
@@ -160,9 +198,9 @@ export class SourceSelector {
 
     // All sources failed
     if (errors.length > 0) {
-      throw new Error(
-        `All sources failed. Errors: ${errors.map(e => e.message).join('; ')}`
-      );
+      const errorMsg = `All sources failed. Errors: ${errors.map(e => e.message).join('; ')}`;
+      console.error(`[SourceSelector] ${errorMsg}`);
+      throw new Error(errorMsg);
     }
 
     throw new Error('No source adapter available');
@@ -174,21 +212,85 @@ export class SourceSelector {
   getSupportedSortOptions(): string[] {
     try {
       const adapter = this.selectSource();
-      return adapter.supportedSortOptions;
+      // Convert SearchSortBy[] to string[] for backward compatibility
+      return adapter.supportedSortOptions.map(opt => {
+        if (typeof opt === 'string') {
+          return opt;
+        }
+        return opt.value;
+      });
     } catch {
-      return this.configManager.getSortOptions(this.currentProjectType);
+      // Convert SearchSortBy[] to string[] for backward compatibility
+      const options = this.configManager.getSortOptions(this.currentProjectType);
+      return options.map(opt => {
+        if (typeof opt === 'string') {
+          return opt;
+        }
+        return opt.value;
+      });
     }
   }
 
   /**
-   * Get supported filters for the current source
+   * Get supported sort options as SearchSortBy[] (with labels)
+   */
+  getSupportedSortOptionsWithLabels(): SearchSortBy[] {
+    try {
+      const adapter = this.selectSource();
+      return adapter.supportedSortOptions;
+    } catch {
+      // Convert SearchSortBy[] to SearchSortBy[] with labels
+      const options = this.configManager.getSortOptions(this.currentProjectType);
+      return options.map(opt => {
+        if (typeof opt === 'string') {
+          return createSortOption(opt);
+        }
+        return opt; // Already a SortOption
+      });
+    }
+  }
+
+  /**
+   * Get supported filters for the current source (as strings for backward compatibility)
    */
   getSupportedFilters(): string[] {
     try {
       const adapter = this.selectSource();
+      // Convert SearchFilter[] to string[] for backward compatibility
+      return adapter.supportedFilters.map(filter => {
+        if (typeof filter === 'string') {
+          return filter;
+        }
+        return filter.value;
+      });
+    } catch {
+      // Convert SearchFilter[] to string[] for backward compatibility
+      const filters = this.configManager.getFilters(this.currentProjectType);
+      return filters.map(filter => {
+        if (typeof filter === 'string') {
+          return filter;
+        }
+        return getFilterValue(filter);
+      });
+    }
+  }
+
+  /**
+   * Get supported filters as SearchFilter[] (with labels and placeholders)
+   */
+  getSupportedFiltersWithLabels(): SearchFilter[] {
+    try {
+      const adapter = this.selectSource();
       return adapter.supportedFilters;
     } catch {
-      return this.configManager.getFilters(this.currentProjectType);
+      // Convert string[] to SearchFilter[] for backward compatibility
+      const filters = this.configManager.getFilters(this.currentProjectType);
+      return filters.map(filter => {
+        if (typeof filter === 'string') {
+          return createFilterOption(filter);
+        }
+        return filter; // Already a FilterOption
+      });
     }
   }
 }

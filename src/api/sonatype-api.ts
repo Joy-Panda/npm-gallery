@@ -1,5 +1,4 @@
 import { BaseApiClient } from './base-client';
-import { API_ENDPOINTS } from '../types/config';
 
 /**
  * Sonatype Central Repository search response
@@ -67,9 +66,84 @@ export interface MavenPOM {
         artifactId?: string;
         version?: string;
         scope?: string;
+        optional?: string;
       }>;
     };
+    properties?: Record<string, string>;
   };
+}
+
+/**
+ * deps.dev API dependency tree response
+ * Based on: https://api.deps.dev/v3alpha/systems/maven/packages/{package}/versions/{version}:dependencies
+ */
+export interface DepsDevDependencyTree {
+  nodes: Array<{
+    versionKey: {
+      system: string;
+      name: string;
+      version: string;
+    };
+    bundled: boolean;
+    relation: 'SELF' | 'DIRECT' | 'INDIRECT';
+    errors: string[];
+  }>;
+  edges: Array<{
+    fromNode: number;
+    toNode: number;
+    requirement: string;
+  }>;
+  error: string;
+}
+
+/**
+ * deps.dev API Package response
+ * Based on: https://api.deps.dev/v3/systems/{system}/packages/{name}
+ */
+export interface DepsDevPackage {
+  packageKey: {
+    system: string;
+    name: string;
+  };
+  versions: Array<{
+    versionKey: {
+      system: string;
+      name: string;
+      version: string;
+    };
+    publishedAt?: string;
+    isDefault: boolean;
+  }>;
+}
+
+/**
+ * deps.dev API Version response
+ * Based on: https://api.deps.dev/v3/systems/{system}/packages/{name}/versions/{version}
+ */
+export interface DepsDevVersion {
+  versionKey: {
+    system: string;
+    name: string;
+    version: string;
+  };
+  publishedAt?: string;
+  isDefault: boolean;
+  licenses: string[];
+  advisoryKeys: Array<{
+    id: string;
+  }>;
+  links: Array<{
+    label: string;
+    url: string;
+  }>;
+  registries?: string[];
+  relatedProjects?: Array<{
+    projectKey: {
+      id: string;
+    };
+    relationProvenance: string;
+    relationType: string;
+  }>;
 }
 
 /**
@@ -92,18 +166,28 @@ export class SonatypeApiClient extends BaseApiClient {
       from?: number;
       size?: number;
       core?: 'ga' | 'gav'; // ga = groupId/artifactId, gav = groupId/artifactId/version
+      sort?: string; // Sort parameter (e.g., 'score desc', 'timestamp desc', 'g asc', 'a asc')
     } = {}
   ): Promise<SonatypeSearchResponse> {
-    const { from = 0, size = 20, core = 'ga' } = options;
+    const { from = 0, size = 20, core = 'ga', sort } = options;
+
+    const params: Record<string, string | number> = {
+      q: query,
+      rows: size,
+      start: from,
+      core,
+      wt: 'json',
+    };
+
+    // Add sort parameter if provided
+    // Sonatype API expects sort format like "timestamp desc", "score desc", "g asc", "a asc"
+    // Axios will automatically URL-encode spaces to + or %20
+    if (sort) {
+      params.sort = sort;
+    }
 
     return this.get<SonatypeSearchResponse>('/solrsearch/select', {
-      params: {
-        q: query,
-        rows: size,
-        start: from,
-        core,
-        wt: 'json',
-      },
+      params,
     });
   }
 
@@ -201,7 +285,9 @@ export class SonatypeApiClient extends BaseApiClient {
       const extractArray = (tag: string, parentTag: string): Array<Record<string, string | undefined>> => {
         const regex = new RegExp(`<${parentTag}>(.*?)</${parentTag}>`, 's');
         const match = xml.match(regex);
-        if (!match) return [];
+        if (!match) {
+          return [];
+        }
         
         const content = match[1];
         const items: Array<Record<string, string | undefined>> = [];
@@ -226,6 +312,28 @@ export class SonatypeApiClient extends BaseApiClient {
         return items;
       };
 
+      // Extract properties for variable substitution
+      const properties: Record<string, string> = {};
+      const propertiesMatch = xml.match(/<properties>(.*?)<\/properties>/s);
+      if (propertiesMatch) {
+        const propsContent = propertiesMatch[1];
+        const propRegex = /<([\w.-]+)>(.*?)<\/\1>/gs;
+        let propMatch;
+        while ((propMatch = propRegex.exec(propsContent)) !== null) {
+          properties[propMatch[1]] = propMatch[2].trim();
+        }
+      }
+
+      // Helper to resolve property variables (e.g., ${cglib.version})
+      const resolveProperty = (value: string | undefined): string | undefined => {
+        if (!value) {
+          return value;
+        }
+        return value.replace(/\$\{([\w.-]+)\}/g, (match, propName) => {
+          return properties[propName] || match;
+        });
+      };
+
       const project: MavenPOM['project'] = {
         groupId: extractTag('groupId'),
         artifactId: extractTag('artifactId'),
@@ -234,6 +342,11 @@ export class SonatypeApiClient extends BaseApiClient {
         description: extractTag('description'),
         url: extractTag('url'),
       };
+      
+      // Add properties if found
+      if (Object.keys(properties).length > 0) {
+        project.properties = properties;
+      }
 
       // Extract licenses
       const licenses = extractArray('license', 'licenses');
@@ -265,8 +378,9 @@ export class SonatypeApiClient extends BaseApiClient {
           dependency: dependencies.map((dep) => ({
             groupId: dep.groupId,
             artifactId: dep.artifactId,
-            version: dep.version,
-            scope: dep.scope,
+            version: resolveProperty(dep.version), // Resolve property variables
+            scope: dep.scope || 'compile', // Default scope is 'compile' if not specified
+            optional: dep.optional,
           })),
         };
       }
@@ -300,5 +414,99 @@ export class SonatypeApiClient extends BaseApiClient {
       return `${groupId}:${artifactId}:${version}`;
     }
     return `${groupId}:${artifactId}`;
+  }
+
+  /**
+   * Get dependency tree from deps.dev API
+   * @param groupId Group ID
+   * @param artifactId Artifact ID
+   * @param version Version
+   */
+  async getDependencyTree(
+    groupId: string,
+    artifactId: string,
+    version: string
+  ): Promise<DepsDevDependencyTree | null> {
+    try {
+      const packageName = `${groupId}:${artifactId}`;
+      const url = `https://api.deps.dev/v3alpha/systems/maven/packages/${encodeURIComponent(packageName)}/versions/${encodeURIComponent(version)}:dependencies`;
+      
+      const response = await fetch(url, {
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const data = await response.json();
+      return data as DepsDevDependencyTree;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Get package information from deps.dev API
+   * @param groupId Group ID
+   * @param artifactId Artifact ID
+   */
+  async getDepsDevPackage(
+    groupId: string,
+    artifactId: string
+  ): Promise<DepsDevPackage | null> {
+    try {
+      const packageName = `${groupId}:${artifactId}`;
+      const url = `https://api.deps.dev/v3/systems/maven/packages/${encodeURIComponent(packageName)}`;
+      
+      const response = await fetch(url, {
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const data = await response.json();
+      return data as DepsDevPackage;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Get version information from deps.dev API
+   * @param groupId Group ID
+   * @param artifactId Artifact ID
+   * @param version Version
+   */
+  async getDepsDevVersion(
+    groupId: string,
+    artifactId: string,
+    version: string
+  ): Promise<DepsDevVersion | null> {
+    try {
+      const packageName = `${groupId}:${artifactId}`;
+      const url = `https://api.deps.dev/v3/systems/maven/packages/${encodeURIComponent(packageName)}/versions/${encodeURIComponent(version)}`;
+      
+      const response = await fetch(url, {
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const data = await response.json();
+      return data as DepsDevVersion;
+    } catch {
+      return null;
+    }
   }
 }

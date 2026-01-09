@@ -8,9 +8,9 @@ export type ProjectType = 'npm' | 'maven' | 'go' | 'unknown';
  */
 export type SourceType = 
   | 'npm-registry' 
-  | 'npms-io' 
-  | 'maven-central' 
+  | 'npms-io'
   | 'sonatype'
+  | 'libraries-io'
   | 'pkg-go-dev';
 
 /**
@@ -32,10 +32,11 @@ export interface DetectedProjects {
 
 /**
  * Mapping from project type to supported source types
+ * Note: libraries-io can be used as both a standalone source and as a fallback
  */
 export const PROJECT_SOURCE_MAP: Record<ProjectType, SourceType[]> = {
-  npm: ['npm-registry', 'npms-io'],
-  maven: ['sonatype', 'maven-central'],
+  npm: ['npm-registry', 'libraries-io'],
+  maven: ['sonatype', 'libraries-io'],
   go: ['pkg-go-dev'],
   unknown: ['npm-registry'], // Default to npm
 };
@@ -54,8 +55,8 @@ export const PROJECT_CONFIG_FILES: Record<ProjectType, string[]> = {
  * Display names for project types
  */
 export const PROJECT_DISPLAY_NAMES: Record<ProjectType, string> = {
-  npm: 'Node.js / npm',
-  maven: 'Java / Maven',
+  npm: 'npm',
+  maven: 'Maven',
   go: 'Go',
   unknown: 'Unknown',
 };
@@ -66,7 +67,16 @@ export const PROJECT_DISPLAY_NAMES: Record<ProjectType, string> = {
 export const SOURCE_DISPLAY_NAMES: Record<SourceType, string> = {
   'npm-registry': 'npm Registry',
   'npms-io': 'npms.io',
-  'maven-central': 'Maven Central',
   'sonatype': 'Sonatype Central',
+  'libraries-io': 'Libraries.io',
   'pkg-go-dev': 'pkg.go.dev',
 };
+
+/**
+ * Check if a project type requires copy functionality instead of install
+ * All Java/Scala build tools (maven, gradle, sbt, etc.) require copy
+ * Only npm/go projects support direct installation
+ */
+export function requiresCopy(projectType: ProjectType): boolean {
+  return projectType === 'maven';
+}

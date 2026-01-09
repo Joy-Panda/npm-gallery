@@ -3,6 +3,7 @@ import type {
   PackageDetails,
   SearchResult,
   InstallOptions,
+  CopyOptions,
 } from './package';
 import type { ProjectType, SourceType } from './project';
 
@@ -14,6 +15,8 @@ export type ExtensionToWebviewMessage =
   | PackageDetailsMessage
   | InstallSuccessMessage
   | InstallErrorMessage
+  | CopySuccessMessage
+  | CopyErrorMessage
   | LoadingMessage
   | ErrorMessage
   | ConfigUpdateMessage
@@ -37,6 +40,18 @@ export interface InstallSuccessMessage {
 
 export interface InstallErrorMessage {
   type: 'installError';
+  packageName: string;
+  error: string;
+}
+
+export interface CopySuccessMessage {
+  type: 'copySuccess';
+  packageName: string;
+  message: string;
+}
+
+export interface CopyErrorMessage {
+  type: 'copyError';
   packageName: string;
   error: string;
 }
@@ -69,8 +84,10 @@ export interface SourceInfoMessage {
     currentProjectType: ProjectType;
     currentSource: SourceType;
     availableSources: SourceType[];
-    supportedSortOptions: string[];
-    supportedFilters: string[];
+    supportedSortOptions: string[]; // For backward compatibility, contains values
+    supportedSortOptionsWithLabels?: Array<{ value: string; label: string }>; // Full sort options with labels
+    supportedFilters: string[]; // For backward compatibility, contains values
+    supportedFiltersWithLabels?: Array<{ value: string; label: string; placeholder?: string }>; // Full filter options with labels and placeholders
     supportedCapabilities: string[]; // SourceCapability enum values as strings
     capabilitySupport: Record<string, {
       capability: string;
@@ -89,6 +106,7 @@ export type WebviewToExtensionMessage =
   | InstallPackageMessage
   | OpenExternalMessage
   | CopyToClipboardMessage
+  | CopySnippetMessage
   | RefreshMessage
   | OpenPackageDetailsMessage
   | ReadyMessage
@@ -100,7 +118,7 @@ export interface SearchMessage {
   query: string;
   from?: number;
   size?: number;
-  sortBy?: 'relevance' | 'popularity' | 'quality' | 'maintenance' | 'name';
+  sortBy?: string; // Sort value as string (extracted from SearchSortBy)
 }
 
 export interface GetPackageDetailsMessage {
@@ -122,6 +140,12 @@ export interface OpenExternalMessage {
 export interface CopyToClipboardMessage {
   type: 'copyToClipboard';
   text: string;
+}
+
+export interface CopySnippetMessage {
+  type: 'copySnippet';
+  packageName: string;
+  options: CopyOptions;
 }
 
 export interface RefreshMessage {

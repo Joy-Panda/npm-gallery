@@ -29,16 +29,21 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({ compact = false 
     setIsOpen(false);
   };
 
-  if (sourceInfo.availableSources.length <= 1) {
-    return null; // Don't show if only one source available
+  // Always show the selector if there are any sources available
+  // This allows users to see and switch between different source types
+  if (sourceInfo.availableSources.length === 0) {
+    return null; // Only hide if no sources available
   }
+
+  const hasMultipleSources = sourceInfo.availableSources.length > 1;
 
   return (
     <div className="source-selector" ref={dropdownRef}>
       <button
         className="source-selector-button"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => hasMultipleSources && setIsOpen(!isOpen)}
         title={`Current: ${getSourceDisplayName(sourceInfo.currentSource)} (${getProjectTypeDisplayName(sourceInfo.currentProjectType)})`}
+        style={{ cursor: hasMultipleSources ? 'pointer' : 'default' }}
       >
         <Database size={14} />
         {!compact && (
@@ -46,7 +51,9 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({ compact = false 
             {getSourceDisplayName(sourceInfo.currentSource)}
           </span>
         )}
-        <ChevronDown size={12} className={`chevron ${isOpen ? 'open' : ''}`} />
+        {hasMultipleSources && (
+          <ChevronDown size={12} className={`chevron ${isOpen ? 'open' : ''}`} />
+        )}
       </button>
 
       {isOpen && (

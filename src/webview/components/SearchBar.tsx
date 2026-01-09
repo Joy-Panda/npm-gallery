@@ -3,6 +3,7 @@ import { Search, X, Loader2, Filter } from 'lucide-react';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { SourceSelector } from './SourceSelector';
+import type { SourceInfo } from '../context/VSCodeContext';
 
 interface SearchBarProps {
   value: string;
@@ -12,6 +13,7 @@ interface SearchBarProps {
   onAdvancedSearchToggle?: () => void;
   isAdvancedSearchOpen?: boolean;
   showSourceSelector?: boolean;
+  sourceInfo?: SourceInfo;
 }
 
 export const SearchBar: React.FC<SearchBarProps> = ({ 
@@ -21,13 +23,22 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   isLoading, 
   onAdvancedSearchToggle,
   isAdvancedSearchOpen = false,
-  showSourceSelector = true
+  showSourceSelector = true,
+  sourceInfo
 }) => {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && onSearch) {
       e.preventDefault();
       onSearch();
     }
+  };
+
+  // Determine placeholder based on source type
+  const getPlaceholder = () => {
+    if (sourceInfo?.currentSource === 'sonatype') {
+      return 'Search Maven packages (e.g., org.springframework.boot:spring-boot-starter)... (Press Enter to search)';
+    }
+    return 'Search npm packages... (Press Enter to search)';
   };
 
   return (
@@ -47,7 +58,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
         </div>
         <Input
           type="text"
-          placeholder="Search npm packages... (Press Enter to search)"
+          placeholder={getPlaceholder()}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}

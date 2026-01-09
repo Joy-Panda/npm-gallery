@@ -5,6 +5,7 @@ import type {
   SearchResult,
   SearchOptions,
   SearchSortBy,
+  SearchFilter,
   InstallOptions,
   CopyOptions,
   BundleSize,
@@ -23,7 +24,7 @@ export interface ISourceAdapter {
   readonly displayName: string;
   readonly projectType: ProjectType;
   readonly supportedSortOptions: SearchSortBy[];
-  readonly supportedFilters: string[];
+  readonly supportedFilters: SearchFilter[];
 
   /**
    * Get list of supported capabilities
@@ -122,7 +123,7 @@ export abstract class BaseSourceAdapter implements ISourceAdapter {
   abstract readonly displayName: string;
   abstract readonly projectType: ProjectType;
   abstract readonly supportedSortOptions: SearchSortBy[];
-  abstract readonly supportedFilters: string[];
+  abstract readonly supportedFilters: SearchFilter[];
 
   /**
    * Subclasses must declare supported capabilities

@@ -17,13 +17,13 @@ export interface SourceConfig {
 export const DEFAULT_SOURCE_CONFIG: Record<ProjectType, SourceConfig> = {
   npm: {
     primary: 'npm-registry',
-    fallbacks: ['npms-io'],
+    fallbacks: [], // libraries-io is used as internal fallback, not in fallbacks list
     sortOptions: ['relevance', 'popularity', 'quality', 'maintenance', 'name'],
     filters: ['author', 'maintainer', 'scope', 'keywords'],
   },
   maven: {
-    primary: 'maven-central',
-    fallbacks: [],
+    primary: 'sonatype',
+    fallbacks: [], // libraries-io is used as internal fallback, not in fallbacks list
     sortOptions: ['relevance', 'popularity'],
     filters: ['groupId'],
   },
@@ -35,7 +35,7 @@ export const DEFAULT_SOURCE_CONFIG: Record<ProjectType, SourceConfig> = {
   },
   unknown: {
     primary: 'npm-registry',
-    fallbacks: ['npms-io'],
+    fallbacks: [], // libraries-io is used as internal fallback, not in fallbacks list
     sortOptions: ['relevance', 'popularity', 'quality', 'maintenance', 'name'],
     filters: ['author', 'maintainer', 'scope', 'keywords'],
   },

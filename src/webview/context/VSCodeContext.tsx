@@ -14,8 +14,10 @@ export interface SourceInfo {
   currentProjectType: ProjectType;
   currentSource: SourceType;
   availableSources: SourceType[];
-  supportedSortOptions: string[];
-  supportedFilters: string[];
+  supportedSortOptions: string[]; // For backward compatibility
+  supportedSortOptionsWithLabels?: Array<{ value: string; label: string }>; // Full sort options with labels
+  supportedFilters: string[]; // For backward compatibility
+  supportedFiltersWithLabels?: Array<{ value: string; label: string; placeholder?: string }>; // Full filter options with labels and placeholders
   supportedCapabilities: string[]; // SourceCapability enum values as strings
   capabilitySupport: Record<string, {
     capability: string;
@@ -35,7 +37,7 @@ interface VSCodeContextValue {
   sourceInfo: SourceInfo;
 
   // Actions
-  search: (query: string, from?: number, size?: number, sortBy?: 'relevance' | 'popularity' | 'quality' | 'maintenance' | 'name') => void;
+  search: (query: string, from?: number, size?: number, sortBy?: string | { value: string; label: string }) => void;
   getPackageDetails: (packageName: string) => void;
   installPackage: (packageName: string, options: { type: string; version?: string }) => void;
   openExternal: (url: string) => void;
@@ -54,7 +56,7 @@ interface VSCodeContextValue {
 const defaultSourceInfo: SourceInfo = {
   currentProjectType: 'npm',
   currentSource: 'npm-registry',
-  availableSources: ['npm-registry', 'npms-io'],
+  availableSources: ['npm-registry'],
   supportedSortOptions: ['relevance', 'popularity', 'quality', 'maintenance', 'name'],
   supportedFilters: ['author', 'maintainer', 'scope', 'keywords'],
   supportedCapabilities: [],
@@ -126,9 +128,11 @@ export const VSCodeProvider: React.FC<VSCodeProviderProps> = ({ vscode, children
 
   // Actions
   const search = useCallback(
-    (query: string, from = 0, size = 20, sortBy?: 'relevance' | 'popularity' | 'quality' | 'maintenance' | 'name') => {
+    (query: string, from = 0, size = 20, sortBy?: string | { value: string; label: string }) => {
       setError(null);
-      postMessage({ type: 'search', query, from, size, sortBy });
+      // Extract sort value from SearchSortBy (can be string or SortOption)
+      const sortValue = typeof sortBy === 'string' ? sortBy : sortBy?.value;
+      postMessage({ type: 'search', query, from, size, sortBy: sortValue });
     },
     [postMessage]
   );

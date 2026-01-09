@@ -80,6 +80,13 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
         case 'installError':
           setInstalling(false);
           break;
+        case 'copySuccess':
+          setInstalling(false);
+          break;
+        case 'copyError':
+          setInstalling(false);
+          setError(message.error);
+          break;
       }
     };
 
@@ -88,6 +95,10 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
     return () => window.removeEventListener('message', handleMessage);
   }, [vscode]);
 
+  // Check if current project type requires copy
+  // All Java/Scala build tools (maven, gradle, sbt, mill, ivy, grape, leiningen, buildr) require copy
+  const requiresCopy = sourceInfo.currentProjectType === 'maven';
+
   const install = (type: 'dependencies' | 'devDependencies', version?: string) => {
     if (!details) return;
     setInstalling(true);
@@ -95,6 +106,19 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
       type: 'install',
       packageName: details.name,
       options: { type, version },
+    });
+    setTimeout(() => setInstalling(false), 2000);
+  };
+
+  const copy = (type: 'dependencies' | 'devDependencies', version?: string) => {
+    if (!details) return;
+    setInstalling(true);
+    // Get version from details if not provided
+    const packageVersion = version || details.version;
+    vscode.postMessage({
+      type: 'copySnippet',
+      packageName: details.name,
+      options: { version: packageVersion, scope: type === 'devDependencies' ? 'test' : 'compile' },
     });
     setTimeout(() => setInstalling(false), 2000);
   };
@@ -239,6 +263,8 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
           onInstall={install}
           formatDownloads={formatDownloads}
           formatBytes={formatBytes}
+          requiresCopy={requiresCopy}
+          onCopy={requiresCopy ? copy : undefined}
         />
 
         {/* Content */}
@@ -295,6 +321,8 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
                   onInstall={install}
                   formatRelativeTime={formatRelativeTime}
                   formatFullDate={formatFullDate}
+                  requiresCopy={requiresCopy}
+                  onCopy={requiresCopy ? copy : undefined}
                 />
               )}
               {activeTab === 'dependencies' && (
@@ -326,6 +354,7 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
             formatBytes={formatBytes}
             formatRelativeTime={formatRelativeTime}
             formatFullDate={formatFullDate}
+            sourceInfo={sourceInfo}
           />
         </div>
       </div>

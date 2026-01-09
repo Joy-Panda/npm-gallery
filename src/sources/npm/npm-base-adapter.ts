@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import { BaseSourceAdapter } from '../base/source-adapter.interface';
-import { SourceCapability, CapabilityNotSupportedError } from '../base/capabilities';
 import type { InstallOptions, PackageManager } from '../../types/package';
 
 /**

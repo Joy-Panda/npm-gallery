@@ -60,13 +60,16 @@ export class OSVClient extends BaseApiClient {
 
   /**
    * Query vulnerabilities for a package
+   * @param name Package name (npm package name or Maven coordinate like groupId:artifactId)
+   * @param version Package version
+   * @param ecosystem Ecosystem type ('npm' or 'Maven'), defaults to 'npm'
    */
-  async queryVulnerabilities(name: string, version: string): Promise<SecurityInfo> {
+  async queryVulnerabilities(name: string, version: string, ecosystem: string = 'npm'): Promise<SecurityInfo> {
     try {
       const request: OSVQueryRequest = {
         package: {
           name,
-          ecosystem: 'npm',
+          ecosystem,
         },
         version,
       };
@@ -86,9 +89,10 @@ export class OSVClient extends BaseApiClient {
 
   /**
    * Query vulnerabilities for multiple packages
+   * @param packages Array of package info with name, version, and optional ecosystem
    */
   async queryBulkVulnerabilities(
-    packages: Array<{ name: string; version: string }>
+    packages: Array<{ name: string; version: string; ecosystem?: string }>
   ): Promise<Record<string, SecurityInfo>> {
     const results: Record<string, SecurityInfo> = {};
 
@@ -97,7 +101,7 @@ export class OSVClient extends BaseApiClient {
     const queries = packages.map(async (pkg) => {
       const key = `${pkg.name}@${pkg.version}`;
       try {
-        results[key] = await this.queryVulnerabilities(pkg.name, pkg.version);
+        results[key] = await this.queryVulnerabilities(pkg.name, pkg.version, pkg.ecosystem || 'npm');
       } catch {
         results[key] = this.createEmptySecurityInfo();
       }
@@ -133,10 +137,15 @@ export class OSVClient extends BaseApiClient {
     // Priority 1: Use database_specific.severity if available
     if (vuln.database_specific?.severity) {
       const dbSeverity = vuln.database_specific.severity.toLowerCase();
-      if (dbSeverity.includes('critical')) severity = 'critical';
-      else if (dbSeverity.includes('high')) severity = 'high';
-      else if (dbSeverity.includes('moderate')) severity = 'moderate';
-      else if (dbSeverity.includes('low')) severity = 'low';
+      if (dbSeverity.includes('critical')) {
+        severity = 'critical';
+      } else if (dbSeverity.includes('high')) {
+        severity = 'high';
+      } else if (dbSeverity.includes('moderate')) {
+        severity = 'moderate';
+      } else if (dbSeverity.includes('low')) {
+        severity = 'low';
+      }
     }
 
     // Priority 2: Parse CVSS vector string if available

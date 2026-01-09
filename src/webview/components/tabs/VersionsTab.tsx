@@ -6,6 +6,8 @@ interface VersionsTabProps {
   onInstall: (type: 'dependencies' | 'devDependencies', version?: string) => void;
   formatRelativeTime: (dateString?: string) => string;
   formatFullDate: (dateString?: string) => string;
+  requiresCopy?: boolean;
+  onCopy?: (type: 'dependencies' | 'devDependencies', version?: string) => void;
 }
 
 const versionsStyles = `
@@ -150,6 +152,8 @@ export const VersionsTab: React.FC<VersionsTabProps> = ({
   onInstall,
   formatRelativeTime,
   formatFullDate,
+  requiresCopy = false,
+  onCopy,
 }) => {
   return (
     <>
@@ -185,12 +189,21 @@ export const VersionsTab: React.FC<VersionsTabProps> = ({
                   {v.tag ? <span className="version-tag">{v.tag}</span> : <span className="tag-empty">—</span>}
                 </td>
                 <td className="action-cell">
-                  <button
-                    className="btn-small"
-                    onClick={() => onInstall('dependencies', v.version)}
-                  >
-                    Install
-                  </button>
+                  {requiresCopy && onCopy ? (
+                    <button
+                      className="btn-small"
+                      onClick={() => onCopy('dependencies', v.version)}
+                    >
+                      Copy
+                    </button>
+                  ) : (
+                    <button
+                      className="btn-small"
+                      onClick={() => onInstall('dependencies', v.version)}
+                    >
+                      Install
+                    </button>
+                  )}
                 </td>
               </tr>
             ))
