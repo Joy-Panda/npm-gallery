@@ -36,7 +36,7 @@ export const App: React.FC = () => {
   const [filters, setFilters] = useState<FilterState>(defaultFilters);
   
   // Get searchQuery from useSearch hook (this is used for actual searching)
-  const { searchQuery, setSearchQuery, searchResults, isLoading, error } = useSearch();
+  const { searchQuery, setSearchQuery, triggerSearch, searchResults, isLoading, error } = useSearch();
   const { installPackage, postMessage } = useVSCode();
 
   const handlePackageSelect = (pkg: PackageInfo) => {
@@ -100,6 +100,8 @@ export const App: React.FC = () => {
     setSortBy(parsed.sortBy || 'relevance');
     setFilters(parseQueryToFilters(options.query));
     setSearchQuery(options.query);
+    // Trigger search immediately when applying advanced search
+    setTimeout(() => triggerSearch(), 0);
   };
 
   return (
@@ -107,6 +109,7 @@ export const App: React.FC = () => {
       <SearchBar
         value={searchQuery}
         onChange={handleSearchBarChange}
+        onSearch={triggerSearch}
         isLoading={isLoading}
         onAdvancedSearchToggle={() => setIsAdvancedSearchOpen(!isAdvancedSearchOpen)}
         isAdvancedSearchOpen={isAdvancedSearchOpen}

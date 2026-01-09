@@ -1,40 +1,36 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useVSCode } from '../context/VSCodeContext';
 import { parseQuery, buildQuery } from '../utils/queryParser';
 
 /**
- * Hook for search functionality with debouncing
+ * Hook for search functionality - manual trigger on Enter key
  */
 export function useSearch() {
   const [searchQuery, setSearchQuery] = useState('');
   const { search, searchResults, isLoading, error } = useVSCode();
 
-  // Debounced search driven by searchQuery, including sort and filters
-  useEffect(() => {
+  // Manual search trigger function
+  const triggerSearch = useCallback(() => {
     if (!searchQuery.trim()) {
       return;
     }
 
-    const timeoutId = setTimeout(() => {
-      const parsed = parseQuery(searchQuery);
+    const parsed = parseQuery(searchQuery);
 
-      const searchText = buildQuery({
-        baseQuery: parsed.baseQuery,
-        author: parsed.author,
-        maintainer: parsed.maintainer,
-        scope: parsed.scope,
-        keywords: parsed.keywords,
-        excludeUnstable: parsed.excludeUnstable,
-        excludeInsecure: parsed.excludeInsecure,
-        includeUnstable: parsed.includeUnstable,
-        includeInsecure: parsed.includeInsecure,
-        // sort is passed separately
-      });
+    const searchText = buildQuery({
+      baseQuery: parsed.baseQuery,
+      author: parsed.author,
+      maintainer: parsed.maintainer,
+      scope: parsed.scope,
+      keywords: parsed.keywords,
+      excludeUnstable: parsed.excludeUnstable,
+      excludeInsecure: parsed.excludeInsecure,
+      includeUnstable: parsed.includeUnstable,
+      includeInsecure: parsed.includeInsecure,
+      // sort is passed separately
+    });
 
-      search(searchText, 0, 20, parsed.sortBy || 'relevance');
-    }, 300);
-
-    return () => clearTimeout(timeoutId);
+    search(searchText, 0, 20, parsed.sortBy || 'relevance');
   }, [searchQuery, search]);
 
   const handleSearch = useCallback((query: string) => {
@@ -50,6 +46,7 @@ export function useSearch() {
   return {
     searchQuery,
     setSearchQuery: handleSearch,
+    triggerSearch,
     searchResults,
     isLoading,
     error,

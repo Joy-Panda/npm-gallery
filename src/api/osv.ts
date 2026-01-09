@@ -61,16 +61,14 @@ export class OSVClient extends BaseApiClient {
   /**
    * Query vulnerabilities for a package
    */
-  async queryVulnerabilities(name: string, _version: string): Promise<SecurityInfo> {
+  async queryVulnerabilities(name: string, version: string): Promise<SecurityInfo> {
     try {
-      // TODO: 临时设置版本为 2.2.1，用于测试
-      const fixedVersion = '0.150.0';
       const request: OSVQueryRequest = {
         package: {
           name,
           ecosystem: 'npm',
         },
-        version: fixedVersion,
+        version,
       };
 
       const response = await this.post<OSVQueryResponse>('/v1/query', request);

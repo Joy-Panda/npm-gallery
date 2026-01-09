@@ -6,6 +6,7 @@ import { Button } from './ui/button';
 interface SearchBarProps {
   value: string;
   onChange: (value: string) => void;
+  onSearch?: () => void;
   isLoading?: boolean;
   onAdvancedSearchToggle?: () => void;
   isAdvancedSearchOpen?: boolean;
@@ -14,10 +15,18 @@ interface SearchBarProps {
 export const SearchBar: React.FC<SearchBarProps> = ({ 
   value, 
   onChange, 
+  onSearch,
   isLoading, 
   onAdvancedSearchToggle,
   isAdvancedSearchOpen = false
 }) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' && onSearch) {
+      e.preventDefault();
+      onSearch();
+    }
+  };
+
   return (
     <div className="search-container">
       <div className="search-wrapper">
@@ -30,9 +39,10 @@ export const SearchBar: React.FC<SearchBarProps> = ({
         </div>
         <Input
           type="text"
-          placeholder="Search npm packages..."
+          placeholder="Search npm packages... (Press Enter to search)"
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onKeyDown={handleKeyDown}
           className="search-input"
           autoFocus
         />
