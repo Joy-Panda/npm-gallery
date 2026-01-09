@@ -67,7 +67,7 @@ export class PackageService {
       clients.npmRegistry.getDownloads(name).catch(() => ({ downloads: 0 })),
       //clients.npms.getPackageAnalysis(name).catch(() => null),
       clients.bundlephobia.getSize(name, latestVersion).catch(() => null),
-      clients.audit.checkPackage(name, latestVersion).catch(() => null),
+      clients.audit.queryVulnerabilities(name, latestVersion).catch(() => null),
     ]);
 
     const versions = this.extractVersions(pkg);
@@ -111,12 +111,12 @@ export class PackageService {
   }
 
   /**
-   * Get security info for a package
+   * Get security info for a package using OSV.dev API
    */
   async getSecurityInfo(name: string, version: string): Promise<SecurityInfo | null> {
     const clients = getApiClients();
     try {
-      return await clients.audit.checkPackage(name, version);
+      return await clients.audit.queryVulnerabilities(name, version);
     } catch {
       return null;
     }

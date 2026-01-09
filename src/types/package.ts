@@ -130,6 +130,8 @@ export interface Vulnerability {
     score: number;
     vectorString?: string;
   };
+  published?: string;
+  details?: string;
 }
 
 /**

@@ -1,7 +1,7 @@
 import { NpmRegistryClient } from './npm-registry';
 import { NpmsApiClient } from './npms-api';
 import { BundlephobiaClient } from './bundlephobia';
-import { NpmAuditClient } from './npm-audit';
+import { OSVClient } from './osv';
 
 /**
  * All API clients
@@ -10,7 +10,7 @@ export interface ApiClients {
   npmRegistry: NpmRegistryClient;
   npms: NpmsApiClient;
   bundlephobia: BundlephobiaClient;
-  audit: NpmAuditClient;
+  audit: OSVClient;
 }
 
 // Singleton instances
@@ -25,7 +25,7 @@ export function createApiClients(): ApiClients {
       npmRegistry: new NpmRegistryClient(),
       npms: new NpmsApiClient(),
       bundlephobia: new BundlephobiaClient(),
-      audit: new NpmAuditClient(),
+      audit: new OSVClient(),
     };
   }
   return apiClients;

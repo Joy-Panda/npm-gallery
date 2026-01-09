@@ -37,6 +37,7 @@ export const API_ENDPOINTS = {
   NPMS_API: 'https://api.npms.io/v2',
   BUNDLEPHOBIA: 'https://bundlephobia.com/api',
   GITHUB_API: 'https://api.github.com',
+  OSV_API: 'https://api.osv.dev',
 } as const;
 
 /**
