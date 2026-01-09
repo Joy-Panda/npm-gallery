@@ -1,4 +1,3 @@
-import { getApiClients } from '../api/clients';
 import type {
   PackageInfo,
   PackageDetails,
@@ -6,119 +5,152 @@ import type {
   BundleSize,
   SecurityInfo,
 } from '../types/package';
-import type { NpmMaintainer } from '../types/api';
+import type { SourceSelector } from '../registry/source-selector';
+import { SourceCapability, CapabilityNotSupportedError, type CapabilitySupport } from '../sources/base/capabilities';
 
 /**
  * Service for package information
+ * Uses source selector for multi-source support
  */
 export class PackageService {
+  constructor(private sourceSelector?: SourceSelector) {}
+
+  /**
+   * Set the source selector (for late initialization)
+   */
+  setSourceSelector(selector: SourceSelector): void {
+    this.sourceSelector = selector;
+  }
+
   /**
    * Get basic package info
    */
   async getPackageInfo(name: string): Promise<PackageInfo> {
-    const clients = getApiClients();
-
-    try {
-      // Try npm registry first
-      const pkg = await clients.npmRegistry.getPackage(name);
-      const latestVersion = pkg['dist-tags'].latest;
-      const versionData = pkg.versions[latestVersion];
-      const downloads = await clients.npmRegistry.getDownloads(name).catch(() => ({ downloads: 0 }));
-
-      return {
-        name: pkg.name,
-        version: latestVersion,
-        description: pkg.description,
-        keywords: pkg.keywords,
-        license: versionData?.license || pkg.license,
-        author: pkg.author,
-        repository: pkg.repository,
-        downloads: downloads.downloads,
-      };
-    } catch {
-      // Fallback to npms.io for enhanced data
-      const analysis = await clients.npms.getPackageAnalysis(name);
-      const downloads = await clients.npmRegistry.getDownloads(name).catch(() => ({ downloads: 0 }));
-
-      return {
-        name: analysis.collected.metadata.name,
-        version: analysis.collected.metadata.version,
-        description: analysis.collected.metadata.description,
-        keywords: analysis.collected.metadata.keywords,
-        license: analysis.collected.metadata.license,
-        repository: analysis.collected.metadata.repository,
-        downloads: downloads.downloads,
-        score: analysis.score,
-      };
+    if (!this.sourceSelector) {
+      throw new Error('PackageService not initialized: SourceSelector is required');
     }
+
+    return this.sourceSelector.executeWithFallback(
+      adapter => adapter.getPackageInfo(name)
+    );
   }
 
   /**
    * Get detailed package info
    */
   async getPackageDetails(name: string): Promise<PackageDetails> {
-    const clients = getApiClients();
-    const pkg = await clients.npmRegistry.getPackage(name);
-    const latestVersion = pkg['dist-tags'].latest;
-    const latestData = pkg.versions[latestVersion];
+    if (!this.sourceSelector) {
+      throw new Error('PackageService not initialized: SourceSelector is required');
+    }
 
-    // Get additional data in parallel
-    const [downloads, bundleSize, security] = await Promise.all([
-      clients.npmRegistry.getDownloads(name).catch(() => ({ downloads: 0 })),
-      //clients.npms.getPackageAnalysis(name).catch(() => null),
-      clients.bundlephobia.getSize(name, latestVersion).catch(() => null),
-      clients.audit.queryVulnerabilities(name, latestVersion).catch(() => null),
-    ]);
-
-    const versions = this.extractVersions(pkg);
-
-    return {
-      name: pkg.name,
-      version: latestVersion,
-      description: pkg.description,
-      keywords: pkg.keywords,
-      license: latestData?.license || pkg.license,
-      author: pkg.author,
-      publisher: latestData ? { username: pkg.maintainers?.[0]?.name || '' } : undefined,
-      repository: pkg.repository,
-      homepage: pkg.homepage,
-      downloads: downloads.downloads,
-      //score: pkg?.score,
-      bundleSize: bundleSize || undefined,
-      readme: pkg.readme,
-      versions,
-      dependencies: latestData?.dependencies,
-      devDependencies: latestData?.devDependencies,
-      peerDependencies: latestData?.peerDependencies,
-      maintainers: pkg.maintainers?.map((m: NpmMaintainer) => ({ name: m.name, email: m.email })),
-      time: pkg.time,
-      distTags: pkg['dist-tags'],
-      bugs: pkg.bugs,
-      security: security || undefined,
-    };
+    return this.sourceSelector.executeWithFallback(
+      adapter => adapter.getPackageDetails(name)
+    );
   }
 
   /**
-   * Get bundle size for a package
+   * Get bundle size for a package (only if capability is supported)
    */
   async getBundleSize(name: string, version?: string): Promise<BundleSize | null> {
-    const clients = getApiClients();
+    if (!this.sourceSelector) {
+      throw new Error('PackageService not initialized: SourceSelector is required');
+    }
+
+    const adapter = this.sourceSelector.selectSource();
+
+    // Check capability support - don't query if not supported
+    if (!adapter.supportsCapability(SourceCapability.BUNDLE_SIZE)) {
+      return null; // Explicitly return null, don't query
+    }
+
+    if (adapter.getBundleSize) {
+      try {
+        return await adapter.getBundleSize(name, version);
+      } catch (error) {
+        if (error instanceof CapabilityNotSupportedError) {
+          return null;
+        }
+        throw error;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Get security info for a package (only if capability is supported)
+   */
+  async getSecurityInfo(name: string, version: string): Promise<SecurityInfo | null> {
+    if (!this.sourceSelector) {
+      throw new Error('PackageService not initialized: SourceSelector is required');
+    }
+
+    const adapter = this.sourceSelector.selectSource();
+
+    // Check capability support - don't query if not supported
+    if (!adapter.supportsCapability(SourceCapability.SECURITY)) {
+      return null; // Explicitly return null, don't query
+    }
+
+    if (adapter.getSecurityInfo) {
+      try {
+        return await adapter.getSecurityInfo(name, version);
+      } catch (error) {
+        if (error instanceof CapabilityNotSupportedError) {
+          return null;
+        }
+        throw error;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Get capability support information
+   */
+  getCapabilitySupport(capability: SourceCapability): CapabilitySupport | null {
+    if (!this.sourceSelector) {
+      return null;
+    }
+
     try {
-      return await clients.bundlephobia.getSize(name, version);
+      const adapter = this.sourceSelector.selectSource();
+      return adapter.getCapabilitySupport(capability);
     } catch {
       return null;
     }
   }
 
   /**
-   * Get security info for a package using OSV.dev API
+   * Get all supported capabilities
    */
-  async getSecurityInfo(name: string, version: string): Promise<SecurityInfo | null> {
-    const clients = getApiClients();
+  getSupportedCapabilities(): SourceCapability[] {
+    if (!this.sourceSelector) {
+      return [];
+    }
+
     try {
-      return await clients.audit.queryVulnerabilities(name, version);
+      const adapter = this.sourceSelector.selectSource();
+      return adapter.getSupportedCapabilities();
     } catch {
-      return null;
+      return [];
+    }
+  }
+
+  /**
+   * Check if a capability is supported
+   */
+  supportsCapability(capability: SourceCapability): boolean {
+    if (!this.sourceSelector) {
+      return false;
+    }
+
+    try {
+      const adapter = this.sourceSelector.selectSource();
+      return adapter.supportsCapability(capability);
+    } catch {
+      return false;
     }
   }
 
@@ -126,35 +158,112 @@ export class PackageService {
    * Get all versions of a package
    */
   async getVersions(name: string): Promise<VersionInfo[]> {
-    const clients = getApiClients();
-    const pkg = await clients.npmRegistry.getPackage(name);
-    return this.extractVersions(pkg);
+    if (!this.sourceSelector) {
+      throw new Error('PackageService not initialized: SourceSelector is required');
+    }
+
+    return this.sourceSelector.executeWithFallback(
+      adapter => adapter.getVersions(name)
+    );
   }
 
   /**
-   * Extract versions from npm package data
+   * Get latest version of a package
    */
-  private extractVersions(pkg: {
-    'dist-tags': Record<string, string>;
-    versions: Record<string, { version: string; deprecated?: string; dist?: { unpackedSize?: number } }>;
-    time?: Record<string, string>;
-  }): VersionInfo[] {
-    const distTags = pkg['dist-tags'];
+  async getLatestVersion(name: string): Promise<string | null> {
+    try {
+      const info = await this.getPackageInfo(name);
+      return info.version || null;
+    } catch {
+      return null;
+    }
+  }
 
-    return Object.entries(pkg.versions)
-      .map(([version, data]) => ({
-        version,
-        publishedAt: pkg.time?.[version],
-        deprecated: data.deprecated,
-        tag: Object.entries(distTags).find(([, v]) => v === version)?.[0],
-        dist: data.dist,
-      }))
-      .sort((a, b) => {
-        // Sort by publish date descending
-        if (a.publishedAt && b.publishedAt) {
-          return new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime();
+  /**
+   * Get package dependencies for a specific version
+   * Returns all dependencies merged together (for dependency tree support)
+   */
+  async getPackageDependencies(
+    name: string,
+    version?: string
+  ): Promise<Record<string, string> | null> {
+    try {
+      const details = await this.getPackageDetails(name);
+      
+      // If version is specified, try to get that version's dependencies
+      if (version && details.versions) {
+        const versionInfo = details.versions.find(v => v.version === version);
+        if (versionInfo) {
+          // For now, return latest version's dependencies
+          // In the future, we might need to fetch specific version details
         }
-        return 0;
-      });
+      }
+      
+      // Merge all dependency types for dependency tree support
+      const allDependencies: Record<string, string> = {};
+      
+      if (details.dependencies) {
+        Object.assign(allDependencies, details.dependencies);
+      }
+      if (details.devDependencies) {
+        Object.assign(allDependencies, details.devDependencies);
+      }
+      if (details.peerDependencies) {
+        Object.assign(allDependencies, details.peerDependencies);
+      }
+      if (details.optionalDependencies) {
+        Object.assign(allDependencies, details.optionalDependencies);
+      }
+      
+      return Object.keys(allDependencies).length > 0 ? allDependencies : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Get package abbreviated info (lightweight version info)
+   * Returns basic info including latest version and dependencies for a specific version
+   */
+  async getPackageAbbreviated(
+    name: string,
+    _version?: string
+  ): Promise<{
+    name: string;
+    'dist-tags': { latest: string };
+    versions: Record<string, { version: string; dependencies?: Record<string, string> }>;
+  } | null> {
+    try {
+      const details = await this.getPackageDetails(name);
+      const versions = details.versions || [];
+      
+      // Build versions map
+      const versionsMap: Record<string, { version: string; dependencies?: Record<string, string> }> = {};
+      for (const v of versions) {
+        versionsMap[v.version] = {
+          version: v.version,
+          // Note: We don't have per-version dependencies in current structure
+          // This is a limitation - we'd need to fetch each version separately
+        };
+      }
+      
+      // If we have the latest version's dependencies, add them to the latest version entry
+      if (details.version && details.dependencies) {
+        versionsMap[details.version] = {
+          version: details.version,
+          dependencies: details.dependencies,
+        };
+      }
+      
+      return {
+        name: details.name,
+        'dist-tags': {
+          latest: details.version,
+        },
+        versions: versionsMap,
+      };
+    } catch {
+      return null;
+    }
   }
 }

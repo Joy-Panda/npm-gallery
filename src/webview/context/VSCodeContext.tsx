@@ -1,11 +1,27 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../../types/messages';
 import type { SearchResult, PackageDetails } from '../../types/package';
+import type { ProjectType, SourceType } from '../../types/project';
+import { SOURCE_DISPLAY_NAMES, PROJECT_DISPLAY_NAMES } from '../../types/project';
 
 interface VSCodeAPI {
   postMessage: (message: unknown) => void;
   getState: () => unknown;
   setState: (state: unknown) => void;
+}
+
+export interface SourceInfo {
+  currentProjectType: ProjectType;
+  currentSource: SourceType;
+  availableSources: SourceType[];
+  supportedSortOptions: string[];
+  supportedFilters: string[];
+  supportedCapabilities: string[]; // SourceCapability enum values as strings
+  capabilitySupport: Record<string, {
+    capability: string;
+    supported: boolean;
+    reason?: string;
+  }>;
 }
 
 interface VSCodeContextValue {
@@ -14,6 +30,9 @@ interface VSCodeContextValue {
   error: string | null;
   searchResults: SearchResult | null;
   packageDetails: PackageDetails | null;
+  
+  // Source information
+  sourceInfo: SourceInfo;
 
   // Actions
   search: (query: string, from?: number, size?: number, sortBy?: 'relevance' | 'popularity' | 'quality' | 'maintenance' | 'name') => void;
@@ -22,7 +41,25 @@ interface VSCodeContextValue {
   openExternal: (url: string) => void;
   copyToClipboard: (text: string) => void;
   postMessage: (message: unknown) => void;
+  
+  // Source actions
+  changeSource: (source: SourceType) => void;
+  refreshSourceInfo: () => void;
+  
+  // Helpers
+  getSourceDisplayName: (source: SourceType) => string;
+  getProjectTypeDisplayName: (type: ProjectType) => string;
 }
+
+const defaultSourceInfo: SourceInfo = {
+  currentProjectType: 'npm',
+  currentSource: 'npm-registry',
+  availableSources: ['npm-registry', 'npms-io'],
+  supportedSortOptions: ['relevance', 'popularity', 'quality', 'maintenance', 'name'],
+  supportedFilters: ['author', 'maintainer', 'scope', 'keywords'],
+  supportedCapabilities: [],
+  capabilitySupport: {},
+};
 
 const VSCodeContext = createContext<VSCodeContextValue | null>(null);
 
@@ -36,6 +73,7 @@ export const VSCodeProvider: React.FC<VSCodeProviderProps> = ({ vscode, children
   const [error, setError] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<SearchResult | null>(null);
   const [packageDetails, setPackageDetails] = useState<PackageDetails | null>(null);
+  const [sourceInfo, setSourceInfo] = useState<SourceInfo>(defaultSourceInfo);
 
   // Handle messages from extension
   useEffect(() => {
@@ -64,12 +102,19 @@ export const VSCodeProvider: React.FC<VSCodeProviderProps> = ({ vscode, children
         case 'installError':
           setError(message.error);
           break;
+        case 'sourceInfo':
+          setSourceInfo(message.data);
+          break;
       }
     };
 
     window.addEventListener('message', handleMessage);
+    
+    // Request source info on mount
+    vscode.postMessage({ type: 'getSourceInfo' });
+    
     return () => window.removeEventListener('message', handleMessage);
-  }, []);
+  }, [vscode]);
 
   // Post message helper
   const postMessage = useCallback(
@@ -125,17 +170,43 @@ export const VSCodeProvider: React.FC<VSCodeProviderProps> = ({ vscode, children
     [postMessage]
   );
 
+  // Source actions
+  const changeSource = useCallback(
+    (source: SourceType) => {
+      postMessage({ type: 'changeSource', source });
+    },
+    [postMessage]
+  );
+
+  const refreshSourceInfo = useCallback(() => {
+    postMessage({ type: 'getSourceInfo' });
+  }, [postMessage]);
+
+  // Helpers
+  const getSourceDisplayName = useCallback((source: SourceType): string => {
+    return SOURCE_DISPLAY_NAMES[source] || source;
+  }, []);
+
+  const getProjectTypeDisplayName = useCallback((type: ProjectType): string => {
+    return PROJECT_DISPLAY_NAMES[type] || type;
+  }, []);
+
   const value: VSCodeContextValue = {
     isLoading,
     error,
     searchResults,
     packageDetails,
+    sourceInfo,
     search,
     getPackageDetails,
     installPackage,
     openExternal,
     copyToClipboard,
     postMessage: (message: unknown) => vscode.postMessage(message),
+    changeSource,
+    refreshSourceInfo,
+    getSourceDisplayName,
+    getProjectTypeDisplayName,
   };
 
   return <VSCodeContext.Provider value={value}>{children}</VSCodeContext.Provider>;

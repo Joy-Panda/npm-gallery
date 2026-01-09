@@ -26,6 +26,7 @@ export interface PackageDetails extends PackageInfo {
   dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
   maintainers?: PackageMaintainer[];
   time?: Record<string, string>;
   distTags?: Record<string, string>;
@@ -187,6 +188,15 @@ export interface InstallOptions {
   type: DependencyType;
   packageManager?: PackageManager;
   exact?: boolean;
+}
+
+/**
+ * Copy options for package managers that require copying snippets (Maven, Gradle, etc.)
+ */
+export interface CopyOptions {
+  version?: string;
+  scope?: 'compile' | 'test' | 'runtime' | 'provided';
+  format?: 'xml' | 'gradle' | 'sbt' | 'other';
 }
 
 /**

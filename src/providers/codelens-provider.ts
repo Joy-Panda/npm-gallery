@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
-import { getApiClients } from '../api';
+import { getServices } from '../services';
+import { isNewerVersion } from '../utils/version-utils';
 
 /**
- * Provides CodeLens for package updates in package.json
+ * Provides CodeLens for package updates in package.json, pom.xml, and Gradle files
  */
 export class PackageCodeLensProvider implements vscode.CodeLensProvider {
   private _onDidChangeCodeLenses = new vscode.EventEmitter<void>();
@@ -22,12 +23,35 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
     document: vscode.TextDocument,
     _token: vscode.CancellationToken
   ): Promise<vscode.CodeLens[]> {
-    if (!document.fileName.endsWith('package.json')) {
-      return [];
+    const fileName = document.fileName.toLowerCase();
+    const text = document.getText();
+
+    // Handle package.json
+    if (fileName.endsWith('package.json')) {
+      return this.provideCodeLensesForPackageJson(document, text);
     }
 
+    // Handle pom.xml
+    if (fileName.endsWith('pom.xml')) {
+      return this.provideCodeLensesForPomXml(document, text);
+    }
+
+    // Handle Gradle files
+    if (fileName.endsWith('build.gradle') || fileName.endsWith('build.gradle.kts')) {
+      return this.provideCodeLensesForGradle(document, text);
+    }
+
+    return [];
+  }
+
+  /**
+   * Provide CodeLenses for package.json
+   */
+  private async provideCodeLensesForPackageJson(
+    document: vscode.TextDocument,
+    text: string
+  ): Promise<vscode.CodeLens[]> {
     const codeLenses: vscode.CodeLens[] = [];
-    const text = document.getText();
 
     try {
       const packageJson = JSON.parse(text);
@@ -35,7 +59,7 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
 
       for (const section of depSections) {
         if (packageJson[section]) {
-          const sectionLenses = await this.getCodeLensesForSection(
+          const sectionLenses = await this.getCodeLensesForNpmSection(
             document,
             text,
             section,
@@ -51,6 +75,136 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
     return codeLenses;
   }
 
+  /**
+   * Provide CodeLenses for pom.xml
+   */
+  private async provideCodeLensesForPomXml(
+    document: vscode.TextDocument,
+    text: string
+  ): Promise<vscode.CodeLens[]> {
+    const codeLenses: vscode.CodeLens[] = [];
+    const services = getServices();
+
+    // Extract dependencies from pom.xml
+    const dependencyRegex = /<dependency>([\s\S]*?)<\/dependency>/g;
+    let dependencyMatch;
+    const updatePromises: Promise<void>[] = [];
+
+    while ((dependencyMatch = dependencyRegex.exec(text)) !== null) {
+      const depContent = dependencyMatch[1];
+      const groupIdMatch = depContent.match(/<groupId>(.*?)<\/groupId>/);
+      const artifactIdMatch = depContent.match(/<artifactId>(.*?)<\/artifactId>/);
+      const versionMatch = depContent.match(/<version>(.*?)<\/version>/);
+
+      if (groupIdMatch && artifactIdMatch && versionMatch) {
+        const groupId = groupIdMatch[1].trim();
+        const artifactId = artifactIdMatch[1].trim();
+        const currentVersion = versionMatch[1].trim();
+        const coordinate = `${groupId}:${artifactId}`;
+
+        updatePromises.push(
+          (async () => {
+            try {
+              let latestVersion = this.latestVersions.get(coordinate);
+
+              if (!latestVersion) {
+                const version = await services.package.getLatestVersion(coordinate);
+                if (version) {
+                  latestVersion = version;
+                  this.latestVersions.set(coordinate, latestVersion);
+                }
+              }
+
+              if (latestVersion && isNewerVersion(currentVersion, latestVersion)) {
+                // Find the position of the version tag
+                const versionTagStart = dependencyMatch.index! + depContent.indexOf('<version>');
+                const position = document.positionAt(versionTagStart);
+                const range = new vscode.Range(position, position);
+
+                codeLenses.push(
+                  new vscode.CodeLens(range, {
+                    title: `⬆️ Update to ${latestVersion}`,
+                    command: 'npmGallery.updateMavenDependency',
+                    arguments: [document.uri.fsPath, groupId, artifactId, latestVersion],
+                  })
+                );
+              }
+            } catch {
+              // Skip packages that fail
+            }
+          })()
+        );
+      }
+    }
+
+    await Promise.all(updatePromises);
+    return codeLenses;
+  }
+
+  /**
+   * Provide CodeLenses for Gradle files
+   */
+  private async provideCodeLensesForGradle(
+    document: vscode.TextDocument,
+    text: string
+  ): Promise<vscode.CodeLens[]> {
+    const codeLenses: vscode.CodeLens[] = [];
+    const services = getServices();
+
+    // Match Gradle dependency declarations
+    // Supports: implementation 'groupId:artifactId:version'
+    //           testImplementation 'groupId:artifactId:version'
+    //           compileOnly 'groupId:artifactId:version'
+    //           etc.
+    const gradleDepRegex = /(?:implementation|testImplementation|compileOnly|runtimeOnly|api|compile)\s+['"]([^:]+):([^:]+):([^'"]+)['"]/g;
+    let depMatch;
+    const updatePromises: Promise<void>[] = [];
+
+    while ((depMatch = gradleDepRegex.exec(text)) !== null) {
+      const groupId = depMatch[1];
+      const artifactId = depMatch[2];
+      const currentVersion = depMatch[3];
+      const coordinate = `${groupId}:${artifactId}`;
+      const matchIndex = depMatch.index;
+
+      updatePromises.push(
+        (async () => {
+          try {
+            let latestVersion = this.latestVersions.get(coordinate);
+
+            if (!latestVersion) {
+              const version = await services.package.getLatestVersion(coordinate);
+              if (version) {
+                latestVersion = version;
+                this.latestVersions.set(coordinate, latestVersion);
+              }
+            }
+
+            if (latestVersion && isNewerVersion(currentVersion, latestVersion)) {
+              // Find the position of the version in the dependency line
+              const versionStart = matchIndex + depMatch[0].lastIndexOf(':') + 1;
+              const position = document.positionAt(versionStart);
+              const range = new vscode.Range(position, position);
+
+              codeLenses.push(
+                new vscode.CodeLens(range, {
+                  title: `⬆️ Update to ${latestVersion}`,
+                  command: 'npmGallery.updateGradleDependency',
+                  arguments: [document.uri.fsPath, groupId, artifactId, latestVersion],
+                })
+              );
+            }
+          } catch {
+            // Skip packages that fail
+          }
+        })()
+      );
+    }
+
+    await Promise.all(updatePromises);
+    return codeLenses;
+  }
+
   async resolveCodeLens(
     codeLens: vscode.CodeLens,
     _token: vscode.CancellationToken
@@ -59,16 +213,16 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
   }
 
   /**
-   * Get CodeLenses for a dependency section
+   * Get CodeLenses for an npm dependency section
    */
-  private async getCodeLensesForSection(
+  private async getCodeLensesForNpmSection(
     document: vscode.TextDocument,
     text: string,
     section: string,
     deps: Record<string, string>
   ): Promise<vscode.CodeLens[]> {
     const codeLenses: vscode.CodeLens[] = [];
-    const clients = getApiClients();
+    const services = getServices();
 
     // Find section in document
     const sectionRegex = new RegExp(`"${section}"\\s*:\\s*\\{`);
@@ -91,14 +245,14 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
             let latestVersion = this.latestVersions.get(name);
 
             if (!latestVersion) {
-              const pkg = await clients.npmRegistry.getPackageAbbreviated(name);
-              latestVersion = pkg['dist-tags'].latest;
-              if (latestVersion) {
+              const version = await services.package.getLatestVersion(name);
+              if (version) {
+                latestVersion = version;
                 this.latestVersions.set(name, latestVersion);
               }
             }
 
-            if (latestVersion && this.isNewerVersion(currentVersion, latestVersion)) {
+            if (latestVersion && isNewerVersion(currentVersion, latestVersion)) {
               updatesCount++;
 
               // Add CodeLens for individual package
@@ -144,23 +298,6 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
     return codeLenses;
   }
 
-  /**
-   * Check if version b is newer than version a
-   */
-  private isNewerVersion(a: string, b: string): boolean {
-    const partsA = a.split('.').map((p) => parseInt(p, 10) || 0);
-    const partsB = b.split('.').map((p) => parseInt(p, 10) || 0);
-
-    for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
-      const numA = partsA[i] || 0;
-      const numB = partsB[i] || 0;
-
-      if (numB > numA) return true;
-      if (numB < numA) return false;
-    }
-
-    return false;
-  }
 
   /**
    * Escape regex special characters

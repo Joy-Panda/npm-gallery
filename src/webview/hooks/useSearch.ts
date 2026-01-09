@@ -1,13 +1,30 @@
-import { useState, useCallback } from 'react';
-import { useVSCode } from '../context/VSCodeContext';
+import { useState, useCallback, useEffect } from 'react';
+import { useVSCode, type SourceInfo } from '../context/VSCodeContext';
 import { parseQuery, buildQuery } from '../utils/queryParser';
+import type { SearchResult } from '../../types/package';
 
 /**
  * Hook for search functionality - manual trigger on Enter key
  */
-export function useSearch() {
+export function useSearch(): {
+  searchQuery: string;
+  setSearchQuery: (query: string) => void;
+  triggerSearch: () => void;
+  searchResults: SearchResult | null;
+  isLoading: boolean;
+  error: string | null;
+  loadMore: () => void;
+  sourceInfo: SourceInfo;
+  supportedSortOptions: string[];
+  supportedFilters: string[];
+} {
   const [searchQuery, setSearchQuery] = useState('');
-  const { search, searchResults, isLoading, error } = useVSCode();
+  const { search, searchResults, isLoading, error, sourceInfo, refreshSourceInfo } = useVSCode();
+
+  // Refresh source info on mount
+  useEffect(() => {
+    refreshSourceInfo();
+  }, [refreshSourceInfo]);
 
   // Manual search trigger function
   const triggerSearch = useCallback(() => {
@@ -51,5 +68,9 @@ export function useSearch() {
     isLoading,
     error,
     loadMore,
+    // Source info
+    sourceInfo,
+    supportedSortOptions: sourceInfo.supportedSortOptions,
+    supportedFilters: sourceInfo.supportedFilters,
   };
 }

@@ -5,6 +5,7 @@ import {
   GitBranch
 } from 'lucide-react';
 import type { PackageDetails, Vulnerability } from '../../types/package';
+import { useVSCode } from '../context/VSCodeContext';
 import { PackageHeader } from './PackageHeader';
 import { PackageSidebar } from './PackageSidebar';
 import { ReadmeTab } from './tabs/ReadmeTab';
@@ -24,8 +25,12 @@ interface PackageDetailsViewProps {
 }
 
 export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, initialData }) => {
+  const { sourceInfo } = useVSCode();
   const [details, setDetails] = useState<PackageDetails | null>(initialData || null);
   const [activeTab, setActiveTab] = useState<'readme' | 'versions' | 'dependencies' | 'security'>('readme');
+  
+  // Check if security capability is supported
+  const supportsSecurity = sourceInfo.supportedCapabilities.includes('security');
   const [isLoading, setIsLoading] = useState(!initialData);
   const [error, setError] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
@@ -33,10 +38,12 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
     runtime: boolean;
     dev: boolean;
     peer: boolean;
+    optional?: boolean;
   }>({
     runtime: true,
     dev: true,
     peer: true,
+    optional: true,
   });
   const [expandedVulnerabilities, setExpandedVulnerabilities] = useState<Set<number>>(new Set());
   const [expandedSeverityTypes, setExpandedSeverityTypes] = useState<Set<string>>(new Set());
@@ -265,16 +272,18 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
                 Dependencies
                 {depsCount > 0 && <span className="tab-badge">{depsCount}</span>}
               </button>
-              <button
-                className={`tab ${activeTab === 'security' ? 'active' : ''}`}
-                onClick={() => setActiveTab('security')}
-              >
-                {isSecure ? <ShieldCheck size={14} /> : <ShieldAlert size={14} />}
-                Security
-                {details.security && details.security.summary.total > 0 && (
-                  <span className="tab-badge">{details.security.summary.total}</span>
-                )}
-              </button>
+              {supportsSecurity && (
+                <button
+                  className={`tab ${activeTab === 'security' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('security')}
+                >
+                  {isSecure ? <ShieldCheck size={14} /> : <ShieldAlert size={14} />}
+                  Security
+                  {details.security && details.security.summary.total > 0 && (
+                    <span className="tab-badge">{details.security.summary.total}</span>
+                  )}
+                </button>
+              )}
             </div>
 
             {/* Tab Content */}
@@ -296,7 +305,7 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
                   onOpenExternal={openExternal}
                 />
               )}
-              {activeTab === 'security' && (
+              {activeTab === 'security' && supportsSecurity && (
                 <SecurityTab
                   details={details}
                   expandedVulnerabilities={expandedVulnerabilities}

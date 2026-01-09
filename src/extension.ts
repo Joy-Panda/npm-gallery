@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { createApiClients } from './api';
-import { getServices } from './services';
+import { initServices } from './services';
 import {
   PackageHoverProvider,
   PackageCodeLensProvider,
@@ -13,14 +13,14 @@ import { registerCommands } from './commands';
 /**
  * Extension activation
  */
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
   console.log('NPM Gallery: Activating...');
 
   // Initialize API clients
   createApiClients();
 
-  // Initialize services
-  const services = getServices();
+  // Initialize services with source detection
+  const services = await initServices();
   const workspaceDisposables = services.workspace.initialize();
   context.subscriptions.push(...workspaceDisposables);
 
@@ -39,10 +39,31 @@ export function activate(context: vscode.ExtensionContext) {
     )
   );
 
-  // Register CodeLens provider for package.json
+  // Register CodeLens provider for package.json, pom.xml, and Gradle files
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider(
       { language: 'json', pattern: '**/package.json' },
+      codeLensProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider(
+      { language: 'xml', pattern: '**/pom.xml' },
+      codeLensProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider(
+      { scheme: 'file', pattern: '**/build.gradle' },
+      codeLensProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider(
+      { scheme: 'file', pattern: '**/build.gradle.kts' },
       codeLensProvider
     )
   );

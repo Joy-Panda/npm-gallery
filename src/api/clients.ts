@@ -2,6 +2,7 @@ import { NpmRegistryClient } from './npm-registry';
 import { NpmsApiClient } from './npms-api';
 import { BundlephobiaClient } from './bundlephobia';
 import { OSVClient } from './osv';
+import { SonatypeApiClient } from './sonatype-api';
 
 /**
  * All API clients
@@ -11,6 +12,7 @@ export interface ApiClients {
   npms: NpmsApiClient;
   bundlephobia: BundlephobiaClient;
   audit: OSVClient;
+  sonatype: SonatypeApiClient;
 }
 
 // Singleton instances
@@ -26,6 +28,7 @@ export function createApiClients(): ApiClients {
       npms: new NpmsApiClient(),
       bundlephobia: new BundlephobiaClient(),
       audit: new OSVClient(),
+      sonatype: new SonatypeApiClient(),
     };
   }
   return apiClients;

@@ -2,6 +2,7 @@ import React from 'react';
 import { Search, X, Loader2, Filter } from 'lucide-react';
 import { Input } from './ui/input';
 import { Button } from './ui/button';
+import { SourceSelector } from './SourceSelector';
 
 interface SearchBarProps {
   value: string;
@@ -10,6 +11,7 @@ interface SearchBarProps {
   isLoading?: boolean;
   onAdvancedSearchToggle?: () => void;
   isAdvancedSearchOpen?: boolean;
+  showSourceSelector?: boolean;
 }
 
 export const SearchBar: React.FC<SearchBarProps> = ({ 
@@ -18,7 +20,8 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   onSearch,
   isLoading, 
   onAdvancedSearchToggle,
-  isAdvancedSearchOpen = false
+  isAdvancedSearchOpen = false,
+  showSourceSelector = true
 }) => {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && onSearch) {
@@ -29,6 +32,11 @@ export const SearchBar: React.FC<SearchBarProps> = ({
 
   return (
     <div className="search-container">
+      {showSourceSelector && (
+        <div className="search-header">
+          <SourceSelector compact />
+        </div>
+      )}
       <div className="search-wrapper">
         <div className="search-icon">
           {isLoading ? (
@@ -73,12 +81,18 @@ export const SearchBar: React.FC<SearchBarProps> = ({
 
       <style>{`
         .search-container {
-          padding: 16px;
+          padding: 12px 16px 16px;
           position: sticky;
           top: 0;
           background: var(--vscode-sideBar-background);
           z-index: 100;
           border-bottom: 1px solid var(--vscode-widget-border);
+        }
+
+        .search-header {
+          display: flex;
+          justify-content: flex-end;
+          margin-bottom: 8px;
         }
 
         .search-wrapper {

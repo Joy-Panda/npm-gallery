@@ -1,6 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { PackageDetailsView } from './components/PackageDetailsView';
+import { VSCodeProvider } from './context/VSCodeContext';
 
 // Get initial data from window if available
 declare global {
@@ -24,7 +25,9 @@ if (container) {
   const root = createRoot(container);
   root.render(
     <React.StrictMode>
-      <PackageDetailsView vscode={vscodeApi} initialData={window.initialData as never} />
+      <VSCodeProvider vscode={vscodeApi}>
+        <PackageDetailsView vscode={vscodeApi} initialData={window.initialData as never} />
+      </VSCodeProvider>
     </React.StrictMode>
   );
 }

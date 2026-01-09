@@ -110,6 +110,42 @@ export function registerCommands(
     )
   );
 
+  // Update Maven dependency
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'npmGallery.updateMavenDependency',
+      async (pomPath: string, groupId: string, artifactId: string, newVersion: string) => {
+        const result = await services.workspace.updateMavenDependency(pomPath, groupId, artifactId, newVersion);
+        
+        if (result) {
+          vscode.window.showInformationMessage(`Updated ${groupId}:${artifactId} to ${newVersion}`);
+          providers.codelens.refresh();
+          providers.updates.refresh();
+        } else {
+          vscode.window.showErrorMessage(`Failed to update ${groupId}:${artifactId}`);
+        }
+      }
+    )
+  );
+
+  // Update Gradle dependency
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'npmGallery.updateGradleDependency',
+      async (gradlePath: string, groupId: string, artifactId: string, newVersion: string) => {
+        const result = await services.workspace.updateGradleDependency(gradlePath, groupId, artifactId, newVersion);
+        
+        if (result) {
+          vscode.window.showInformationMessage(`Updated ${groupId}:${artifactId} to ${newVersion}`);
+          providers.codelens.refresh();
+          providers.updates.refresh();
+        } else {
+          vscode.window.showErrorMessage(`Failed to update ${groupId}:${artifactId}`);
+        }
+      }
+    )
+  );
+
   // Update all packages
   context.subscriptions.push(
     vscode.commands.registerCommand('npmGallery.updateAllPackages', async (section?: string) => {

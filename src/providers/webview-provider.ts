@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { getServices } from '../services';
-import type { WebviewToExtensionMessage } from '../types/messages';
+import type { WebviewToExtensionMessage, SourceInfoMessage } from '../types/messages';
+import type { SourceType } from '../types/project';
 import { PackageDetailsPanel } from './package-details-panel';
 
 /**
@@ -118,7 +119,54 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
         PackageDetailsPanel.createOrShow(this.extensionUri, message.packageName);
         break;
       }
+
+      case 'getSourceInfo': {
+        this.sendSourceInfo();
+        break;
+      }
+
+      case 'changeSource': {
+        services.setSelectedSource(message.source as SourceType);
+        this.sendSourceInfo();
+        break;
+      }
     }
+  }
+
+  /**
+   * Send source information to webview
+   */
+  private sendSourceInfo(): void {
+    const services = getServices();
+    const supportedCapabilities = services.package.getSupportedCapabilities();
+    
+    // Build capability support map
+    const capabilitySupport: Record<string, { capability: string; supported: boolean; reason?: string }> = {};
+    for (const cap of supportedCapabilities) {
+      const support = services.package.getCapabilitySupport(cap);
+      if (support) {
+        capabilitySupport[cap] = {
+          capability: cap,
+          supported: support.supported,
+          reason: support.reason,
+        };
+      }
+    }
+    
+    const sourceInfo: SourceInfoMessage = {
+      type: 'sourceInfo',
+      data: {
+        currentProjectType: services.getCurrentProjectType(),
+        currentSource: services.getCurrentSourceType(),
+        availableSources: services.getAvailableSources(),
+        supportedSortOptions: services.getSupportedSortOptions(),
+        supportedFilters: services.getSupportedFilters(),
+        supportedCapabilities: supportedCapabilities.map(c => c.toString()),
+        capabilitySupport,
+      },
+    };
+    
+    this.postMessage(sourceInfo);
   }
 
   /**

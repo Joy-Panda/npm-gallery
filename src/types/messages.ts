@@ -4,6 +4,7 @@ import type {
   SearchResult,
   InstallOptions,
 } from './package';
+import type { ProjectType, SourceType } from './project';
 
 /**
  * Messages sent from extension to webview
@@ -15,7 +16,8 @@ export type ExtensionToWebviewMessage =
   | InstallErrorMessage
   | LoadingMessage
   | ErrorMessage
-  | ConfigUpdateMessage;
+  | ConfigUpdateMessage
+  | SourceInfoMessage;
 
 export interface SearchResultsMessage {
   type: 'searchResults';
@@ -61,6 +63,23 @@ export interface ConfigUpdateMessage {
   };
 }
 
+export interface SourceInfoMessage {
+  type: 'sourceInfo';
+  data: {
+    currentProjectType: ProjectType;
+    currentSource: SourceType;
+    availableSources: SourceType[];
+    supportedSortOptions: string[];
+    supportedFilters: string[];
+    supportedCapabilities: string[]; // SourceCapability enum values as strings
+    capabilitySupport: Record<string, {
+      capability: string;
+      supported: boolean;
+      reason?: string;
+    }>;
+  };
+}
+
 /**
  * Messages sent from webview to extension
  */
@@ -72,7 +91,9 @@ export type WebviewToExtensionMessage =
   | CopyToClipboardMessage
   | RefreshMessage
   | OpenPackageDetailsMessage
-  | ReadyMessage;
+  | ReadyMessage
+  | ChangeSourceMessage
+  | GetSourceInfoMessage;
 
 export interface SearchMessage {
   type: 'search';
@@ -116,6 +137,15 @@ export interface ReadyMessage {
   type: 'ready';
 }
 
+export interface ChangeSourceMessage {
+  type: 'changeSource';
+  source: SourceType;
+}
+
+export interface GetSourceInfoMessage {
+  type: 'getSourceInfo';
+}
+
 /**
  * State for the webview
  */
@@ -126,4 +156,10 @@ export interface WebviewState {
   isLoading: boolean;
   error: string | null;
   view: 'search' | 'details';
+  // Source information
+  currentProjectType: ProjectType;
+  currentSource: SourceType;
+  availableSources: SourceType[];
+  supportedSortOptions: string[];
+  supportedFilters: string[];
 }

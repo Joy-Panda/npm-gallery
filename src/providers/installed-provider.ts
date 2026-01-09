@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
 import { getServices } from '../services';
-import { getApiClients } from '../api';
 import type { InstalledPackage, DependencyType } from '../types/package';
 
 /**
@@ -128,13 +127,11 @@ export class InstalledPackagesProvider implements vscode.TreeDataProvider<TreeIt
           if (!cached) {
             // Quick check if package has dependencies without full fetch
             try {
-              const clients = getApiClients();
-              const pkgData = await clients.npmRegistry.getPackageAbbreviated(pkg.name);
-              const versionData = pkgData.versions?.[pkg.currentVersion] || pkgData.versions?.[pkgData['dist-tags']?.latest];
-              const dependencies = versionData?.dependencies;
+              const services = getServices();
+              const dependencies = await services.package.getPackageDependencies(pkg.name, pkg.currentVersion);
               const hasDependencies = dependencies && Object.keys(dependencies).length > 0;
 
-              cached = { dependencies, hasDependencies: !!hasDependencies };
+              cached = { dependencies: dependencies || undefined, hasDependencies: !!hasDependencies };
               this.dependencyCache.set(cacheKey, cached);
             } catch {
               cached = { hasDependencies: false };
@@ -163,13 +160,11 @@ export class InstalledPackagesProvider implements vscode.TreeDataProvider<TreeIt
 
         if (!cached) {
           try {
-            const clients = getApiClients();
-            const pkgData = await clients.npmRegistry.getPackageAbbreviated(depName);
-            const versionData = pkgData.versions?.[version] || pkgData.versions?.[pkgData['dist-tags']?.latest];
-            const dependencies = versionData?.dependencies;
+            const services = getServices();
+            const dependencies = await services.package.getPackageDependencies(depName, version);
             const hasDependencies = dependencies && Object.keys(dependencies).length > 0;
 
-            cached = { dependencies, hasDependencies: !!hasDependencies };
+            cached = { dependencies: dependencies || undefined, hasDependencies: !!hasDependencies };
             this.dependencyCache.set(cacheKey, cached);
           } catch {
             cached = { hasDependencies: false };
