@@ -27,7 +27,7 @@ export function registerCommands(
   context.subscriptions.push(
     vscode.commands.registerCommand('npmGallery.searchPackages', async () => {
       const query = await vscode.window.showInputBox({
-        prompt: 'Search npm packages',
+        prompt: 'Search packages',
         placeHolder: 'Enter package name or keywords',
       });
 
@@ -322,8 +322,16 @@ export function registerCommands(
 
         if (!packageName) return;
 
-        // Open package details panel, optionally scoped to a specific installed version
-        await PackageDetailsPanel.createOrShow(context.extensionUri, packageName, version);
+        // If a version is provided (from vulnerability CodeLens), open security-only view for that version.
+        // Otherwise open full package details view.
+        if (version) {
+          await PackageDetailsPanel.createOrShow(context.extensionUri, packageName, {
+            installedVersion: version,
+            securityOnly: true,
+          });
+        } else {
+          await PackageDetailsPanel.createOrShow(context.extensionUri, packageName);
+        }
       }
     )
   );

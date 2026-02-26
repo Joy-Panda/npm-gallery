@@ -49,7 +49,7 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
           <Card className="empty-icon">
             <Search size={28} />
           </Card>
-          <h3 className="empty-title">Search npm packages</h3>
+          <h3 className="empty-title">Search packages</h3>
           <p className="empty-description">
             Find packages by name, keywords, or description
           </p>

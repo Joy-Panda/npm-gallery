@@ -47,7 +47,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
         </div>
         <Input
           type="text"
-          placeholder="Search npm packages... (Press Enter to search)"
+          placeholder="Search packages... (Press Enter to search)"
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}

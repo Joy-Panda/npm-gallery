@@ -13,18 +13,27 @@ export class PackageDetailsPanel {
   private readonly _panel: vscode.WebviewPanel;
   private readonly _extensionUri: vscode.Uri;
   private _packageName: string;
+  private _securityOnly: boolean;
+  private _panelKey: string;
   private _installedVersion?: string;
   private _disposables: vscode.Disposable[] = [];
+
+  private static getPanelKey(packageName: string, securityOnly: boolean): string {
+    return `${packageName}:${securityOnly ? 'security' : 'details'}`;
+  }
 
   public static async createOrShow(
     extensionUri: vscode.Uri,
     packageName: string,
-    installedVersion?: string
+    options?: { installedVersion?: string; securityOnly?: boolean }
   ): Promise<void> {
     const column = vscode.ViewColumn.One;
+    const securityOnly = !!options?.securityOnly;
+    const installedVersion = options?.installedVersion;
+    const key = PackageDetailsPanel.getPanelKey(packageName, securityOnly);
 
-    // Check if we already have a panel for this package
-    const existingPanel = PackageDetailsPanel.currentPanels.get(packageName);
+    // Check if we already have a panel for this package + mode
+    const existingPanel = PackageDetailsPanel.currentPanels.get(key);
     if (existingPanel) {
       existingPanel.setInstalledVersion(installedVersion);
       await existingPanel.loadPackageDetails();
@@ -35,7 +44,7 @@ export class PackageDetailsPanel {
     // Create a new panel
     const panel = vscode.window.createWebviewPanel(
       PackageDetailsPanel.viewType,
-      `${packageName}`,
+      securityOnly ? `Security: ${packageName}` : `${packageName}`,
       column,
       {
         enableScripts: true,
@@ -44,8 +53,15 @@ export class PackageDetailsPanel {
       }
     );
 
-    const detailsPanel = new PackageDetailsPanel(panel, extensionUri, packageName, installedVersion);
-    PackageDetailsPanel.currentPanels.set(packageName, detailsPanel);
+    const detailsPanel = new PackageDetailsPanel(
+      panel,
+      extensionUri,
+      packageName,
+      securityOnly,
+      key,
+      installedVersion
+    );
+    PackageDetailsPanel.currentPanels.set(key, detailsPanel);
     // Panel will load data when React app sends 'ready' message
   }
 
@@ -53,11 +69,15 @@ export class PackageDetailsPanel {
     panel: vscode.WebviewPanel,
     extensionUri: vscode.Uri,
     packageName: string,
+    securityOnly: boolean,
+    panelKey: string,
     installedVersion?: string
   ) {
     this._panel = panel;
     this._extensionUri = extensionUri;
     this._packageName = packageName;
+    this._securityOnly = securityOnly;
+    this._panelKey = panelKey;
     this._installedVersion = installedVersion;
 
     // Set initial HTML with React app
@@ -98,8 +118,13 @@ export class PackageDetailsPanel {
         }
       }
 
-      // Send package details to React app
-      this._panel.webview.postMessage({ type: 'packageDetails', data: details });
+      // When opened in security-only mode, tell webview to render only Security tab
+      const securityOnlyView = this._securityOnly;
+      this._panel.webview.postMessage({
+        type: 'packageDetails',
+        data: details,
+        securityOnlyView,
+      });
     } catch (error) {
       this._panel.webview.postMessage({
         type: 'error',
@@ -211,7 +236,7 @@ export class PackageDetailsPanel {
   }
 
   public dispose(): void {
-    PackageDetailsPanel.currentPanels.delete(this._packageName);
+    PackageDetailsPanel.currentPanels.delete(this._panelKey);
     this._panel.dispose();
     while (this._disposables.length) {
       const disposable = this._disposables.pop();

@@ -1,3 +1,4 @@
+import * as json from 'jsonc-parser/lib/esm/main.js';
 import * as vscode from 'vscode';
 import { getServices } from '../services';
 import { isNewerVersion } from '../utils/version-utils';
@@ -53,24 +54,27 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
     text: string
   ): Promise<vscode.CodeLens[]> {
     const codeLenses: vscode.CodeLens[] = [];
+    const tree = json.parseTree(text);
+    if (!tree) {
+      return [];
+    }
+    const packageJson = json.getNodeValue(tree) as Record<string, unknown> | undefined;
+    if (!packageJson || typeof packageJson !== 'object') {
+      return [];
+    }
+    const depSections = ['dependencies', 'devDependencies', 'peerDependencies'];
 
-    try {
-      const packageJson = JSON.parse(text);
-      const depSections = ['dependencies', 'devDependencies', 'peerDependencies'];
-
-      for (const section of depSections) {
-        if (packageJson[section]) {
-          const sectionLenses = await this.getCodeLensesForNpmSection(
-            document,
-            text,
-            section,
-            packageJson[section]
-          );
-          codeLenses.push(...sectionLenses);
-        }
+    for (const section of depSections) {
+      const sectionDeps = packageJson[section];
+      if (sectionDeps && typeof sectionDeps === 'object' && !Array.isArray(sectionDeps)) {
+        const sectionLenses = await this.getCodeLensesForNpmSection(
+          document,
+          section,
+          sectionDeps as Record<string, string>,
+          tree
+        );
+        codeLenses.push(...sectionLenses);
       }
-    } catch {
-      // Invalid JSON, skip
     }
 
     return codeLenses;
@@ -214,26 +218,26 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
   }
 
   /**
-   * Get CodeLenses for an npm dependency section
+   * Get CodeLenses for an npm dependency section using jsonc-parser tree for exact key positions.
    */
   private async getCodeLensesForNpmSection(
     document: vscode.TextDocument,
-    text: string,
     section: string,
-    deps: Record<string, string>
+    deps: Record<string, string>,
+    tree: json.Node
   ): Promise<vscode.CodeLens[]> {
     const codeLenses: vscode.CodeLens[] = [];
     const services = getServices();
     const config = vscode.workspace.getConfiguration('npmGallery');
     const showSecurityInfo = config.get<boolean>('showSecurityInfo', true);
 
-    // Find section in document
-    const sectionRegex = new RegExp(`"${section}"\\s*:\\s*\\{`);
-    const sectionMatch = text.match(sectionRegex);
-
-    if (!sectionMatch || sectionMatch.index === undefined) {
+    const sectionValueNode = json.findNodeAtLocation(tree, [section]);
+    if (!sectionValueNode || sectionValueNode.type !== 'object') {
       return [];
     }
+    const sectionKeyNode = sectionValueNode.parent?.type === 'property' && sectionValueNode.parent.children?.[0]
+      ? sectionValueNode.parent.children[0]
+      : null;
 
     // Prepare bulk security query for all dependencies in this section
     const packagesForSecurity: Array<{ name: string; version: string }> = [];
@@ -299,25 +303,50 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
               }
             }
 
-            // Add CodeLenses at the package key position
-            const packageRegex = new RegExp(`"${this.escapeRegex(name)}"\\s*:\\s*"[^"]+"`);
-            const packageMatch = text.match(packageRegex);
+            // Use jsonc-parser to get the key node for this package (exact offset; one CodeLens per section occurrence)
+            const valueNode = json.findNodeAtLocation(tree, [section, name]);
+            const keyNode = valueNode?.parent?.type === 'property' && valueNode.parent.children?.[0]
+              ? valueNode.parent.children[0]
+              : null;
 
-            if (packageMatch && packageMatch.index !== undefined) {
-              const position = document.positionAt(packageMatch.index);
-              const range = new vscode.Range(position, position);
+            if (keyNode) {
+              const start = document.positionAt(keyNode.offset);
+              const end = document.positionAt(keyNode.offset + keyNode.length);
+              const range = new vscode.Range(start, end);
 
               // Security CodeLens
               if (showSecurityInfo && securitySummary) {
                 const { total, critical, high } = securitySummary;
                 let title: string;
                 if (total === 0) {
-                  title = '🛡 No vulnerabilities';
+                  // Green shield for fully secure dependencies
+                  title = '🟢 No vulnerabilities';
                 } else {
                   const parts: string[] = [];
-                  if (critical > 0) parts.push(`${critical} critical`);
-                  if (high > 0) parts.push(`${high} high`);
-                  title = `⚠ ${total} vulns${parts.length ? ` (${parts.join(', ')})` : ''}`;
+                  if (critical > 0) {
+                    parts.push(`🔴 ${critical} critical`);
+                  }
+                  if (high > 0) {
+                    parts.push(`🟠 ${high} high`);
+                  }
+
+                  // Overall: red > orange > yellow (yellow when only moderate/low/info)
+                  const overallIcon = critical > 0 ? '🔴' : high > 0 ? '🟠' : '🟡';
+
+                  const hasCriticalOnly = critical > 0 && high === 0 && total === critical;
+                  const hasHighOnly = high > 0 && critical === 0 && total === high;
+
+                  if (hasCriticalOnly) {
+                    // All vulnerabilities are critical -> avoid duplication
+                    title = `${overallIcon} ${critical} critical vulns`;
+                  } else if (hasHighOnly) {
+                    // All vulnerabilities are high -> avoid duplication
+                    title = `${overallIcon} ${high} high vulns`;
+                  } else {
+                    title = `${overallIcon} ${total} vulns${
+                      parts.length ? ` (${parts.join(', ')})` : ''
+                    }`;
+                  }
                 }
 
                 codeLenses.push(
@@ -352,8 +381,8 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
     await Promise.all(updatePromises);
 
     // Add section-level CodeLens if there are updates
-    if (updatesCount > 0) {
-      const sectionPosition = document.positionAt(sectionMatch.index);
+    if (updatesCount > 0 && sectionKeyNode) {
+      const sectionPosition = document.positionAt(sectionKeyNode.offset);
       const sectionRange = new vscode.Range(sectionPosition, sectionPosition);
 
       codeLenses.unshift(
@@ -368,13 +397,6 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
     return codeLenses;
   }
 
-
-  /**
-   * Escape regex special characters
-   */
-  private escapeRegex(str: string): string {
-    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
 
   dispose(): void {
     this._onDidChangeCodeLenses.dispose();

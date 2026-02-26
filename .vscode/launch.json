@@ -2,7 +2,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Run Extension NPM",
+            "name": "Run NPM",
             "type": "extensionHost",
             "request": "launch",
             "args": [
@@ -16,7 +16,7 @@
             "preLaunchTask": "${defaultBuildTask}"
         },
 		{
-            "name": "Run Extension Maven",
+            "name": "Run Maven",
             "type": "extensionHost",
             "request": "launch",
             "args": [

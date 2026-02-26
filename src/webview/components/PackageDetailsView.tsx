@@ -28,7 +28,9 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
   const { sourceInfo } = useVSCode();
   const [details, setDetails] = useState<PackageDetails | null>(initialData || null);
   const [activeTab, setActiveTab] = useState<'readme' | 'versions' | 'dependencies' | 'security'>('readme');
-  
+  /** When true, opened from vulnerability CodeLens — show only Security tab, no full package details */
+  const [securityOnlyView, setSecurityOnlyView] = useState(false);
+
   // Check if security capability is supported
   const supportsSecurity = sourceInfo.supportedCapabilities.includes('security');
   const [isLoading, setIsLoading] = useState(!initialData);
@@ -67,6 +69,7 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
       switch (message.type) {
         case 'packageDetails':
           setDetails(message.data);
+          setSecurityOnlyView(!!message.securityOnlyView);
           setIsLoading(false);
           setError(null);
           break;
@@ -228,6 +231,36 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
 
   const depsCount = details.dependencies ? Object.keys(details.dependencies).length : 0;
   const isSecure = !details.security || details.security.summary.total === 0;
+
+  // Opened from vulnerability CodeLens: only show Security tab (no full package details/tabs/sidebar).
+  // Do not require supportsSecurity — package-details webview may not receive sourceInfo, and we already have security data for the installed version.
+  if (securityOnlyView) {
+    return (
+      <>
+        <style>{styles}</style>
+        <div className="package-view security-only-view">
+          <div className="security-only-header">
+            {isSecure ? <ShieldCheck size={20} /> : <ShieldAlert size={20} />}
+            <span className="security-only-title">
+              Vulnerabilities — {details.name}@{details.version}
+            </span>
+          </div>
+          <div className="tab-content security-only-content">
+            <SecurityTab
+              details={details}
+              expandedVulnerabilities={expandedVulnerabilities}
+              expandedSeverityTypes={expandedSeverityTypes}
+              onToggleVulnerability={toggleVulnerability}
+              onToggleSeverityType={toggleSeverityType}
+              onOpenExternal={openExternal}
+              formatRelativeTime={formatRelativeTime}
+              groupVulnerabilitiesBySeverity={groupVulnerabilitiesBySeverity}
+            />
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -430,5 +463,31 @@ const styles = `
     flex: 1;
     overflow-y: auto;
     padding: 24px;
+  }
+
+  .security-only-view {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .security-only-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 24px;
+    background: var(--vscode-editor-background);
+    border-bottom: 1px solid var(--vscode-widget-border);
+    flex-shrink: 0;
+  }
+
+  .security-only-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--vscode-foreground);
+  }
+
+  .security-only-content {
+    flex: 1;
+    min-height: 0;
   }
 `;
