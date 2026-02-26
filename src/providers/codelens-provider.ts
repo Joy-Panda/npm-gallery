@@ -10,6 +10,7 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
   readonly onDidChangeCodeLenses = this._onDidChangeCodeLenses.event;
 
   private latestVersions = new Map<string, string>();
+  private securitySummaries = new Map<string, { total: number; critical: number; high: number }>();
 
   /**
    * Refresh CodeLenses
@@ -223,6 +224,8 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
   ): Promise<vscode.CodeLens[]> {
     const codeLenses: vscode.CodeLens[] = [];
     const services = getServices();
+    const config = vscode.workspace.getConfiguration('npmGallery');
+    const showSecurityInfo = config.get<boolean>('showSecurityInfo', true);
 
     // Find section in document
     const sectionRegex = new RegExp(`"${section}"\\s*:\\s*\\{`);
@@ -230,6 +233,33 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
 
     if (!sectionMatch || sectionMatch.index === undefined) {
       return [];
+    }
+
+    // Prepare bulk security query for all dependencies in this section
+    const packagesForSecurity: Array<{ name: string; version: string }> = [];
+    if (showSecurityInfo) {
+      for (const [name, currentVersionRange] of Object.entries(deps)) {
+        const currentVersion = currentVersionRange.replace(/^[\^~>=<]+/, '');
+        packagesForSecurity.push({ name, version: currentVersion });
+      }
+    }
+
+    let bulkSecurity: Record<string, { summary: { total: number; critical: number; high: number } } | null> = {};
+    if (showSecurityInfo && packagesForSecurity.length > 0) {
+      try {
+        const securityResults = await services.package.getSecurityInfoBulk(packagesForSecurity);
+        const mapped: typeof bulkSecurity = {};
+        for (const { name, version } of packagesForSecurity) {
+          const key = `${name}@${version}`;
+          const sec = securityResults[key];
+          mapped[key] = sec && sec.summary
+            ? { summary: { total: sec.summary.total, critical: sec.summary.critical, high: sec.summary.high } }
+            : null;
+        }
+        bulkSecurity = mapped;
+      } catch {
+        bulkSecurity = {};
+      }
     }
 
     // Get updates count
@@ -244,24 +274,64 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
           try {
             let latestVersion = this.latestVersions.get(name);
 
+            const securityKey = `${name}@${currentVersion}`;
+            let securitySummary = this.securitySummaries.get(securityKey);
+
+            // Resolve latest version (still per-package)
             if (!latestVersion) {
-              const version = await services.package.getLatestVersion(name);
-              if (version) {
-                latestVersion = version;
-                this.latestVersions.set(name, latestVersion);
+              const resolvedLatestVersion = await services.package.getLatestVersion(name);
+              if (resolvedLatestVersion) {
+                latestVersion = resolvedLatestVersion;
+                this.latestVersions.set(name, resolvedLatestVersion);
               }
             }
 
-            if (latestVersion && isNewerVersion(currentVersion, latestVersion)) {
-              updatesCount++;
+            // Get security summary from bulk results (no per-package OSV calls here)
+            if (showSecurityInfo && !securitySummary) {
+              const sec = bulkSecurity[securityKey];
+              if (sec && sec.summary) {
+                securitySummary = {
+                  total: sec.summary.total,
+                  critical: sec.summary.critical,
+                  high: sec.summary.high,
+                };
+                this.securitySummaries.set(securityKey, securitySummary);
+              }
+            }
 
-              // Add CodeLens for individual package
-              const packageRegex = new RegExp(`"${this.escapeRegex(name)}"\\s*:\\s*"[^"]+"`);
-              const packageMatch = text.match(packageRegex);
+            // Add CodeLenses at the package key position
+            const packageRegex = new RegExp(`"${this.escapeRegex(name)}"\\s*:\\s*"[^"]+"`);
+            const packageMatch = text.match(packageRegex);
 
-              if (packageMatch && packageMatch.index !== undefined) {
-                const position = document.positionAt(packageMatch.index);
-                const range = new vscode.Range(position, position);
+            if (packageMatch && packageMatch.index !== undefined) {
+              const position = document.positionAt(packageMatch.index);
+              const range = new vscode.Range(position, position);
+
+              // Security CodeLens
+              if (showSecurityInfo && securitySummary) {
+                const { total, critical, high } = securitySummary;
+                let title: string;
+                if (total === 0) {
+                  title = '🛡 No vulnerabilities';
+                } else {
+                  const parts: string[] = [];
+                  if (critical > 0) parts.push(`${critical} critical`);
+                  if (high > 0) parts.push(`${high} high`);
+                  title = `⚠ ${total} vulns${parts.length ? ` (${parts.join(', ')})` : ''}`;
+                }
+
+                codeLenses.push(
+                  new vscode.CodeLens(range, {
+                    title,
+                    command: 'npmGallery.showPackageDetails',
+                    arguments: [name, currentVersion],
+                  })
+                );
+              }
+
+              // Version update CodeLens
+              if (latestVersion && isNewerVersion(currentVersion, latestVersion)) {
+                updatesCount++;
 
                 codeLenses.push(
                   new vscode.CodeLens(range, {

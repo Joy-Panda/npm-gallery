@@ -107,6 +107,62 @@ export class PackageService {
   }
 
   /**
+   * Get security info for multiple packages in batch (only if capability is supported)
+   * Adapters can implement getSecurityInfoBulk using OSV /v1/querybatch.
+   * Falls back to individual getSecurityInfo calls when bulk is not available.
+   */
+  async getSecurityInfoBulk(
+    packages: Array<{ name: string; version: string }>
+  ): Promise<Record<string, SecurityInfo | null>> {
+    if (!this.sourceSelector) {
+      throw new Error('PackageService not initialized: SourceSelector is required');
+    }
+
+    const result: Record<string, SecurityInfo | null> = {};
+    if (packages.length === 0) {
+      return result;
+    }
+
+    const adapter = this.sourceSelector.selectSource();
+
+    if (!adapter.supportsCapability(SourceCapability.SECURITY)) {
+      return result;
+    }
+
+    // Prefer adapter-level bulk implementation if available
+    if (adapter.getSecurityInfoBulk) {
+      try {
+        const bulk = await adapter.getSecurityInfoBulk(packages);
+        return bulk;
+      } catch (error) {
+        if (!(error instanceof CapabilityNotSupportedError)) {
+          // For other errors, fall through to per-package fallback
+        }
+      }
+    }
+
+    // Fallback: call getSecurityInfo for each package
+    if (adapter.getSecurityInfo) {
+      await Promise.all(
+        packages.map(async ({ name, version }) => {
+          const key = `${name}@${version}`;
+          try {
+            result[key] = await adapter.getSecurityInfo!(name, version);
+          } catch (error) {
+            if (error instanceof CapabilityNotSupportedError) {
+              result[key] = null;
+            } else {
+              result[key] = null;
+            }
+          }
+        })
+      );
+    }
+
+    return result;
+  }
+
+  /**
    * Get capability support information
    */
   getCapabilitySupport(capability: SourceCapability): CapabilitySupport | null {

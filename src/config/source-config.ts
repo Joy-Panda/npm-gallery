@@ -22,7 +22,7 @@ export const DEFAULT_SOURCE_CONFIG: Record<ProjectType, SourceConfig> = {
     filters: ['author', 'maintainer', 'scope', 'keywords'],
   },
   maven: {
-    primary: 'maven-central',
+    primary: 'sonatype',
     fallbacks: [],
     sortOptions: ['relevance', 'popularity'],
     filters: ['groupId'],

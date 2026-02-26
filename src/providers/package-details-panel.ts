@@ -13,14 +13,21 @@ export class PackageDetailsPanel {
   private readonly _panel: vscode.WebviewPanel;
   private readonly _extensionUri: vscode.Uri;
   private _packageName: string;
+  private _installedVersion?: string;
   private _disposables: vscode.Disposable[] = [];
 
-  public static async createOrShow(extensionUri: vscode.Uri, packageName: string): Promise<void> {
+  public static async createOrShow(
+    extensionUri: vscode.Uri,
+    packageName: string,
+    installedVersion?: string
+  ): Promise<void> {
     const column = vscode.ViewColumn.One;
 
     // Check if we already have a panel for this package
     const existingPanel = PackageDetailsPanel.currentPanels.get(packageName);
     if (existingPanel) {
+      existingPanel.setInstalledVersion(installedVersion);
+      await existingPanel.loadPackageDetails();
       existingPanel._panel.reveal(column);
       return;
     }
@@ -37,15 +44,21 @@ export class PackageDetailsPanel {
       }
     );
 
-    const detailsPanel = new PackageDetailsPanel(panel, extensionUri, packageName);
+    const detailsPanel = new PackageDetailsPanel(panel, extensionUri, packageName, installedVersion);
     PackageDetailsPanel.currentPanels.set(packageName, detailsPanel);
     // Panel will load data when React app sends 'ready' message
   }
 
-  private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri, packageName: string) {
+  private constructor(
+    panel: vscode.WebviewPanel,
+    extensionUri: vscode.Uri,
+    packageName: string,
+    installedVersion?: string
+  ) {
     this._panel = panel;
     this._extensionUri = extensionUri;
     this._packageName = packageName;
+    this._installedVersion = installedVersion;
 
     // Set initial HTML with React app
     this._panel.webview.html = this.getHtmlContent();
@@ -61,10 +74,30 @@ export class PackageDetailsPanel {
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
   }
 
+  public setInstalledVersion(version?: string): void {
+    this._installedVersion = version;
+  }
+
   private async loadPackageDetails(): Promise<void> {
     try {
       const services = getServices();
       const details = await services.package.getPackageDetails(this._packageName);
+
+      // If an installed version is specified, override security info to match that version
+      if (this._installedVersion) {
+        try {
+          const security = await services.package.getSecurityInfo(
+            this._packageName,
+            this._installedVersion
+          );
+          if (security) {
+            (details as any).security = security;
+          }
+        } catch {
+          // Ignore security override errors and fall back to default details
+        }
+      }
+
       // Send package details to React app
       this._panel.webview.postMessage({ type: 'packageDetails', data: details });
     } catch (error) {

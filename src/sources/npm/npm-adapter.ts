@@ -221,6 +221,41 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
     }
   }
 
+  /**
+   * Get security info for multiple packages (batch)
+   */
+  async getSecurityInfoBulk(
+    packages: Array<{ name: string; version: string }>
+  ): Promise<Record<string, SecurityInfo | null>> {
+    if (!this.supportsCapability(SourceCapability.SECURITY)) {
+      throw new CapabilityNotSupportedError(
+        SourceCapability.SECURITY,
+        this.sourceType
+      );
+    }
+
+    if (!this.osvClient || packages.length === 0) {
+      return {};
+    }
+
+    try {
+      const result = await this.osvClient.queryBulkVulnerabilities(packages);
+      const mapped: Record<string, SecurityInfo | null> = {};
+      for (const pkg of packages) {
+        const key = `${pkg.name}@${pkg.version}`;
+        mapped[key] = result[key] ?? null;
+      }
+      return mapped;
+    } catch {
+      const empty: Record<string, SecurityInfo | null> = {};
+      for (const pkg of packages) {
+        const key = `${pkg.name}@${pkg.version}`;
+        empty[key] = null;
+      }
+      return empty;
+    }
+  }
+
 
   /**
    * Sort packages by name

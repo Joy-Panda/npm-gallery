@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { InstallOptions, CopyOptions } from '../types/package';
+import type { InstallOptions, CopyOptions, PackageManager } from '../types/package';
 import type { SourceSelector } from '../registry/source-selector';
 import type { ProjectType } from '../types/project';
 import { SourceCapability } from '../sources/base/capabilities';
@@ -242,7 +242,53 @@ export class InstallService {
       return null;
     }
   }
+ 
+  /**
+   * Detect package manager for the current workspace.
+   * This is used by commands that need to run update/audit directly.
+   */
+  async detectPackageManager(): Promise<PackageManager> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+      return this.getConfiguredPackageManager();
+    }
 
+    const rootPath = workspaceFolder.uri.fsPath;
+
+    try {
+      const fs = require('fs') as typeof import('fs');
+      const path = require('path') as typeof import('path');
+
+      const lockFiles: Array<{ file: string; manager: PackageManager }> = [
+        { file: 'pnpm-lock.yaml', manager: 'pnpm' },
+        { file: 'yarn.lock', manager: 'yarn' },
+        { file: 'package-lock.json', manager: 'npm' },
+      ];
+
+      for (const { file, manager } of lockFiles) {
+        const lockFilePath = path.join(rootPath, file);
+        try {
+          if (fs.existsSync(lockFilePath)) {
+            return manager;
+          }
+        } catch {
+          // Ignore and continue checking other lock files
+        }
+      }
+    } catch {
+      // Ignore FS errors and fall back to config
+    }
+
+    return this.getConfiguredPackageManager();
+  }
+
+  /**
+   * Get configured package manager from settings
+   */
+  private getConfiguredPackageManager(): PackageManager {
+    const config = vscode.workspace.getConfiguration('npmGallery');
+    return config.get<PackageManager>('packageManager', 'npm');
+  }
 
   /**
    * Get or create terminal for commands

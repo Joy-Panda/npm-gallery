@@ -302,27 +302,30 @@ export function registerCommands(
 
   // Show package details
   context.subscriptions.push(
-    vscode.commands.registerCommand('npmGallery.showPackageDetails', async (arg?: string | { pkg?: { name: string } }) => {
-      let packageName: string | undefined;
+    vscode.commands.registerCommand(
+      'npmGallery.showPackageDetails',
+      async (arg?: string | { pkg?: { name: string } }, version?: string) => {
+        let packageName: string | undefined;
 
-      // Handle TreeItem object from context menu
-      if (arg && typeof arg === 'object' && 'pkg' in arg && arg.pkg) {
-        packageName = arg.pkg.name;
-      } else if (typeof arg === 'string') {
-        packageName = arg;
+        // Handle TreeItem object from context menu
+        if (arg && typeof arg === 'object' && 'pkg' in arg && arg.pkg) {
+          packageName = arg.pkg.name;
+        } else if (typeof arg === 'string') {
+          packageName = arg;
+        }
+
+        if (!packageName) {
+          packageName = await vscode.window.showInputBox({
+            prompt: 'Enter package name',
+          });
+        }
+
+        if (!packageName) return;
+
+        // Open package details panel, optionally scoped to a specific installed version
+        await PackageDetailsPanel.createOrShow(context.extensionUri, packageName, version);
       }
-
-      if (!packageName) {
-        packageName = await vscode.window.showInputBox({
-          prompt: 'Enter package name',
-        });
-      }
-
-      if (!packageName) return;
-
-      // Open package details panel
-      await PackageDetailsPanel.createOrShow(context.extensionUri, packageName);
-    })
+    )
   );
 
   // Refresh views

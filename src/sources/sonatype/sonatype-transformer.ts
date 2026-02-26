@@ -208,27 +208,6 @@ export class SonatypeTransformer implements ISourceTransformer<SonatypeSearchRes
   }
 
   /**
-   * Transform Maven dependencies (legacy method for backward compatibility)
-   */
-  private transformDependencies(
-    dependencies: Array<{
-      groupId?: string;
-      artifactId?: string;
-      version?: string;
-      scope?: string;
-    }>
-  ): Record<string, string> {
-    const result: Record<string, string> = {};
-    for (const dep of dependencies) {
-      if (dep.groupId && dep.artifactId) {
-        const key = `${dep.groupId}:${dep.artifactId}`;
-        result[key] = dep.version || '';
-      }
-    }
-    return result;
-  }
-
-  /**
    * Parse Maven coordinate to extract groupId and artifactId
    */
   parseCoordinate(coordinate: string): { groupId: string; artifactId: string } | null {

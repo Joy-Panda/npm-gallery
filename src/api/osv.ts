@@ -14,25 +14,35 @@ interface OSVQueryRequest {
   version?: string;
 }
 
+/**
+ * OSV API vuln shape (matches actual /v1/query response)
+ * @see https://google.github.io/osv.dev/post-v1-query/
+ */
 interface OSVVulnerability {
   id: string;
   summary?: string;
   details?: string;
+  modified?: string;
   published?: string;
   aliases?: string[];
+  /** Top-level severity (CVSS) when present */
   severity?: Array<{
     type: string;
-    score: string; // CVSS vector string like "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:H/A:N"
+    score: string;
   }>;
   affected?: Array<{
+    package?: { name?: string; ecosystem?: string; purl?: string };
     ranges?: Array<{
       type: string;
+      repo?: string;
       events?: Array<{
         introduced?: string;
         fixed?: string;
       }>;
     }>;
     versions?: string[];
+    ecosystem_specific?: { severity?: string };
+    database_specific?: { source?: string; severity?: string };
   }>;
   references?: Array<{
     type: string;
@@ -42,7 +52,9 @@ interface OSVVulnerability {
     cwe_ids?: string[];
     github_reviewed?: boolean;
     severity?: string;
+    source?: string;
   };
+  schema_version?: string;
 }
 
 interface OSVQueryResponse {
@@ -72,12 +84,13 @@ export class OSVClient extends BaseApiClient {
       };
 
       const response = await this.post<OSVQueryResponse>('/v1/query', request);
+      const vulns = response.vulns || [];
 
-      if (!response.vulns || response.vulns.length === 0) {
+      if (vulns.length === 0) {
         return this.createEmptySecurityInfo();
       }
 
-      return this.transformOSVResponse(response.vulns);
+      return this.transformOSVResponse(vulns);
     } catch (error) {
       // Return empty security info on error
       return this.createEmptySecurityInfo();
@@ -92,8 +105,12 @@ export class OSVClient extends BaseApiClient {
   ): Promise<Record<string, SecurityInfo>> {
     const results: Record<string, SecurityInfo> = {};
 
-    // OSV.dev supports batch queries, but we'll do individual queries for now
-    // to ensure compatibility and proper error handling
+    if (packages.length === 0) {
+      return results;
+    }
+
+    // Use multiple /v1/query calls in parallel to get full vulnerability data,
+    // which includes severity, CVSS, etc. needed for summaries.
     const queries = packages.map(async (pkg) => {
       const key = `${pkg.name}@${pkg.version}`;
       try {
@@ -125,21 +142,30 @@ export class OSVClient extends BaseApiClient {
    * Transform a single OSV vulnerability to our format
    */
   private transformVulnerability(vuln: OSVVulnerability): Vulnerability | null {
-    // Determine severity from database_specific first (most reliable), then CVSS vector
+    // Determine severity: database_specific > affected[0].ecosystem_specific > affected[0].database_specific > top-level severity (CVSS)
     let severity: Vulnerability['severity'] = 'moderate';
     let cvssScore: number | undefined;
     let cvssVectorString: string | undefined;
 
-    // Priority 1: Use database_specific.severity if available
+    const parseSeverity = (s: string): Vulnerability['severity'] => {
+      const lower = s.toLowerCase();
+      if (lower.includes('critical')) return 'critical';
+      if (lower.includes('high')) return 'high';
+      if (lower.includes('moderate')) return 'moderate';
+      if (lower.includes('low')) return 'low';
+      if (lower.includes('info')) return 'info';
+      return 'moderate';
+    };
+
     if (vuln.database_specific?.severity) {
-      const dbSeverity = vuln.database_specific.severity.toLowerCase();
-      if (dbSeverity.includes('critical')) severity = 'critical';
-      else if (dbSeverity.includes('high')) severity = 'high';
-      else if (dbSeverity.includes('moderate')) severity = 'moderate';
-      else if (dbSeverity.includes('low')) severity = 'low';
+      severity = parseSeverity(vuln.database_specific.severity);
+    } else if (vuln.affected?.[0]?.ecosystem_specific?.severity) {
+      severity = parseSeverity(vuln.affected[0].ecosystem_specific.severity);
+    } else if (vuln.affected?.[0]?.database_specific?.severity) {
+      severity = parseSeverity(vuln.affected[0].database_specific.severity);
     }
 
-    // Priority 2: Parse CVSS vector string if available
+    // Parse CVSS vector string if available (top-level severity array)
     if (vuln.severity && vuln.severity.length > 0) {
       // Support CVSS v2, v3, and v4
       const cvssSeverity = vuln.severity.find((s) => 

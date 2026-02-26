@@ -107,6 +107,14 @@ export interface ISourceAdapter {
   getSecurityInfo?(name: string, version: string): Promise<SecurityInfo | null>;
 
   /**
+   * Get security info for multiple packages (optional)
+   * Implementations can use OSV /v1/querybatch or similar batch APIs.
+   */
+  getSecurityInfoBulk?(
+    packages: Array<{ name: string; version: string }>
+  ): Promise<Record<string, SecurityInfo | null>>;
+
+  /**
    * Get bundle size (optional)
    * Should throw CapabilityNotSupportedError if not supported
    */
@@ -192,6 +200,12 @@ export abstract class BaseSourceAdapter implements ISourceAdapter {
   }
 
   async getSecurityInfo?(_name: string, _version: string): Promise<SecurityInfo | null> {
+    throw new CapabilityNotSupportedError(SourceCapability.SECURITY, this.sourceType);
+  }
+
+  async getSecurityInfoBulk?(
+    _packages: Array<{ name: string; version: string }>
+  ): Promise<Record<string, SecurityInfo | null>> {
     throw new CapabilityNotSupportedError(SourceCapability.SECURITY, this.sourceType);
   }
 }

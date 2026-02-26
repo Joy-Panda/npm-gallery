@@ -1,5 +1,4 @@
 import { BaseApiClient } from './base-client';
-import { API_ENDPOINTS } from '../types/config';
 
 /**
  * Sonatype Central Repository search response
