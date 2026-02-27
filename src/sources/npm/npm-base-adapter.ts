@@ -1,6 +1,9 @@
+import axios from 'axios';
 import * as vscode from 'vscode';
 import { BaseSourceAdapter } from '../base/source-adapter.interface';
-import type { InstallOptions, PackageManager } from '../../types/package';
+import { CapabilityNotSupportedError, SourceCapability } from '../base/capabilities';
+import type { OSVClient } from '../../api/osv';
+import type { InstallOptions, PackageManager, SecurityInfo } from '../../types/package';
 
 /**
  * Base adapter for npm-based sources (npm-registry, npms.io)
@@ -8,6 +11,10 @@ import type { InstallOptions, PackageManager } from '../../types/package';
  * and command generation
  */
 export abstract class NpmBaseAdapter extends BaseSourceAdapter {
+  constructor(protected osvClient?: OSVClient) {
+    super();
+  }
+
   /**
    * Generate install command
    * Uses package manager from options or detects from workspace
@@ -159,5 +166,129 @@ export abstract class NpmBaseAdapter extends BaseSourceAdapter {
     if (type === 'devDependencies') flags.push('--save-dev');
     if (exact) flags.push('--save-exact');
     return `pnpm add ${packageSpec} ${flags.join(' ')}`.trim();
+  }
+
+  protected async fetchReadmeFromUnpkg(
+    packageName: string,
+    version?: string,
+    readmeFilename?: string
+  ): Promise<string | null> {
+    const pkgPath = this.getUnpkgPackagePath(packageName);
+    const prefix = version ? `${pkgPath}@${version}` : pkgPath;
+    const candidates = this.buildReadmeCandidates(readmeFilename);
+
+    for (const candidate of candidates) {
+      const url = encodeURI(`https://unpkg.com/${prefix}/${candidate}`);
+      try {
+        const response = await axios.get<string>(url, {
+          responseType: 'text',
+          timeout: 10000,
+        });
+        const text = typeof response.data === 'string' ? response.data : '';
+        if (text.trim().length > 0) {
+          return text;
+        }
+      } catch {
+        // Try next candidate
+      }
+    }
+
+    return null;
+  }
+
+  private getUnpkgPackagePath(name: string): string {
+    if (name.startsWith('@')) {
+      const [, scope, pkg] = name.match(/^@([^/]+)\/(.+)$/) || [];
+      if (scope && pkg) {
+        return `@${scope}/${encodeURIComponent(pkg)}`;
+      }
+      return name;
+    }
+    return encodeURIComponent(name);
+  }
+
+  private buildReadmeCandidates(readmeFilename?: string): string[] {
+    const candidates = [
+      readmeFilename,
+      'README.md',
+      'README.MD',
+      'Readme.md',
+      'readme.md',
+      'README',
+      'readme',
+      'README.txt',
+      'README.markdown',
+      'README.mdx',
+      'README.rst',
+    ];
+
+    const unique = new Set<string>();
+    for (const c of candidates) {
+      if (c && c.trim().length > 0) {
+        unique.add(c);
+      }
+    }
+    return Array.from(unique);
+  }
+
+  getEcosystem(): string {
+    return 'npm';
+  }
+
+  /**
+   * Get security info (OSV)
+   */
+  async getSecurityInfo(_name: string, _version: string): Promise<SecurityInfo | null> {
+    if (!this.supportsCapability(SourceCapability.SECURITY)) {
+      throw new CapabilityNotSupportedError(SourceCapability.SECURITY, this.sourceType);
+    }
+
+    if (!this.osvClient) {
+      return null;
+    }
+    try {
+      return await this.osvClient.queryVulnerabilities(
+        _name,
+        _version,
+        this.getEcosystem()
+      );
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Get security info for multiple packages (OSV batch)
+   */
+  async getSecurityInfoBulk(
+    _packages: Array<{ name: string; version: string }>
+  ): Promise<Record<string, SecurityInfo | null>> {
+    if (!this.supportsCapability(SourceCapability.SECURITY)) {
+      throw new CapabilityNotSupportedError(SourceCapability.SECURITY, this.sourceType);
+    }
+
+    if (!this.osvClient || _packages.length === 0) {
+      return {};
+    }
+
+    try {
+      const result = await this.osvClient.queryBulkVulnerabilities(
+        _packages,
+        this.getEcosystem()
+      );
+      const mapped: Record<string, SecurityInfo | null> = {};
+      for (const pkg of _packages) {
+        const key = `${pkg.name}@${pkg.version}`;
+        mapped[key] = result[key] ?? null;
+      }
+      return mapped;
+    } catch {
+      const empty: Record<string, SecurityInfo | null> = {};
+      for (const pkg of _packages) {
+        const key = `${pkg.name}@${pkg.version}`;
+        empty[key] = null;
+      }
+      return empty;
+    }
   }
 }

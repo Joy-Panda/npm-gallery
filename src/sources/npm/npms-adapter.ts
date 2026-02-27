@@ -13,7 +13,6 @@ import type {
   SearchOptions,
   SearchSortBy,
   BundleSize,
-  SecurityInfo,
 } from '../../types/package';
 import type { SourceType, ProjectType } from '../../types/project';
 
@@ -41,9 +40,9 @@ export class NpmsSourceAdapter extends NpmBaseAdapter {
     private client: NpmsApiClient,
     private npmRegistryClient?: NpmRegistryClient,
     private bundlephobiaClient?: BundlephobiaClient,
-    private osvClient?: OSVClient
+    osvClient?: OSVClient
   ) {
-    super();
+    super(osvClient);
     this.transformer = new NpmsTransformer();
   }
 
@@ -147,11 +146,13 @@ export class NpmsSourceAdapter extends NpmBaseAdapter {
         this.npmRegistryClient.getDownloads(name).catch(() => ({ downloads: 0 })),
         this.bundlephobiaClient?.getSize(name, latestVersion).catch(() => null) ?? null,
         latestVersion && this.osvClient
-          ? this.osvClient.queryVulnerabilities(name, latestVersion).catch(() => null)
+          ? this.osvClient
+              .queryVulnerabilities(name, latestVersion, this.getEcosystem())
+              .catch(() => null)
           : null,
       ]);
 
-      return {
+      const details: PackageDetails = {
         name: pkg.name,
         version: latestVersion || Object.keys(pkg.versions)[0] || '0.0.0',
         description: pkg.description,
@@ -174,6 +175,19 @@ export class NpmsSourceAdapter extends NpmBaseAdapter {
         bugs: pkg.bugs,
         security: security || undefined,
       };
+
+      if (!details.readme || details.readme.trim().length === 0) {
+        const readme = await this.fetchReadmeFromUnpkg(
+          name,
+          latestVersion || details.version,
+          pkg.readmeFilename
+        );
+        if (readme) {
+          details.readme = readme;
+        }
+      }
+
+      return details;
     }
 
     // Fallback to npms.io only (limited details)
@@ -211,57 +225,6 @@ export class NpmsSourceAdapter extends NpmBaseAdapter {
       return null;
     }
   }
-
-  /**
-   * Get security info
-   */
-  async getSecurityInfo(name: string, version: string): Promise<SecurityInfo | null> {
-    if (!this.supportsCapability(SourceCapability.SECURITY)) {
-      throw new CapabilityNotSupportedError(SourceCapability.SECURITY, this.sourceType);
-    }
-
-    if (!this.osvClient) {
-      return null;
-    }
-    try {
-      return await this.osvClient.queryVulnerabilities(name, version);
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Get security info for multiple packages (batch)
-   */
-  async getSecurityInfoBulk(
-    packages: Array<{ name: string; version: string }>
-  ): Promise<Record<string, SecurityInfo | null>> {
-    if (!this.supportsCapability(SourceCapability.SECURITY)) {
-      throw new CapabilityNotSupportedError(SourceCapability.SECURITY, this.sourceType);
-    }
-
-    if (!this.osvClient || packages.length === 0) {
-      return {};
-    }
-
-    try {
-      const result = await this.osvClient.queryBulkVulnerabilities(packages);
-      const mapped: Record<string, SecurityInfo | null> = {};
-      for (const pkg of packages) {
-        const key = `${pkg.name}@${pkg.version}`;
-        mapped[key] = result[key] ?? null;
-      }
-      return mapped;
-    } catch {
-      const empty: Record<string, SecurityInfo | null> = {};
-      for (const pkg of packages) {
-        const key = `${pkg.name}@${pkg.version}`;
-        empty[key] = null;
-      }
-      return empty;
-    }
-  }
-
 
   /**
    * Extract versions from npm registry package

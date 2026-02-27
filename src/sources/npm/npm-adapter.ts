@@ -38,9 +38,9 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
   constructor(
     private client: NpmRegistryClient,
     private bundlephobiaClient?: BundlephobiaClient,
-    private osvClient?: OSVClient
+    osvClient?: OSVClient
   ) {
-    super();
+    super(osvClient);
     this.transformer = new NpmTransformer();
   }
 
@@ -148,7 +148,9 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
     // Security info (if supported)
     if (this.supportsCapability(SourceCapability.SECURITY) && latestVersion && this.osvClient) {
       promises.push(
-        this.osvClient.queryVulnerabilities(name, latestVersion).catch(() => null)
+        this.osvClient
+          .queryVulnerabilities(name, latestVersion, this.getEcosystem())
+          .catch(() => null)
       );
     }
 
@@ -166,6 +168,17 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
 
     if (this.supportsCapability(SourceCapability.SECURITY)) {
       details.security = results[resultIndex++] as SecurityInfo | null || undefined;
+    }
+
+    if (!details.readme || details.readme.trim().length === 0) {
+      const readme = await this.fetchReadmeFromUnpkg(
+        name,
+        latestVersion || details.version,
+        pkg.readmeFilename
+      );
+      if (readme) {
+        details.readme = readme;
+      }
     }
 
     return details;
@@ -199,63 +212,6 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
       return null;
     }
   }
-
-  /**
-   * Get security info
-   */
-  async getSecurityInfo(name: string, version: string): Promise<SecurityInfo | null> {
-    if (!this.supportsCapability(SourceCapability.SECURITY)) {
-      throw new CapabilityNotSupportedError(
-        SourceCapability.SECURITY,
-        this.sourceType
-      );
-    }
-
-    if (!this.osvClient) {
-      return null;
-    }
-    try {
-      return await this.osvClient.queryVulnerabilities(name, version);
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Get security info for multiple packages (batch)
-   */
-  async getSecurityInfoBulk(
-    packages: Array<{ name: string; version: string }>
-  ): Promise<Record<string, SecurityInfo | null>> {
-    if (!this.supportsCapability(SourceCapability.SECURITY)) {
-      throw new CapabilityNotSupportedError(
-        SourceCapability.SECURITY,
-        this.sourceType
-      );
-    }
-
-    if (!this.osvClient || packages.length === 0) {
-      return {};
-    }
-
-    try {
-      const result = await this.osvClient.queryBulkVulnerabilities(packages);
-      const mapped: Record<string, SecurityInfo | null> = {};
-      for (const pkg of packages) {
-        const key = `${pkg.name}@${pkg.version}`;
-        mapped[key] = result[key] ?? null;
-      }
-      return mapped;
-    } catch {
-      const empty: Record<string, SecurityInfo | null> = {};
-      for (const pkg of packages) {
-        const key = `${pkg.name}@${pkg.version}`;
-        empty[key] = null;
-      }
-      return empty;
-    }
-  }
-
 
   /**
    * Sort packages by name

@@ -26,6 +26,12 @@ export interface ISourceAdapter {
   readonly supportedFilters: string[];
 
   /**
+   * Optional ecosystem identifier (language/packaging ecosystem)
+   * e.g. npm, Maven, Go, PyPI
+   */
+  getEcosystem?(): string | undefined;
+
+  /**
    * Get list of supported capabilities
    * This is the core method for declaring which capabilities this source supports
    */
@@ -131,6 +137,10 @@ export abstract class BaseSourceAdapter implements ISourceAdapter {
   abstract readonly projectType: ProjectType;
   abstract readonly supportedSortOptions: SearchSortBy[];
   abstract readonly supportedFilters: string[];
+
+  getEcosystem?(): string | undefined {
+    return undefined;
+  }
 
   /**
    * Subclasses must declare supported capabilities

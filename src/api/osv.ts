@@ -73,12 +73,16 @@ export class OSVClient extends BaseApiClient {
   /**
    * Query vulnerabilities for a package
    */
-  async queryVulnerabilities(name: string, version: string): Promise<SecurityInfo> {
+  async queryVulnerabilities(
+    name: string,
+    version: string,
+    ecosystem: string
+  ): Promise<SecurityInfo> {
     try {
       const request: OSVQueryRequest = {
         package: {
           name,
-          ecosystem: 'npm',
+          ecosystem,
         },
         version,
       };
@@ -101,7 +105,8 @@ export class OSVClient extends BaseApiClient {
    * Query vulnerabilities for multiple packages
    */
   async queryBulkVulnerabilities(
-    packages: Array<{ name: string; version: string }>
+    packages: Array<{ name: string; version: string }>,
+    ecosystem: string
   ): Promise<Record<string, SecurityInfo>> {
     const results: Record<string, SecurityInfo> = {};
 
@@ -114,7 +119,7 @@ export class OSVClient extends BaseApiClient {
     const queries = packages.map(async (pkg) => {
       const key = `${pkg.name}@${pkg.version}`;
       try {
-        results[key] = await this.queryVulnerabilities(pkg.name, pkg.version);
+        results[key] = await this.queryVulnerabilities(pkg.name, pkg.version, ecosystem);
       } catch {
         results[key] = this.createEmptySecurityInfo();
       }
