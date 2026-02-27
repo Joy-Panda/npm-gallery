@@ -94,6 +94,8 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Listen for workspace changes
   services.workspace.onDidChangePackages(() => {
+    services.package.invalidateLocalDependencyTreeCache();
+    services.package.invalidateLatestVersionCache();
     installedProvider.refresh();
     updatesProvider.refresh();
     codeLensProvider.refresh();

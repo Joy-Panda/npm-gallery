@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
-import type { InstalledPackage, DependencyType, UpdateType } from '../types/package';
+import type { InstalledPackage, DependencyType } from '../types/package';
 import { getServices } from './index';
-import { compareVersions, parseVersionComponents } from '../utils/version-utils';
+import { getUpdateType } from '../utils/version-utils';
 
 /**
  * Service for workspace package management
@@ -11,6 +11,8 @@ export class WorkspaceService {
   readonly onDidChangePackages = this._onDidChangePackages.event;
 
   private fileWatcher: vscode.FileSystemWatcher | null = null;
+  private installedPackagesCache: InstalledPackage[] | null = null;
+  private installedPackagesPromise: Promise<InstalledPackage[]> | null = null;
 
   /**
    * Initialize workspace service
@@ -21,9 +23,14 @@ export class WorkspaceService {
     // Watch for package.json and pom.xml changes
     this.fileWatcher = vscode.workspace.createFileSystemWatcher('**/{package.json,pom.xml}');
 
-    this.fileWatcher.onDidChange(() => this._onDidChangePackages.fire());
-    this.fileWatcher.onDidCreate(() => this._onDidChangePackages.fire());
-    this.fileWatcher.onDidDelete(() => this._onDidChangePackages.fire());
+    const invalidateAndNotify = () => {
+      this.invalidateInstalledPackagesCache();
+      this._onDidChangePackages.fire();
+    };
+
+    this.fileWatcher.onDidChange(invalidateAndNotify);
+    this.fileWatcher.onDidCreate(invalidateAndNotify);
+    this.fileWatcher.onDidDelete(invalidateAndNotify);
 
     disposables.push(this.fileWatcher);
     disposables.push(this._onDidChangePackages);
@@ -49,6 +56,26 @@ export class WorkspaceService {
    * Get installed packages from workspace (supports both npm and Maven)
    */
   async getInstalledPackages(): Promise<InstalledPackage[]> {
+    if (this.installedPackagesCache) {
+      return this.installedPackagesCache;
+    }
+
+    if (this.installedPackagesPromise) {
+      return this.installedPackagesPromise;
+    }
+
+    this.installedPackagesPromise = this.loadInstalledPackages();
+
+    try {
+      const packages = await this.installedPackagesPromise;
+      this.installedPackagesCache = packages;
+      return packages;
+    } finally {
+      this.installedPackagesPromise = null;
+    }
+  }
+
+  private async loadInstalledPackages(): Promise<InstalledPackage[]> {
     const installedPackages: InstalledPackage[] = [];
 
     // Get npm packages
@@ -205,15 +232,25 @@ export class WorkspaceService {
 
     // Fetch latest versions in batches
     const latestVersions = new Map<string, string>();
+    const concurrency = 8;
 
-    for (const name of uniqueNames) {
-      try {
-        const latestVersion = await services.package.getLatestVersion(name);
-        if (latestVersion) {
-          latestVersions.set(name, latestVersion);
+    for (let index = 0; index < uniqueNames.length; index += concurrency) {
+      const batch = uniqueNames.slice(index, index + concurrency);
+      const batchResults = await Promise.all(
+        batch.map(async (name) => {
+          try {
+            const latestVersion = await services.package.getLatestVersion(name);
+            return latestVersion ? [name, latestVersion] as const : null;
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      for (const result of batchResults) {
+        if (result) {
+          latestVersions.set(result[0], result[1]);
         }
-      } catch {
-        // Skip packages that can't be fetched
       }
     }
 
@@ -222,7 +259,7 @@ export class WorkspaceService {
       .map((pkg) => {
         const latestVersion = latestVersions.get(pkg.name);
         if (latestVersion) {
-          const updateType = this.getUpdateType(pkg.currentVersion, latestVersion);
+          const updateType = getUpdateType(pkg.currentVersion, latestVersion);
           return {
             ...pkg,
             latestVersion,
@@ -273,6 +310,7 @@ export class WorkspaceService {
 
       const newContent = JSON.stringify(packageJson, null, 2) + '\n';
       await vscode.workspace.fs.writeFile(uri, Buffer.from(newContent));
+      this.invalidateInstalledPackagesCache();
 
       return true;
     } catch {
@@ -307,6 +345,7 @@ export class WorkspaceService {
       }
 
       await vscode.workspace.fs.writeFile(uri, Buffer.from(updatedXml));
+      this.invalidateInstalledPackagesCache();
       return true;
     } catch {
       return false;
@@ -343,6 +382,7 @@ export class WorkspaceService {
       }
 
       await vscode.workspace.fs.writeFile(uri, Buffer.from(updatedText));
+      this.invalidateInstalledPackagesCache();
       return true;
     } catch {
       return false;
@@ -371,55 +411,9 @@ export class WorkspaceService {
     return versionRange.replace(/^[\^~>=<]+/, '');
   }
 
-
-  /**
-   * Determine update type between versions
-   * Improved to handle Maven version formats
-   */
-  private getUpdateType(current: string, latest: string): UpdateType | null {
-    const comparison = compareVersions(current, latest);
-    
-    // If latest is not newer, no update
-    if (comparison >= 0) {
-      return null;
-    }
-
-    const currentParts = parseVersionComponents(current);
-    const latestParts = parseVersionComponents(latest);
-
-    // Determine update type based on which version component changed
-    if (latestParts.major > currentParts.major) {
-      return 'major';
-    }
-    if (latestParts.minor > currentParts.minor) {
-      return 'minor';
-    }
-    if (latestParts.patch > currentParts.patch) {
-      return 'patch';
-    }
-
-    // Handle build number increments
-    if (latestParts.build !== undefined && currentParts.build !== undefined) {
-      if (latestParts.build > currentParts.build) {
-        return 'patch'; // Build increments are treated as patch updates
-      }
-    }
-
-    // Handle prerelease to release updates
-    if (currentParts.prerelease && !latestParts.prerelease) {
-      // Moving from prerelease to release
-      if (latestParts.major > currentParts.major) return 'major';
-      if (latestParts.minor > currentParts.minor) return 'minor';
-      if (latestParts.patch > currentParts.patch) return 'patch';
-      return 'prerelease'; // Same version, but prerelease -> release
-    }
-
-    // Handle prerelease updates
-    if (currentParts.prerelease || latestParts.prerelease) {
-      return 'prerelease';
-    }
-
-    return null;
+  private invalidateInstalledPackagesCache(): void {
+    this.installedPackagesCache = null;
+    this.installedPackagesPromise = null;
   }
 
   /**

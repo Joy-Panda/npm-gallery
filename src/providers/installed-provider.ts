@@ -31,7 +31,8 @@ class CategoryTreeItem extends vscode.TreeItem {
 class PackageTreeItem extends vscode.TreeItem {
   constructor(
     public readonly pkg: InstalledPackage,
-    public readonly hasDependencies: boolean = false,
+    public readonly hasDependencies: boolean = true,
+    public readonly dependenciesLoaded: boolean = false,
     public readonly dependencies?: Record<string, string>
   ) {
     // Set collapsible state: Collapsed if has dependencies, None if not
@@ -66,6 +67,12 @@ class PackageTreeItem extends vscode.TreeItem {
  */
 type TreeItem = CategoryTreeItem | PackageTreeItem;
 
+interface DependencyCacheEntry {
+  dependencies?: Record<string, string>;
+  hasDependencies: boolean;
+  loaded: boolean;
+}
+
 /**
  * Tree data provider for installed packages
  */
@@ -74,7 +81,7 @@ export class InstalledPackagesProvider implements vscode.TreeDataProvider<TreeIt
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
   private packages: InstalledPackage[] = [];
-  private dependencyCache = new Map<string, { dependencies?: Record<string, string>; hasDependencies: boolean }>();
+  private dependencyCache = new Map<string, DependencyCacheEntry>();
 
   constructor() {
     this.refresh();
@@ -118,28 +125,33 @@ export class InstalledPackagesProvider implements vscode.TreeDataProvider<TreeIt
         .filter((pkg) => pkg.type === element.category)
         .sort((a, b) => a.name.localeCompare(b.name));
 
-      // Pre-check which packages have dependencies (for UI alignment)
+      const services = getServices();
       const packageItems = await Promise.all(
         categoryPackages.map(async (pkg) => {
           const cacheKey = `${pkg.name}@${pkg.currentVersion}`;
           let cached = this.dependencyCache.get(cacheKey);
 
           if (!cached) {
-            // Quick check if package has dependencies without full fetch
-            try {
-              const services = getServices();
-              const dependencies = await services.package.getPackageDependencies(pkg.name, pkg.currentVersion);
-              const hasDependencies = dependencies && Object.keys(dependencies).length > 0;
+            const hasDependencies = await services.package.hasPackageDependencies(
+              pkg.name,
+              pkg.currentVersion
+            );
 
-              cached = { dependencies: dependencies || undefined, hasDependencies: !!hasDependencies };
-              this.dependencyCache.set(cacheKey, cached);
-            } catch {
-              cached = { hasDependencies: false };
+            if (hasDependencies !== null) {
+              cached = {
+                hasDependencies,
+                loaded: false,
+              };
               this.dependencyCache.set(cacheKey, cached);
             }
           }
 
-          return new PackageTreeItem(pkg, cached.hasDependencies, cached.dependencies);
+          return new PackageTreeItem(
+            pkg,
+            cached?.hasDependencies ?? true,
+            cached?.loaded ?? false,
+            cached?.dependencies
+          );
         })
       );
 
@@ -147,46 +159,75 @@ export class InstalledPackagesProvider implements vscode.TreeDataProvider<TreeIt
     }
 
     // Package level: return sub-dependencies
-    if (element instanceof PackageTreeItem && element.hasDependencies && element.dependencies) {
-      const subDependencies: PackageTreeItem[] = [];
+    if (element instanceof PackageTreeItem) {
+      const cacheKey = `${element.pkg.name}@${element.pkg.currentVersion}`;
+      let cached = this.dependencyCache.get(cacheKey);
 
-      for (const [depName, depVersion] of Object.entries(element.dependencies)) {
-        // Extract version from range (remove ^, ~, etc.)
-        const version = depVersion.replace(/^[\^~>=<]+/, '');
+      if (!cached || !cached.loaded) {
+        try {
+          const services = getServices();
+          const dependencies = await services.package.getPackageDependencies(
+            element.pkg.name,
+            element.pkg.currentVersion
+          );
+          const hasDependencies = !!dependencies && Object.keys(dependencies).length > 0;
 
-        // Check if this dependency has sub-dependencies
-        const cacheKey = `${depName}@${version}`;
-        let cached = this.dependencyCache.get(cacheKey);
-
-        if (!cached) {
-          try {
-            const services = getServices();
-            const dependencies = await services.package.getPackageDependencies(depName, version);
-            const hasDependencies = dependencies && Object.keys(dependencies).length > 0;
-
-            cached = { dependencies: dependencies || undefined, hasDependencies: !!hasDependencies };
-            this.dependencyCache.set(cacheKey, cached);
-          } catch {
-            cached = { hasDependencies: false };
-            this.dependencyCache.set(cacheKey, cached);
-          }
+          cached = {
+            dependencies: dependencies || undefined,
+            hasDependencies,
+            loaded: true,
+          };
+        } catch {
+          cached = {
+            hasDependencies: false,
+            loaded: true,
+          };
         }
 
-        // Create a temporary InstalledPackage-like object for the sub-dependency
-        const subPkg: InstalledPackage = {
-          name: depName,
-          currentVersion: version,
-          type: 'dependencies', // Sub-dependencies are always regular dependencies
-          hasUpdate: false,
-          packageJsonPath: element.pkg.packageJsonPath,
-        };
-
-        subDependencies.push(
-          new PackageTreeItem(subPkg, cached.hasDependencies, cached.dependencies)
-        );
+        this.dependencyCache.set(cacheKey, cached);
+        this._onDidChangeTreeData.fire(element);
       }
 
-      return subDependencies.sort((a, b) => a.pkg.name.localeCompare(b.pkg.name));
+      if (!cached.hasDependencies || !cached.dependencies) {
+        return [];
+      }
+
+      const services = getServices();
+      const children = await Promise.all(
+        Object.entries(cached.dependencies).map(async ([depName, depVersion]) => {
+          const version = depVersion.replace(/^[\^~>=<]+/, '');
+          const dependencyCacheKey = `${depName}@${version}`;
+          let childCached = this.dependencyCache.get(dependencyCacheKey);
+
+          if (!childCached) {
+            const hasDependencies = await services.package.hasPackageDependencies(depName, version);
+            if (hasDependencies !== null) {
+              childCached = {
+                hasDependencies,
+                loaded: false,
+              };
+              this.dependencyCache.set(dependencyCacheKey, childCached);
+            }
+          }
+
+          const subPkg: InstalledPackage = {
+            name: depName,
+            currentVersion: version,
+            type: 'dependencies',
+            hasUpdate: false,
+            packageJsonPath: element.pkg.packageJsonPath,
+          };
+
+          return new PackageTreeItem(
+            subPkg,
+            childCached?.hasDependencies ?? true,
+            childCached?.loaded ?? false,
+            childCached?.dependencies
+          );
+        })
+      );
+
+      return children.sort((a, b) => a.pkg.name.localeCompare(b.pkg.name));
     }
 
     // No children

@@ -2,6 +2,7 @@
  * Version comparison utilities
  * Supports both npm semantic versions and Maven version formats
  */
+import type { UpdateType } from '../types/package';
 
 /**
  * Parse version string into components
@@ -138,4 +139,48 @@ export function compareVersions(v1: string, v2: string): number {
  */
 export function isNewerVersion(a: string, b: string): boolean {
   return compareVersions(a, b) < 0;
+}
+
+/**
+ * Determine update type between versions
+ * Handles semver-like npm versions and Maven-style qualifiers.
+ */
+export function getUpdateType(current: string, latest: string): UpdateType | null {
+  const comparison = compareVersions(current, latest);
+
+  if (comparison >= 0) {
+    return null;
+  }
+
+  const currentParts = parseVersionComponents(current);
+  const latestParts = parseVersionComponents(latest);
+
+  if (latestParts.major > currentParts.major) {
+    return 'major';
+  }
+  if (latestParts.minor > currentParts.minor) {
+    return 'minor';
+  }
+  if (latestParts.patch > currentParts.patch) {
+    return 'patch';
+  }
+
+  if (latestParts.build !== undefined && currentParts.build !== undefined) {
+    if (latestParts.build > currentParts.build) {
+      return 'patch';
+    }
+  }
+
+  if (currentParts.prerelease && !latestParts.prerelease) {
+    if (latestParts.major > currentParts.major) return 'major';
+    if (latestParts.minor > currentParts.minor) return 'minor';
+    if (latestParts.patch > currentParts.patch) return 'patch';
+    return 'prerelease';
+  }
+
+  if (currentParts.prerelease || latestParts.prerelease) {
+    return 'prerelease';
+  }
+
+  return null;
 }

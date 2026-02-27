@@ -1,7 +1,7 @@
 import * as json from 'jsonc-parser/lib/esm/main.js';
 import * as vscode from 'vscode';
 import { getServices } from '../services';
-import { isNewerVersion } from '../utils/version-utils';
+import { getUpdateType, isNewerVersion } from '../utils/version-utils';
 
 /**
  * Provides CodeLens for package updates in package.json, pom.xml, and Gradle files
@@ -10,14 +10,18 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
   private _onDidChangeCodeLenses = new vscode.EventEmitter<void>();
   readonly onDidChangeCodeLenses = this._onDidChangeCodeLenses.event;
 
-  private latestVersions = new Map<string, string>();
   private securitySummaries = new Map<string, { total: number; critical: number; high: number }>();
+
+  private formatUpdateTitle(latestVersion: string, updateType: string | null): string {
+    return updateType && updateType !== 'patch'
+      ? `⬆️ Update to ${latestVersion} (${updateType})`
+      : `⬆️ Update to ${latestVersion}`;
+  }
 
   /**
    * Refresh CodeLenses
    */
   refresh(): void {
-    this.latestVersions.clear();
     this._onDidChangeCodeLenses.fire();
   }
 
@@ -110,17 +114,10 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
         updatePromises.push(
           (async () => {
             try {
-              let latestVersion = this.latestVersions.get(coordinate);
-
-              if (!latestVersion) {
-                const version = await services.package.getLatestVersion(coordinate);
-                if (version) {
-                  latestVersion = version;
-                  this.latestVersions.set(coordinate, latestVersion);
-                }
-              }
+              const latestVersion = await services.package.getLatestVersion(coordinate);
 
               if (latestVersion && isNewerVersion(currentVersion, latestVersion)) {
+                const updateType = getUpdateType(currentVersion, latestVersion);
                 // Find the position of the version tag
                 const versionTagStart = dependencyMatch.index! + depContent.indexOf('<version>');
                 const position = document.positionAt(versionTagStart);
@@ -128,7 +125,7 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
 
                 codeLenses.push(
                   new vscode.CodeLens(range, {
-                    title: `⬆️ Update to ${latestVersion}`,
+                    title: this.formatUpdateTitle(latestVersion, updateType),
                     command: 'npmGallery.updateMavenDependency',
                     arguments: [document.uri.fsPath, groupId, artifactId, latestVersion],
                   })
@@ -175,17 +172,10 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
       updatePromises.push(
         (async () => {
           try {
-            let latestVersion = this.latestVersions.get(coordinate);
-
-            if (!latestVersion) {
-              const version = await services.package.getLatestVersion(coordinate);
-              if (version) {
-                latestVersion = version;
-                this.latestVersions.set(coordinate, latestVersion);
-              }
-            }
+            const latestVersion = await services.package.getLatestVersion(coordinate);
 
             if (latestVersion && isNewerVersion(currentVersion, latestVersion)) {
+              const updateType = getUpdateType(currentVersion, latestVersion);
               // Find the position of the version in the dependency line
               const versionStart = matchIndex + depMatch[0].lastIndexOf(':') + 1;
               const position = document.positionAt(versionStart);
@@ -193,7 +183,7 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
 
               codeLenses.push(
                 new vscode.CodeLens(range, {
-                  title: `⬆️ Update to ${latestVersion}`,
+                  title: this.formatUpdateTitle(latestVersion, updateType),
                   command: 'npmGallery.updateGradleDependency',
                   arguments: [document.uri.fsPath, groupId, artifactId, latestVersion],
                 })
@@ -276,19 +266,10 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
       updatePromises.push(
         (async () => {
           try {
-            let latestVersion = this.latestVersions.get(name);
-
             const securityKey = `${name}@${currentVersion}`;
             let securitySummary = this.securitySummaries.get(securityKey);
 
-            // Resolve latest version (still per-package)
-            if (!latestVersion) {
-              const resolvedLatestVersion = await services.package.getLatestVersion(name);
-              if (resolvedLatestVersion) {
-                latestVersion = resolvedLatestVersion;
-                this.latestVersions.set(name, resolvedLatestVersion);
-              }
-            }
+            const latestVersion = await services.package.getLatestVersion(name);
 
             // Get security summary from bulk results (no per-package OSV calls here)
             if (showSecurityInfo && !securitySummary) {
@@ -360,11 +341,12 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
 
               // Version update CodeLens
               if (latestVersion && isNewerVersion(currentVersion, latestVersion)) {
+                const updateType = getUpdateType(currentVersion, latestVersion);
                 updatesCount++;
 
                 codeLenses.push(
                   new vscode.CodeLens(range, {
-                    title: `⬆️ Update to ${latestVersion}`,
+                    title: this.formatUpdateTitle(latestVersion, updateType),
                     command: 'npmGallery.updatePackage',
                     arguments: [name, latestVersion],
                   })

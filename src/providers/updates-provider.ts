@@ -1,6 +1,25 @@
 import * as vscode from 'vscode';
 import { getServices } from '../services';
-import type { InstalledPackage } from '../types/package';
+import type { InstalledPackage, DependencyType } from '../types/package';
+
+class UpdateCategoryTreeItem extends vscode.TreeItem {
+  constructor(public readonly category: DependencyType, public readonly count: number) {
+    super(category, vscode.TreeItemCollapsibleState.Collapsed);
+
+    this.description = `${count} package${count !== 1 ? 's' : ''}`;
+    this.tooltip = `${category}: ${count} update${count !== 1 ? 's' : ''}`;
+    this.contextValue = 'updateCategory';
+
+    const iconMap: Record<DependencyType, string> = {
+      dependencies: 'package',
+      devDependencies: 'tools',
+      peerDependencies: 'link',
+      optionalDependencies: 'question',
+    };
+
+    this.iconPath = new vscode.ThemeIcon(iconMap[category] || 'package');
+  }
+}
 
 /**
  * Tree item for updatable package
@@ -24,11 +43,13 @@ class UpdateTreeItem extends vscode.TreeItem {
   }
 }
 
+type TreeItem = UpdateCategoryTreeItem | UpdateTreeItem;
+
 /**
  * Tree data provider for packages with updates
  */
-export class UpdatesProvider implements vscode.TreeDataProvider<UpdateTreeItem> {
-  private _onDidChangeTreeData = new vscode.EventEmitter<UpdateTreeItem | undefined>();
+export class UpdatesProvider implements vscode.TreeDataProvider<TreeItem> {
+  private _onDidChangeTreeData = new vscode.EventEmitter<TreeItem | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
   private packages: InstalledPackage[] = [];
@@ -58,26 +79,39 @@ export class UpdatesProvider implements vscode.TreeDataProvider<UpdateTreeItem> 
     }
   }
 
-  getTreeItem(element: UpdateTreeItem): vscode.TreeItem {
+  getTreeItem(element: TreeItem): vscode.TreeItem {
     return element;
   }
 
-  async getChildren(element?: UpdateTreeItem): Promise<UpdateTreeItem[]> {
-    if (element) {
-      return [];
-    }
-
+  async getChildren(element?: TreeItem): Promise<TreeItem[]> {
     if (this.isLoading) {
       return [];
     }
 
-    // Sort by update type (major first, then minor, then patch)
-    const sorted = [...this.packages].sort((a, b) => {
-      const order = { major: 0, minor: 1, patch: 2, prerelease: 3 };
-      return (order[a.updateType || 'patch'] || 3) - (order[b.updateType || 'patch'] || 3);
-    });
+    if (!element) {
+      const categories: DependencyType[] = [
+        'dependencies',
+        'devDependencies',
+        'peerDependencies',
+        'optionalDependencies',
+      ];
 
-    return sorted.map((pkg) => new UpdateTreeItem(pkg));
+      return categories
+        .map((category) => {
+          const count = this.packages.filter((pkg) => pkg.type === category).length;
+          return count > 0 ? new UpdateCategoryTreeItem(category, count) : null;
+        })
+        .filter((item): item is UpdateCategoryTreeItem => item !== null);
+    }
+
+    if (element instanceof UpdateCategoryTreeItem) {
+      const sorted = this.sortPackages(
+        this.packages.filter((pkg) => pkg.type === element.category)
+      );
+      return sorted.map((pkg) => new UpdateTreeItem(pkg));
+    }
+
+    return [];
   }
 
   /**
@@ -89,5 +123,19 @@ export class UpdatesProvider implements vscode.TreeDataProvider<UpdateTreeItem> 
 
   dispose(): void {
     this._onDidChangeTreeData.dispose();
+  }
+
+  private sortPackages(packages: InstalledPackage[]): InstalledPackage[] {
+    return [...packages].sort((a, b) => {
+      const order = { patch: 0, minor: 1, major: 2, prerelease: 3 };
+      const updateOrderDiff =
+        (order[a.updateType || 'patch'] ?? 3) - (order[b.updateType || 'patch'] ?? 3);
+
+      if (updateOrderDiff !== 0) {
+        return updateOrderDiff;
+      }
+
+      return a.name.localeCompare(b.name);
+    });
   }
 }

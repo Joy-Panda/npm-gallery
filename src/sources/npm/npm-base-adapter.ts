@@ -185,7 +185,7 @@ export abstract class NpmBaseAdapter extends BaseSourceAdapter {
           timeout: 10000,
         });
         const text = typeof response.data === 'string' ? response.data : '';
-        if (text.trim().length > 0) {
+        if (this.isValidReadmeContent(text)) {
           return text;
         }
       } catch {
@@ -229,6 +229,32 @@ export abstract class NpmBaseAdapter extends BaseSourceAdapter {
       }
     }
     return Array.from(unique);
+  }
+
+  private isValidReadmeContent(content: string): boolean {
+    const normalized = content.trim();
+
+    if (!normalized) {
+      return false;
+    }
+
+    if (/^not found:/i.test(normalized)) {
+      return false;
+    }
+
+    if (/^cannot find/i.test(normalized)) {
+      return false;
+    }
+
+    if (/^error\b/i.test(normalized)) {
+      return false;
+    }
+
+    if (/^<!doctype html>/i.test(normalized) || /^<html/i.test(normalized)) {
+      return false;
+    }
+
+    return true;
   }
 
   getEcosystem(): string {
