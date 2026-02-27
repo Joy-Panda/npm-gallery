@@ -76,7 +76,8 @@ export class ServiceContainer {
     const npmAdapter = new NpmRegistrySourceAdapter(
       clients.npmRegistry,
       clients.bundlephobia,
-      clients.audit
+      clients.audit,
+      clients.depsDev
     );
     this.sourceRegistry.register('npm-registry', npmAdapter);
 
@@ -85,12 +86,13 @@ export class ServiceContainer {
       clients.npms,
       clients.npmRegistry,
       clients.bundlephobia,
-      clients.audit
+      clients.audit,
+      clients.depsDev
     );
     this.sourceRegistry.register('npms-io', npmsAdapter);
 
     // Register Sonatype Central adapter for Maven/Gradle
-    const sonatypeAdapter = new SonatypeSourceAdapter(clients.sonatype);
+    const sonatypeAdapter = new SonatypeSourceAdapter(clients.sonatype, clients.depsDev);
     this.sourceRegistry.register('sonatype', sonatypeAdapter);
   }
 

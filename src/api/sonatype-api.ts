@@ -150,6 +150,21 @@ export class SonatypeApiClient extends BaseApiClient {
     return response.response.docs[0];
   }
 
+  async getArtifactVersion(
+    groupId: string,
+    artifactId: string,
+    version: string
+  ): Promise<SonatypeArtifact | null> {
+    const response = await this.search(`g:${groupId} AND a:${artifactId} AND v:${version}`, {
+      size: 1,
+      core: 'gav',
+    });
+    if (response.response.docs.length === 0) {
+      return null;
+    }
+    return response.response.docs[0];
+  }
+
   /**
    * Download POM file
    * @param groupId Group ID

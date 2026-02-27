@@ -143,7 +143,9 @@ export class PackageHoverProvider implements vscode.HoverProvider {
     // Actions
     md.appendMarkdown('---\n\n');
     md.appendMarkdown(
-      `[View Details](command:npmGallery.showPackageDetails?${encodeURIComponent(JSON.stringify(name))}) • ` +
+      `[View Details](command:npmGallery.showPackageDetails?${encodeURIComponent(
+        JSON.stringify([name, { installedVersion: currentVersion }])
+      )}) • ` +
       `[npm](https://www.npmjs.com/package/${name})`
     );
 

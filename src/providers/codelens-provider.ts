@@ -334,7 +334,7 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
                   new vscode.CodeLens(range, {
                     title,
                     command: 'npmGallery.showPackageDetails',
-                    arguments: [name, currentVersion],
+                    arguments: [name, { installedVersion: currentVersion, securityOnly: true }],
                   })
                 );
               }

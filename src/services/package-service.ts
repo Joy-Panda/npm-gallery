@@ -8,6 +8,8 @@ import type {
   BundleSize,
   SecurityInfo,
   PackageManager,
+  DependentsInfo,
+  RequirementsInfo,
 } from '../types/package';
 import type { SourceSelector } from '../registry/source-selector';
 import { SourceCapability, CapabilityNotSupportedError, type CapabilitySupport } from '../sources/base/capabilities';
@@ -65,14 +67,40 @@ export class PackageService {
   /**
    * Get detailed package info
    */
-  async getPackageDetails(name: string): Promise<PackageDetails> {
+  async getPackageDetails(name: string, version?: string): Promise<PackageDetails> {
     if (!this.sourceSelector) {
       throw new Error('PackageService not initialized: SourceSelector is required');
     }
 
     return this.sourceSelector.executeWithFallback(
-      adapter => adapter.getPackageDetails(name)
+      adapter => adapter.getPackageDetails(name, version)
     );
+  }
+
+  async getEnrichedPackageDetails(
+    name: string,
+    options?: { installedVersion?: string }
+  ): Promise<PackageDetails> {
+    const details = await this.getPackageDetails(name, options?.installedVersion);
+    const [dependents, requirements, installedVersionSecurity] = await Promise.all([
+      this.getDependents(name, details.version),
+      this.getRequirements(name, details.version),
+      options?.installedVersion ? this.getSecurityInfo(name, details.version) : Promise.resolve(null),
+    ]);
+
+    if (dependents) {
+      details.dependents = dependents;
+    }
+
+    if (requirements) {
+      details.requirements = requirements;
+    }
+
+    if (installedVersionSecurity) {
+      details.security = installedVersionSecurity;
+    }
+
+    return details;
   }
 
   /**
@@ -338,6 +366,46 @@ export class PackageService {
     }
 
     return null;
+  }
+
+  async getDependents(name: string, version: string): Promise<DependentsInfo | null> {
+    if (!this.sourceSelector) {
+      throw new Error('PackageService not initialized: SourceSelector is required');
+    }
+
+    const adapter = this.sourceSelector.selectSource();
+    if (!adapter.supportsCapability(SourceCapability.DEPENDENTS) || !adapter.getDependents) {
+      return null;
+    }
+
+    try {
+      return await adapter.getDependents(name, version);
+    } catch (error) {
+      if (error instanceof CapabilityNotSupportedError) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async getRequirements(name: string, version: string): Promise<RequirementsInfo | null> {
+    if (!this.sourceSelector) {
+      throw new Error('PackageService not initialized: SourceSelector is required');
+    }
+
+    const adapter = this.sourceSelector.selectSource();
+    if (!adapter.supportsCapability(SourceCapability.REQUIREMENTS) || !adapter.getRequirements) {
+      return null;
+    }
+
+    try {
+      return await adapter.getRequirements(name, version);
+    } catch (error) {
+      if (error instanceof CapabilityNotSupportedError) {
+        return null;
+      }
+      throw error;
+    }
   }
 
   private async getLocalPackageDependencies(

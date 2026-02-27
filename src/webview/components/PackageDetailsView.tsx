@@ -12,6 +12,8 @@ import { ReadmeTab } from './tabs/ReadmeTab';
 import { VersionsTab } from './tabs/VersionsTab';
 import { DependenciesTab } from './tabs/DependenciesTab';
 import { SecurityTab } from './tabs/SecurityTab';
+import { DependentsTab } from './tabs/DependentsTab';
+import { RequirementsTab } from './tabs/RequirementsTab';
 
 interface VSCodeAPI {
   postMessage: (message: unknown) => void;
@@ -27,12 +29,14 @@ interface PackageDetailsViewProps {
 export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, initialData }) => {
   const { sourceInfo } = useVSCode();
   const [details, setDetails] = useState<PackageDetails | null>(initialData || null);
-  const [activeTab, setActiveTab] = useState<'readme' | 'versions' | 'dependencies' | 'security'>('readme');
+  const [activeTab, setActiveTab] = useState<'readme' | 'versions' | 'dependencies' | 'requirements' | 'dependents' | 'security'>('readme');
   /** When true, opened from vulnerability CodeLens — show only Security tab, no full package details */
   const [securityOnlyView, setSecurityOnlyView] = useState(false);
 
-  // Check if security capability is supported
-  const supportsSecurity = sourceInfo.supportedCapabilities.includes('security');
+  // In the standalone details panel, sourceInfo may not be populated yet.
+  // If security data is already present on the details payload, still show the tab.
+  const supportsSecurity =
+    sourceInfo.supportedCapabilities.includes('security') || !!details?.security;
   const [isLoading, setIsLoading] = useState(!initialData);
   const [error, setError] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
@@ -104,6 +108,10 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
 
   const openExternal = (url: string) => {
     vscode.postMessage({ type: 'openExternal', url });
+  };
+
+  const openPackageDetails = (packageName: string) => {
+    vscode.postMessage({ type: 'openPackageDetails', packageName });
   };
 
   const toggleVulnerability = (vulnId: number) => {
@@ -303,8 +311,30 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
               >
                 <Layers size={14} />
                 Dependencies
-                {depsCount > 0 && <span className="tab-badge">{depsCount}</span>}
+                <span className="tab-badge">{depsCount}</span>
               </button>
+              <button
+                className={`tab ${activeTab === 'requirements' ? 'active' : ''}`}
+                onClick={() => setActiveTab('requirements')}
+              >
+                <Layers size={14} />
+                Requirements
+                <span className="tab-badge">
+                  {details.requirements
+                    ? details.requirements.sections.reduce((count, section) => count + section.items.length, 0)
+                    : 0}
+                </span>
+              </button>
+              {details.dependents && (
+                <button
+                  className={`tab ${activeTab === 'dependents' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('dependents')}
+                >
+                  <GitBranch size={14} />
+                  Dependents
+                  <span className="tab-badge">{details.dependents.totalCount}</span>
+                </button>
+              )}
               {supportsSecurity && (
                 <button
                   className={`tab ${activeTab === 'security' ? 'active' : ''}`}
@@ -335,7 +365,16 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
                   details={details}
                   expandedSections={expandedSections}
                   onToggleSection={(section) => setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }))}
-                  onOpenExternal={openExternal}
+                  onOpenPackageDetails={openPackageDetails}
+                />
+              )}
+              {activeTab === 'requirements' && (
+                <RequirementsTab details={details} />
+              )}
+              {activeTab === 'dependents' && (
+                <DependentsTab
+                  details={details}
+                  onOpenPackageDetails={openPackageDetails}
                 />
               )}
               {activeTab === 'security' && supportsSecurity && (
@@ -423,6 +462,10 @@ const styles = `
     background: var(--vscode-editor-background);
     border-bottom: 1px solid var(--vscode-widget-border);
     flex-shrink: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+    white-space: nowrap;
   }
 
   .tab {
@@ -438,6 +481,7 @@ const styles = `
     font-size: 13px;
     font-weight: 500;
     transition: all 0.15s;
+    flex-shrink: 0;
   }
 
   .tab:hover {

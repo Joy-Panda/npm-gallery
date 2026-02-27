@@ -101,22 +101,9 @@ export class PackageDetailsPanel {
   private async loadPackageDetails(): Promise<void> {
     try {
       const services = getServices();
-      const details = await services.package.getPackageDetails(this._packageName);
-
-      // If an installed version is specified, override security info to match that version
-      if (this._installedVersion) {
-        try {
-          const security = await services.package.getSecurityInfo(
-            this._packageName,
-            this._installedVersion
-          );
-          if (security) {
-            (details as any).security = security;
-          }
-        } catch {
-          // Ignore security override errors and fall back to default details
-        }
-      }
+      const details = await services.package.getEnrichedPackageDetails(this._packageName, {
+        installedVersion: this._installedVersion,
+      });
 
       // When opened in security-only mode, tell webview to render only Security tab
       const securityOnlyView = this._securityOnly;
@@ -164,6 +151,11 @@ export class PackageDetailsPanel {
 
       case 'openExternal': {
         vscode.env.openExternal(vscode.Uri.parse(message.url));
+        break;
+      }
+
+      case 'openPackageDetails': {
+        await PackageDetailsPanel.createOrShow(this._extensionUri, message.packageName);
         break;
       }
 

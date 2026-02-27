@@ -4,6 +4,7 @@ import { NpmsTransformer } from './npms-transformer';
 import type { NpmsApiClient } from '../../api/npms-api';
 import type { NpmRegistryClient } from '../../api/npm-registry';
 import type { BundlephobiaClient } from '../../api/bundlephobia';
+import type { DepsDevClient } from '../../api/deps-dev';
 import type { OSVClient } from '../../api/osv';
 import type {
   PackageInfo,
@@ -40,9 +41,10 @@ export class NpmsSourceAdapter extends NpmBaseAdapter {
     private client: NpmsApiClient,
     private npmRegistryClient?: NpmRegistryClient,
     private bundlephobiaClient?: BundlephobiaClient,
-    osvClient?: OSVClient
+    osvClient?: OSVClient,
+    depsDevClient?: DepsDevClient
   ) {
-    super(osvClient);
+    super(osvClient, depsDevClient);
     this.transformer = new NpmsTransformer();
   }
 
@@ -64,6 +66,8 @@ export class NpmsSourceAdapter extends NpmBaseAdapter {
       SourceCapability.BUNDLE_SIZE, // Via bundlephobia client
       SourceCapability.DOWNLOAD_STATS,
       SourceCapability.QUALITY_SCORE,
+      SourceCapability.DEPENDENTS,
+      SourceCapability.REQUIREMENTS,
     ];
   }
 
@@ -124,13 +128,18 @@ export class NpmsSourceAdapter extends NpmBaseAdapter {
    * Get detailed package info
    * Falls back to npm registry for full details (readme, versions)
    */
-  async getPackageDetails(name: string): Promise<PackageDetails> {
+  async getPackageDetails(name: string, requestedVersion?: string): Promise<PackageDetails> {
     // npms.io doesn't provide full package details
     // If npm registry client is available, use it for details
     if (this.npmRegistryClient) {
       const pkg = await this.npmRegistryClient.getPackage(name);
       const latestVersion = pkg['dist-tags']?.latest;
-      const latestData = latestVersion ? pkg.versions[latestVersion] : undefined;
+      const selectedVersion =
+        (requestedVersion && pkg.versions[requestedVersion] ? requestedVersion : undefined) ||
+        latestVersion ||
+        Object.keys(pkg.versions)[0] ||
+        '0.0.0';
+      const selectedData = pkg.versions[selectedVersion];
 
       // Get npms.io analysis for score
       let score;
@@ -144,31 +153,32 @@ export class NpmsSourceAdapter extends NpmBaseAdapter {
       // Get additional data
       const [downloads, bundleSize, security] = await Promise.all([
         this.npmRegistryClient.getDownloads(name).catch(() => ({ downloads: 0 })),
-        this.bundlephobiaClient?.getSize(name, latestVersion).catch(() => null) ?? null,
-        latestVersion && this.osvClient
+        this.bundlephobiaClient?.getSize(name, selectedVersion).catch(() => null) ?? null,
+        selectedVersion && this.osvClient
           ? this.osvClient
-              .queryVulnerabilities(name, latestVersion, this.getEcosystem())
+              .queryVulnerabilities(name, selectedVersion, this.getEcosystem())
               .catch(() => null)
           : null,
       ]);
 
       const details: PackageDetails = {
         name: pkg.name,
-        version: latestVersion || Object.keys(pkg.versions)[0] || '0.0.0',
-        description: pkg.description,
+        version: selectedVersion,
+        description: selectedData?.description || pkg.description,
         keywords: pkg.keywords,
-        license: latestData?.license || pkg.license,
+        license: selectedData?.license || pkg.license,
         author: pkg.author,
-        repository: pkg.repository,
+        repository: selectedData?.repository || pkg.repository,
         homepage: pkg.homepage,
         downloads: downloads.downloads,
         score,
         bundleSize: bundleSize || undefined,
         readme: pkg.readme,
         versions: this.extractVersions(pkg),
-        dependencies: latestData?.dependencies,
-        devDependencies: latestData?.devDependencies,
-        peerDependencies: latestData?.peerDependencies,
+        dependencies: selectedData?.dependencies,
+        devDependencies: selectedData?.devDependencies,
+        peerDependencies: selectedData?.peerDependencies,
+        optionalDependencies: selectedData?.optionalDependencies,
         maintainers: pkg.maintainers?.map(m => ({ name: m.name, email: m.email })),
         time: pkg.time,
         distTags: pkg['dist-tags'],
@@ -176,10 +186,19 @@ export class NpmsSourceAdapter extends NpmBaseAdapter {
         security: security || undefined,
       };
 
-      if (!details.readme || details.readme.trim().length === 0) {
+      if (requestedVersion && selectedVersion !== latestVersion) {
         const readme = await this.fetchReadmeFromUnpkg(
           name,
-          latestVersion || details.version,
+          selectedVersion,
+          pkg.readmeFilename
+        );
+        if (readme) {
+          details.readme = readme;
+        }
+      } else if (!details.readme || details.readme.trim().length === 0) {
+        const readme = await this.fetchReadmeFromUnpkg(
+          name,
+          selectedVersion,
           pkg.readmeFilename
         );
         if (readme) {

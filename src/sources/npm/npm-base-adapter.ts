@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { BaseSourceAdapter } from '../base/source-adapter.interface';
 import { CapabilityNotSupportedError, SourceCapability } from '../base/capabilities';
 import type { OSVClient } from '../../api/osv';
+import type { DepsDevClient } from '../../api/deps-dev';
 import type { InstallOptions, PackageManager, SecurityInfo } from '../../types/package';
 
 /**
@@ -11,8 +12,8 @@ import type { InstallOptions, PackageManager, SecurityInfo } from '../../types/p
  * and command generation
  */
 export abstract class NpmBaseAdapter extends BaseSourceAdapter {
-  constructor(protected osvClient?: OSVClient) {
-    super();
+  constructor(protected osvClient?: OSVClient, depsDevClient?: DepsDevClient) {
+    super(depsDevClient);
   }
 
   /**

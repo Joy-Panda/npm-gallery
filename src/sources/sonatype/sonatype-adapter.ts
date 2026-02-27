@@ -2,6 +2,7 @@ import { BaseSourceAdapter } from '../base/source-adapter.interface';
 import { SourceCapability, CapabilityNotSupportedError } from '../base/capabilities';
 import { SonatypeTransformer } from './sonatype-transformer';
 import type { SonatypeApiClient, MavenPOM } from '../../api/sonatype-api';
+import type { DepsDevClient } from '../../api/deps-dev';
 import type {
   PackageInfo,
   PackageDetails,
@@ -26,9 +27,13 @@ export class SonatypeSourceAdapter extends BaseSourceAdapter {
 
   private transformer: SonatypeTransformer;
 
-  constructor(private client: SonatypeApiClient) {
-    super();
+  constructor(private client: SonatypeApiClient, depsDevClient?: DepsDevClient) {
+    super(depsDevClient);
     this.transformer = new SonatypeTransformer();
+  }
+
+  getEcosystem(): string {
+    return 'maven';
   }
 
   /**
@@ -43,6 +48,8 @@ export class SonatypeSourceAdapter extends BaseSourceAdapter {
       SourceCapability.COPY, // Maven/Gradle use copy snippets
       SourceCapability.SUGGESTIONS,
       SourceCapability.DEPENDENCIES,
+      SourceCapability.DEPENDENTS,
+      SourceCapability.REQUIREMENTS,
     ];
   }
 
@@ -118,16 +125,17 @@ export class SonatypeSourceAdapter extends BaseSourceAdapter {
   /**
    * Get detailed package info
    */
-  async getPackageDetails(name: string): Promise<PackageDetails> {
+  async getPackageDetails(name: string, version?: string): Promise<PackageDetails> {
     const parsed = this.client.parseCoordinate(name);
     if (!parsed || !parsed.groupId || !parsed.artifactId) {
       throw new Error(`Invalid Maven coordinate: ${name}. Expected format: groupId:artifactId`);
     }
 
-    // Get latest artifact
-    const artifact = await this.client.getArtifact(parsed.groupId, parsed.artifactId);
+    const artifact = version
+      ? await this.client.getArtifactVersion(parsed.groupId, parsed.artifactId, version)
+      : await this.client.getArtifact(parsed.groupId, parsed.artifactId);
     if (!artifact) {
-      throw new Error(`Package not found: ${name}`);
+      throw new Error(`Package not found: ${name}${version ? `@${version}` : ''}`);
     }
 
     // Get all versions

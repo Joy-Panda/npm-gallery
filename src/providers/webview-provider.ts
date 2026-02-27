@@ -62,22 +62,6 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
         break;
       }
 
-      case 'getPackageDetails': {
-        this.postMessage({ type: 'loading', isLoading: true });
-        try {
-          const details = await services.package.getPackageDetails(message.packageName);
-          this.postMessage({ type: 'packageDetails', data: details });
-        } catch (error) {
-          this.postMessage({
-            type: 'error',
-            message: error instanceof Error ? error.message : 'Failed to get package details',
-          });
-        } finally {
-          this.postMessage({ type: 'loading', isLoading: false });
-        }
-        break;
-      }
-
       case 'install': {
         const result = await services.install.install(message.packageName, message.options);
         if (result.success) {

@@ -304,8 +304,13 @@ export function registerCommands(
   context.subscriptions.push(
     vscode.commands.registerCommand(
       'npmGallery.showPackageDetails',
-      async (arg?: string | { pkg?: { name: string } }, version?: string) => {
+      async (
+        arg?: string | { pkg?: { name: string } },
+        options?: string | { installedVersion?: string; securityOnly?: boolean }
+      ) => {
         let packageName: string | undefined;
+        const normalizedOptions =
+          typeof options === 'string' ? { installedVersion: options } : options;
 
         // Handle TreeItem object from context menu
         if (arg && typeof arg === 'object' && 'pkg' in arg && arg.pkg) {
@@ -322,13 +327,8 @@ export function registerCommands(
 
         if (!packageName) return;
 
-        // If a version is provided (from vulnerability CodeLens), open security-only view for that version.
-        // Otherwise open full package details view.
-        if (version) {
-          await PackageDetailsPanel.createOrShow(context.extensionUri, packageName, {
-            installedVersion: version,
-            securityOnly: true,
-          });
+        if (normalizedOptions) {
+          await PackageDetailsPanel.createOrShow(context.extensionUri, packageName, normalizedOptions);
         } else {
           await PackageDetailsPanel.createOrShow(context.extensionUri, packageName);
         }

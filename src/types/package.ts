@@ -27,6 +27,8 @@ export interface PackageDetails extends PackageInfo {
   devDependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
+  dependents?: DependentsInfo;
+  requirements?: RequirementsInfo;
   maintainers?: PackageMaintainer[];
   time?: Record<string, string>;
   distTags?: Record<string, string>;
@@ -245,4 +247,52 @@ export interface SearchFilters {
   maxBundleSize?: number;
   excludeDeprecated?: boolean;
   license?: string[];
+}
+
+export type EcosystemName = 'npm' | 'maven' | 'go' | 'unknown';
+
+export interface DependentPackageRef {
+  system: string;
+  name: string;
+}
+
+export interface DependentSampleItem {
+  package: DependentPackageRef;
+  version: string;
+}
+
+export interface DependentsInfo {
+  package: DependentPackageRef;
+  version: string;
+  totalCount: number;
+  directCount: number;
+  indirectCount: number;
+  directSample: DependentSampleItem[];
+  indirectSample: DependentSampleItem[];
+  webUrl?: string;
+}
+
+export interface RequirementItem {
+  name: string;
+  requirement?: string;
+  version?: string;
+  scope?: string;
+  optional?: boolean;
+  classifier?: string;
+  type?: string;
+  exclusions?: string[];
+}
+
+export interface RequirementSection {
+  id: string;
+  title: string;
+  items: RequirementItem[];
+}
+
+export interface RequirementsInfo {
+  system: string;
+  package: string;
+  version: string;
+  sections: RequirementSection[];
+  webUrl?: string;
 }

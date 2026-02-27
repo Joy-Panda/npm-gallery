@@ -127,6 +127,9 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
   formatFullDate,
 }) => {
   const isSecure = !details.security || details.security.summary.total === 0;
+  const publishedAt = details.time?.[details.version] || details.versions?.find(
+    (version) => version.version === details.version
+  )?.publishedAt;
   const repoUrl = details.repository
     ? typeof details.repository === 'string'
       ? details.repository
@@ -164,7 +167,7 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
       </div>
 
       {/* Info */}
-      {(details.bundleSize || (details.maintainers && details.maintainers.length > 0) || (details.versions && details.versions.length > 0 && details.versions[0].publishedAt)) && (
+      {(details.bundleSize || (details.maintainers && details.maintainers.length > 0) || publishedAt) && (
         <div className="sidebar-section">
           <span className="section-label">Info</span>
           <div className="info-inline">
@@ -186,11 +189,11 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
                 <span>{details.maintainers.length}</span>
               </div>
             )}
-            {details.versions && details.versions.length > 0 && details.versions[0].publishedAt && (
+            {publishedAt && (
               <div className="info-row">
                 <span>Published</span>
-                <span title={formatFullDate(details.versions[0].publishedAt)}>
-                  {formatRelativeTime(details.versions[0].publishedAt)}
+                <span title={formatFullDate(publishedAt)}>
+                  {formatRelativeTime(publishedAt)}
                 </span>
               </div>
             )}

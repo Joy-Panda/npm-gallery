@@ -3,6 +3,7 @@ import { SourceCapability, CapabilityNotSupportedError } from '../base/capabilit
 import { NpmTransformer } from './npm-transformer';
 import type { NpmRegistryClient } from '../../api/npm-registry';
 import type { BundlephobiaClient } from '../../api/bundlephobia';
+import type { DepsDevClient } from '../../api/deps-dev';
 import type { OSVClient } from '../../api/osv';
 import type {
   PackageInfo,
@@ -38,9 +39,10 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
   constructor(
     private client: NpmRegistryClient,
     private bundlephobiaClient?: BundlephobiaClient,
-    osvClient?: OSVClient
+    osvClient?: OSVClient,
+    depsDevClient?: DepsDevClient
   ) {
-    super(osvClient);
+    super(osvClient, depsDevClient);
     this.transformer = new NpmTransformer();
   }
 
@@ -61,6 +63,8 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
       SourceCapability.BUNDLE_SIZE,
       SourceCapability.DOWNLOAD_STATS,
       SourceCapability.QUALITY_SCORE,
+      SourceCapability.DEPENDENTS,
+      SourceCapability.REQUIREMENTS,
     ];
   }
 
@@ -123,10 +127,24 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
    * Get detailed package info
    * Only fetches data for supported capabilities
    */
-  async getPackageDetails(name: string): Promise<PackageDetails> {
+  async getPackageDetails(name: string, requestedVersion?: string): Promise<PackageDetails> {
     const pkg = await this.client.getPackage(name);
-    const details = this.transformer.transformPackageDetails(pkg);
     const latestVersion = pkg['dist-tags']?.latest;
+    const selectedVersion =
+      (requestedVersion && pkg.versions[requestedVersion] ? requestedVersion : undefined) ||
+      latestVersion ||
+      Object.keys(pkg.versions)[0] ||
+      '0.0.0';
+    const selectedData = pkg.versions[selectedVersion];
+    const details = this.transformer.transformPackageDetails(pkg);
+    details.version = selectedVersion;
+    details.license = selectedData?.license || pkg.license;
+    details.description = selectedData?.description || pkg.description;
+    details.repository = selectedData?.repository || pkg.repository;
+    details.dependencies = selectedData?.dependencies;
+    details.devDependencies = selectedData?.devDependencies;
+    details.peerDependencies = selectedData?.peerDependencies;
+    details.optionalDependencies = selectedData?.optionalDependencies;
 
     // Only fetch data for supported capabilities
     const promises: Promise<unknown>[] = [];
@@ -141,15 +159,15 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
     // Bundle size (if supported)
     if (this.supportsCapability(SourceCapability.BUNDLE_SIZE) && this.bundlephobiaClient) {
       promises.push(
-        this.bundlephobiaClient.getSize(name, latestVersion).catch(() => null)
+        this.bundlephobiaClient.getSize(name, selectedVersion).catch(() => null)
       );
     }
 
     // Security info (if supported)
-    if (this.supportsCapability(SourceCapability.SECURITY) && latestVersion && this.osvClient) {
+    if (this.supportsCapability(SourceCapability.SECURITY) && selectedVersion && this.osvClient) {
       promises.push(
         this.osvClient
-          .queryVulnerabilities(name, latestVersion, this.getEcosystem())
+          .queryVulnerabilities(name, selectedVersion, this.getEcosystem())
           .catch(() => null)
       );
     }
@@ -170,10 +188,19 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
       details.security = results[resultIndex++] as SecurityInfo | null || undefined;
     }
 
-    if (!details.readme || details.readme.trim().length === 0) {
+    if (requestedVersion && selectedVersion !== latestVersion) {
       const readme = await this.fetchReadmeFromUnpkg(
         name,
-        latestVersion || details.version,
+        selectedVersion,
+        pkg.readmeFilename
+      );
+      if (readme) {
+        details.readme = readme;
+      }
+    } else if (!details.readme || details.readme.trim().length === 0) {
+      const readme = await this.fetchReadmeFromUnpkg(
+        name,
+        selectedVersion,
         pkg.readmeFilename
       );
       if (readme) {

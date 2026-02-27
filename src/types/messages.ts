@@ -85,7 +85,6 @@ export interface SourceInfoMessage {
  */
 export type WebviewToExtensionMessage =
   | SearchMessage
-  | GetPackageDetailsMessage
   | InstallPackageMessage
   | OpenExternalMessage
   | CopyToClipboardMessage
@@ -101,11 +100,6 @@ export interface SearchMessage {
   from?: number;
   size?: number;
   sortBy?: 'relevance' | 'popularity' | 'quality' | 'maintenance' | 'name';
-}
-
-export interface GetPackageDetailsMessage {
-  type: 'getPackageDetails';
-  packageName: string;
 }
 
 export interface InstallPackageMessage {
