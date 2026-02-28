@@ -91,11 +91,13 @@ export class SonatypeApiClient extends BaseApiClient {
       from?: number;
       size?: number;
       core?: 'ga' | 'gav'; // ga = groupId/artifactId, gav = groupId/artifactId/version
+      signal?: AbortSignal;
     } = {}
   ): Promise<SonatypeSearchResponse> {
-    const { from = 0, size = 20, core = 'ga' } = options;
+    const { from = 0, size = 20, core = 'ga', signal } = options;
 
     return this.get<SonatypeSearchResponse>('/solrsearch/select', {
+      signal,
       params: {
         q: query,
         rows: size,

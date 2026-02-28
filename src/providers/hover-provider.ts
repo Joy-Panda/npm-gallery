@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { getServices } from '../services';
 import { formatBytes } from '../utils/formatters';
+import { formatDependencySpecDisplay, parseDependencySpec } from '../utils/version-utils';
 
 /**
  * Provides hover information for packages in package.json
@@ -23,22 +24,28 @@ export class PackageHoverProvider implements vscode.HoverProvider {
       return null;
     }
 
-    const { name, version } = packageInfo;
+    const { name, version, isRegistryResolvable, displayVersion } = packageInfo;
     const services = getServices();
 
     try {
       const [details, bundleSize, security] = await Promise.all([
         services.package.getPackageInfo(name),
-        services.package.getBundleSize(name, version),
-        services.package.getSecurityInfo(name, version),
+        isRegistryResolvable ? services.package.getBundleSize(name, version) : Promise.resolve(null),
+        isRegistryResolvable ? services.package.getSecurityInfo(name, version) : Promise.resolve(null),
       ]);
 
-      const markdown = this.buildHoverContent(name, version, details, bundleSize, security);
+      const markdown = this.buildHoverContent(
+        name,
+        isRegistryResolvable ? version : displayVersion,
+        details,
+        bundleSize,
+        security
+      );
       return new vscode.Hover(markdown);
     } catch {
       // Return basic hover if API fails
       return new vscode.Hover(
-        new vscode.MarkdownString(`**${name}** @ ${version}`)
+        new vscode.MarkdownString(`**${name}** @ ${displayVersion}`)
       );
     }
   }
@@ -49,7 +56,13 @@ export class PackageHoverProvider implements vscode.HoverProvider {
   private extractPackageInfo(
     line: string,
     position: vscode.Position
-  ): { name: string; version: string } | null {
+  ): {
+    name: string;
+    version: string;
+    rawVersion: string;
+    displayVersion: string;
+    isRegistryResolvable: boolean;
+  } | null {
     // Match: "package-name": "version"
     const regex = /"([^"]+)":\s*"([^"]+)"/;
     const match = line.match(regex);
@@ -73,7 +86,14 @@ export class PackageHoverProvider implements vscode.HoverProvider {
       return null;
     }
 
-    return { name, version: version.replace(/^[\^~>=<]+/, '') };
+    const parsedSpec = parseDependencySpec(version);
+    return {
+      name,
+      version: parsedSpec.normalizedVersion || parsedSpec.displayText,
+      rawVersion: parsedSpec.raw,
+      displayVersion: formatDependencySpecDisplay(parsedSpec),
+      isRegistryResolvable: parsedSpec.isRegistryResolvable && !!parsedSpec.normalizedVersion,
+    };
   }
 
   /**

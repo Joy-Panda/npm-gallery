@@ -5,10 +5,8 @@ import {
   Star,
   Scale,
   AlertTriangle,
-  Plus,
 } from "lucide-react";
 import { Badge } from "./ui/badge";
-import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import {
   Tooltip,
@@ -16,18 +14,23 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "./ui/tooltip";
-import type { PackageInfo } from "../../types/package";
+import type { DependencyType, PackageInfo } from "../../types/package";
+import { InstallMenuButton } from "./InstallMenuButton";
 
 interface PackageCardProps {
   package: PackageInfo;
   onClick: () => void;
-  onInstall: (type: "dependencies" | "devDependencies") => void;
+  onInstall: (type: DependencyType) => void;
+  supportedInstallTypes?: DependencyType[];
+  showInstall?: boolean;
 }
 
 export const PackageCard: React.FC<PackageCardProps> = ({
   package: pkg,
   onClick,
   onInstall,
+  supportedInstallTypes = ['dependencies'],
+  showInstall = true,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
 
@@ -43,11 +46,6 @@ export const PackageCard: React.FC<PackageCardProps> = ({
     if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
     if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)}KB`;
     return `${bytes}B`;
-  };
-
-  const handleInstallClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onInstall("dependencies");
   };
 
   const authorName = pkg.author
@@ -157,10 +155,16 @@ export const PackageCard: React.FC<PackageCardProps> = ({
             )}
 
             {/* Stats */}
-            <div style={statsStyles}>
-              <Badge variant="secondary" style={{ fontFamily: "monospace" }}>
-                {pkg.version}
-              </Badge>
+	            <div style={statsStyles}>
+	              {pkg.exactMatch && (
+	                <Badge variant="default">
+	                  exact match
+	                </Badge>
+	              )}
+
+	              <Badge variant="secondary" style={{ fontFamily: "monospace" }}>
+	                {pkg.version}
+	              </Badge>
 
               {downloads && (
                 <Tooltip>
@@ -220,9 +224,15 @@ export const PackageCard: React.FC<PackageCardProps> = ({
           </div>
 
           {/* Install Button */}
-          <Button size="icon" style={buttonStyles} onClick={handleInstallClick}>
-            <Plus style={{ width: "16px", height: "16px" }} />
-          </Button>
+          {showInstall && (
+            <div style={buttonStyles} onClick={(event) => event.stopPropagation()}>
+              <InstallMenuButton
+                size="icon"
+                onInstall={onInstall}
+                supportedTypes={supportedInstallTypes}
+              />
+            </div>
+          )}
         </div>
       </Card>
     </TooltipProvider>

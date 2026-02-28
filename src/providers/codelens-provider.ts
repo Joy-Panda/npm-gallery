@@ -1,7 +1,18 @@
 import * as json from 'jsonc-parser/lib/esm/main.js';
 import * as vscode from 'vscode';
 import { getServices } from '../services';
-import { getUpdateType, isNewerVersion } from '../utils/version-utils';
+import {
+  formatDependencySpecDisplay,
+  getUpdateType,
+  isNewerVersion,
+  parseDependencySpec,
+} from '../utils/version-utils';
+import type { WorkspacePackageScope } from '../types/package';
+
+interface CodeLensCacheEntry {
+  version: number;
+  lenses: vscode.CodeLens[];
+}
 
 /**
  * Provides CodeLens for package updates in package.json, pom.xml, and Gradle files
@@ -11,6 +22,7 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
   readonly onDidChangeCodeLenses = this._onDidChangeCodeLenses.event;
 
   private securitySummaries = new Map<string, { total: number; critical: number; high: number }>();
+  private codeLensCache = new Map<string, CodeLensCacheEntry>();
 
   private formatUpdateTitle(latestVersion: string, updateType: string | null): string {
     return updateType && updateType !== 'patch'
@@ -21,7 +33,8 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
   /**
    * Refresh CodeLenses
    */
-  refresh(): void {
+  refresh(scope?: WorkspacePackageScope): void {
+    this.invalidateCache(scope);
     this._onDidChangeCodeLenses.fire();
   }
 
@@ -29,22 +42,34 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
     document: vscode.TextDocument,
     _token: vscode.CancellationToken
   ): Promise<vscode.CodeLens[]> {
+    const cacheKey = document.uri.toString();
+    const cached = this.codeLensCache.get(cacheKey);
+    if (cached && cached.version === document.version) {
+      return cached.lenses;
+    }
+
     const fileName = document.fileName.toLowerCase();
     const text = document.getText();
 
     // Handle package.json
     if (fileName.endsWith('package.json')) {
-      return this.provideCodeLensesForPackageJson(document, text);
+      const lenses = await this.provideCodeLensesForPackageJson(document, text);
+      this.codeLensCache.set(cacheKey, { version: document.version, lenses });
+      return lenses;
     }
 
     // Handle pom.xml
     if (fileName.endsWith('pom.xml')) {
-      return this.provideCodeLensesForPomXml(document, text);
+      const lenses = await this.provideCodeLensesForPomXml(document, text);
+      this.codeLensCache.set(cacheKey, { version: document.version, lenses });
+      return lenses;
     }
 
     // Handle Gradle files
     if (fileName.endsWith('build.gradle') || fileName.endsWith('build.gradle.kts')) {
-      return this.provideCodeLensesForGradle(document, text);
+      const lenses = await this.provideCodeLensesForGradle(document, text);
+      this.codeLensCache.set(cacheKey, { version: document.version, lenses });
+      return lenses;
     }
 
     return [];
@@ -233,8 +258,10 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
     const packagesForSecurity: Array<{ name: string; version: string }> = [];
     if (showSecurityInfo) {
       for (const [name, currentVersionRange] of Object.entries(deps)) {
-        const currentVersion = currentVersionRange.replace(/^[\^~>=<]+/, '');
-        packagesForSecurity.push({ name, version: currentVersion });
+        const parsedSpec = parseDependencySpec(currentVersionRange);
+        if (parsedSpec.isRegistryResolvable && parsedSpec.normalizedVersion) {
+          packagesForSecurity.push({ name, version: parsedSpec.normalizedVersion });
+        }
       }
     }
 
@@ -261,7 +288,29 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
     const updatePromises: Promise<void>[] = [];
 
     for (const [name, currentVersionRange] of Object.entries(deps)) {
-      const currentVersion = currentVersionRange.replace(/^[\^~>=<]+/, '');
+      const parsedSpec = parseDependencySpec(currentVersionRange);
+      const valueNode = json.findNodeAtLocation(tree, [section, name]);
+      const keyNode = valueNode?.parent?.type === 'property' && valueNode.parent.children?.[0]
+        ? valueNode.parent.children[0]
+        : null;
+
+      if (!parsedSpec.isRegistryResolvable || !parsedSpec.normalizedVersion) {
+        if (keyNode) {
+          const start = document.positionAt(keyNode.offset);
+          const end = document.positionAt(keyNode.offset + keyNode.length);
+          const range = new vscode.Range(start, end);
+
+          codeLenses.push(
+            new vscode.CodeLens(range, {
+              title: `📍 ${formatDependencySpecDisplay(parsedSpec)}`,
+              command: 'npmGallery.showPackageDetails',
+              arguments: [name],
+            })
+          );
+        }
+        continue;
+      }
+      const currentVersion = parsedSpec.normalizedVersion;
 
       updatePromises.push(
         (async () => {
@@ -270,7 +319,6 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
             let securitySummary = this.securitySummaries.get(securityKey);
 
             const latestVersion = await services.package.getLatestVersion(name);
-
             // Get security summary from bulk results (no per-package OSV calls here)
             if (showSecurityInfo && !securitySummary) {
               const sec = bulkSecurity[securityKey];
@@ -283,12 +331,6 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
                 this.securitySummaries.set(securityKey, securitySummary);
               }
             }
-
-            // Use jsonc-parser to get the key node for this package (exact offset; one CodeLens per section occurrence)
-            const valueNode = json.findNodeAtLocation(tree, [section, name]);
-            const keyNode = valueNode?.parent?.type === 'property' && valueNode.parent.children?.[0]
-              ? valueNode.parent.children[0]
-              : null;
 
             if (keyNode) {
               const start = document.positionAt(keyNode.offset);
@@ -382,5 +424,31 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
 
   dispose(): void {
     this._onDidChangeCodeLenses.dispose();
+  }
+
+  private invalidateCache(scope?: WorkspacePackageScope): void {
+    if (!scope?.manifestPath && !scope?.workspaceFolderPath) {
+      this.codeLensCache.clear();
+      return;
+    }
+
+    for (const key of this.codeLensCache.keys()) {
+      const uri = vscode.Uri.parse(key);
+      if (this.matchesScope(uri, scope)) {
+        this.codeLensCache.delete(key);
+      }
+    }
+  }
+
+  private matchesScope(uri: vscode.Uri, scope: WorkspacePackageScope): boolean {
+    if (scope.manifestPath) {
+      return uri.fsPath === scope.manifestPath;
+    }
+
+    if (scope.workspaceFolderPath) {
+      return vscode.workspace.getWorkspaceFolder(uri)?.uri.fsPath === scope.workspaceFolderPath;
+    }
+
+    return true;
   }
 }

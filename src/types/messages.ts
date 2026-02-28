@@ -3,6 +3,7 @@ import type {
   PackageDetails,
   SearchResult,
   InstallOptions,
+  PackageManager,
 } from './package';
 import type { ProjectType, SourceType } from './project';
 
@@ -67,6 +68,13 @@ export interface SourceInfoMessage {
   type: 'sourceInfo';
   data: {
     currentProjectType: ProjectType;
+    detectedPackageManager: PackageManager;
+    installTarget?: {
+      manifestPath: string;
+      label: string;
+      description: string;
+      packageManager: string;
+    };
     currentSource: SourceType;
     availableSources: SourceType[];
     supportedSortOptions: string[];
@@ -97,6 +105,7 @@ export type WebviewToExtensionMessage =
 export interface SearchMessage {
   type: 'search';
   query: string;
+  exactName?: string;
   from?: number;
   size?: number;
   sortBy?: 'relevance' | 'popularity' | 'quality' | 'maintenance' | 'name';
@@ -152,6 +161,7 @@ export interface WebviewState {
   view: 'search' | 'details';
   // Source information
   currentProjectType: ProjectType;
+  detectedPackageManager: PackageManager;
   currentSource: SourceType;
   availableSources: SourceType[];
   supportedSortOptions: string[];

@@ -1,17 +1,113 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import MarkdownPreviewComponent from '@uiw/react-markdown-preview';
+import type { PackageRepository } from '../../types/package';
 
 interface MarkdownPreviewProps {
   source: string;
+  containerId?: string;
+  onOpenExternal?: (url: string) => void;
+  repository?: PackageRepository;
 }
 
-export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({ source }) => {
+export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({
+  source,
+  containerId,
+  onOpenExternal,
+  repository,
+}) => {
+  useEffect(() => {
+    if (!containerId) {
+      return;
+    }
+
+    const container = document.getElementById(containerId);
+    if (!container) {
+      return;
+    }
+
+    const seenIds = new Map<string, number>();
+    const headings = Array.from(
+      container.querySelectorAll('h1, h2, h3, h4, h5, h6')
+    ) as HTMLElement[];
+
+    headings.forEach((heading) => {
+      const baseId = slugifyHeading(heading.textContent || '');
+      const count = seenIds.get(baseId) || 0;
+      seenIds.set(baseId, count + 1);
+      heading.id = count === 0 ? baseId : `${baseId}-${count}`;
+      heading.style.scrollMarginTop = '16px';
+    });
+
+    const links = Array.from(container.querySelectorAll('a[href]')) as HTMLAnchorElement[];
+    links.forEach((link) => {
+      const href = link.getAttribute('href');
+      if (!href || href.startsWith('#')) {
+        return;
+      }
+
+      const resolvedHref = resolveReadmeLink(href, repository);
+      if (resolvedHref) {
+        link.setAttribute('href', resolvedHref);
+      }
+    });
+
+    const images = Array.from(container.querySelectorAll('img[src]')) as HTMLImageElement[];
+    images.forEach((image) => {
+      const src = image.getAttribute('src');
+      if (!src) {
+        return;
+      }
+
+      const resolvedSrc = resolveReadmeAsset(src, repository);
+      if (resolvedSrc) {
+        image.setAttribute('src', resolvedSrc);
+      }
+    });
+
+    if (!onOpenExternal) {
+      return;
+    }
+
+    const handleClick = (event: Event) => {
+      const target = event.target as HTMLElement | null;
+      const link = target?.closest('a') as HTMLAnchorElement | null;
+      if (!link) {
+        return;
+      }
+
+      const href = link.getAttribute('href');
+      if (!href) {
+        return;
+      }
+
+      event.preventDefault();
+
+      if (href.startsWith('#')) {
+        document.getElementById(decodeURIComponent(href.slice(1)))?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
+        return;
+      }
+
+      const resolvedUrl = resolveReadmeLink(href, repository);
+      if (resolvedUrl) {
+        onOpenExternal(resolvedUrl);
+      }
+    };
+
+    container.addEventListener('click', handleClick);
+    return () => {
+      container.removeEventListener('click', handleClick);
+    };
+  }, [source, containerId, onOpenExternal, repository]);
+
   if (!source) {
     return <p className="empty-message">No README available</p>;
   }
 
   return (
-    <div className="markdown-preview-wrapper">
+    <div className="markdown-preview-wrapper" id={containerId}>
       <MarkdownPreviewComponent
         source={source}
         style={{
@@ -234,3 +330,170 @@ export const MarkdownPreview: React.FC<MarkdownPreviewProps> = ({ source }) => {
     </div>
   );
 };
+
+function slugifyHeading(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[`~!@#$%^&*()+=[\]{}|\\:;"'<>,.?/]+/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '') || 'section';
+}
+
+function resolveReadmeLink(href: string, repository?: PackageRepository): string | null {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(href)) {
+    return href;
+  }
+
+  const normalizedRepoUrl = normalizeRepositoryUrl(repository?.url);
+  if (!normalizedRepoUrl) {
+    return href;
+  }
+
+  try {
+    const repo = new URL(normalizedRepoUrl);
+    const repoPathSegments = repo.pathname.split('/').filter(Boolean);
+    if (repoPathSegments.length < 2) {
+      return href;
+    }
+
+    const repoRootSegments = repoPathSegments.slice(0, 2);
+    const baseSegments = [
+      ...repoRootSegments,
+      ...splitPathSegments(repository?.directory),
+    ];
+
+    const [pathPart, hashPart = ''] = href.split('#');
+    const relativeSegments = splitPathSegments(pathPart);
+    const resolvedSegments = href.startsWith('/')
+      ? [...repoRootSegments, ...relativeSegments]
+      : applyRelativePath(baseSegments, relativeSegments, repoRootSegments.length);
+    const repoRelativeSegments = resolvedSegments.slice(repoRootSegments.length);
+
+    if (repo.hostname === 'github.com' && repoRelativeSegments.length > 0) {
+      repo.pathname = `/${repoRootSegments[0]}/${repoRootSegments[1]}/blob/HEAD/${repoRelativeSegments.join('/')}`;
+      repo.hash = hashPart ? `#${hashPart}` : '';
+      repo.search = '';
+      return repo.toString();
+    }
+
+    repo.pathname = `/${resolvedSegments.join('/')}`;
+    repo.hash = hashPart ? `#${hashPart}` : '';
+    repo.search = '';
+    return repo.toString();
+  } catch {
+    return href;
+  }
+}
+
+function resolveReadmeAsset(src: string, repository?: PackageRepository): string | null {
+  if (/^[a-z][a-z0-9+.-]*:/i.test(src) || src.startsWith('data:')) {
+    return src;
+  }
+
+  const normalizedRepoUrl = normalizeRepositoryUrl(repository?.url);
+  if (!normalizedRepoUrl) {
+    return src;
+  }
+
+  try {
+    const repo = new URL(normalizedRepoUrl);
+    const repoPathSegments = repo.pathname.split('/').filter(Boolean);
+    if (repoPathSegments.length < 2) {
+      return src;
+    }
+
+    const repoRootSegments = repoPathSegments.slice(0, 2);
+    const baseSegments = [
+      ...repoRootSegments,
+      ...splitPathSegments(repository?.directory),
+    ];
+    const relativeSegments = splitPathSegments(src);
+    const resolvedSegments = src.startsWith('/')
+      ? [...repoRootSegments, ...relativeSegments]
+      : applyRelativePath(baseSegments, relativeSegments, repoRootSegments.length);
+    const repoRelativeSegments = resolvedSegments.slice(repoRootSegments.length);
+
+    if (repo.hostname === 'github.com' && repoRelativeSegments.length > 0) {
+      return `https://raw.githubusercontent.com/${repoRootSegments[0]}/${repoRootSegments[1]}/HEAD/${repoRelativeSegments.join('/')}`;
+    }
+
+    repo.pathname = `/${resolvedSegments.join('/')}`;
+    repo.search = '';
+    repo.hash = '';
+    return repo.toString();
+  } catch {
+    return src;
+  }
+}
+
+function normalizeRepositoryUrl(url?: string): string | undefined {
+  if (!url) {
+    return undefined;
+  }
+
+  const shorthandMatch = url.match(/^(github|gitlab|bitbucket):(.+)$/i);
+  if (shorthandMatch) {
+    const hostMap: Record<string, string> = {
+      github: 'github.com',
+      gitlab: 'gitlab.com',
+      bitbucket: 'bitbucket.org',
+    };
+    const host = hostMap[shorthandMatch[1].toLowerCase()];
+    if (host) {
+      return `https://${host}/${shorthandMatch[2].replace(/\.git$/, '')}`;
+    }
+  }
+
+  if (url.startsWith('git+')) {
+    return url.slice(4).replace(/\.git$/, '');
+  }
+
+  if (url.startsWith('git://')) {
+    return `https://${url.slice('git://'.length).replace(/\.git$/, '')}`;
+  }
+
+  const sshMatch = url.match(/^git@([^:]+):(.+?)(?:\.git)?$/);
+  if (sshMatch) {
+    return `https://${sshMatch[1]}/${sshMatch[2]}`;
+  }
+
+  if (/^(github\.com|gitlab\.com|bitbucket\.org)\//i.test(url)) {
+    return `https://${url.replace(/\.git$/, '')}`;
+  }
+
+  return url.replace(/\.git$/, '');
+}
+
+function splitPathSegments(path?: string): string[] {
+  if (!path) {
+    return [];
+  }
+
+  return path
+    .split('/')
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+}
+
+function applyRelativePath(baseSegments: string[], relativeSegments: string[], minLength: number): string[] {
+  const result = [...baseSegments];
+
+  for (const segment of relativeSegments) {
+    if (segment === '.' || segment === '') {
+      continue;
+    }
+
+    if (segment === '..') {
+      if (result.length > minLength) {
+        result.pop();
+      }
+      continue;
+    }
+
+    result.push(segment);
+  }
+
+  return result;
+}

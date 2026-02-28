@@ -7,6 +7,7 @@ import {
   SearchViewProvider,
   InstalledPackagesProvider,
   UpdatesProvider,
+  PackageJsonEditorProvider,
 } from './providers';
 import { registerCommands } from './commands';
 
@@ -30,6 +31,7 @@ export async function activate(context: vscode.ExtensionContext) {
   const searchViewProvider = new SearchViewProvider(context.extensionUri);
   const installedProvider = new InstalledPackagesProvider();
   const updatesProvider = new UpdatesProvider();
+  const packageJsonEditorProvider = new PackageJsonEditorProvider(context.extensionUri);
 
   // Register hover provider for package.json
   context.subscriptions.push(
@@ -76,6 +78,16 @@ export async function activate(context: vscode.ExtensionContext) {
     )
   );
 
+  context.subscriptions.push(
+    vscode.window.registerCustomEditorProvider(
+      PackageJsonEditorProvider.viewType,
+      packageJsonEditorProvider,
+      {
+        webviewOptions: { retainContextWhenHidden: true },
+      }
+    )
+  );
+
   // Register tree view providers
   context.subscriptions.push(
     vscode.window.registerTreeDataProvider('npmGallery.installedView', installedProvider)
@@ -93,12 +105,26 @@ export async function activate(context: vscode.ExtensionContext) {
   });
 
   // Listen for workspace changes
-  services.workspace.onDidChangePackages(() => {
-    services.package.invalidateLocalDependencyTreeCache();
-    services.package.invalidateLatestVersionCache();
-    installedProvider.refresh();
-    updatesProvider.refresh();
-    codeLensProvider.refresh();
+  services.workspace.onDidChangePackages(async (scope) => {
+    if (!scope) {
+      services.package.invalidateLocalDependencyTreeCache();
+      services.package.invalidateLatestVersionCache();
+      await installedProvider.refresh();
+      await updatesProvider.refresh();
+      codeLensProvider.refresh();
+      return;
+    }
+
+    const scopedInstalledPackages = await services.workspace.refreshInstalledPackages(scope);
+    const registryPackageNames = scopedInstalledPackages
+      .filter((pkg) => pkg.isRegistryResolvable !== false)
+      .map((pkg) => pkg.name);
+
+    services.package.invalidateLocalDependencyTreeCache(scope);
+    services.package.invalidateLatestVersionCache(registryPackageNames);
+    await installedProvider.refreshScope(scope, true);
+    await updatesProvider.refreshScope(scope, true);
+    codeLensProvider.refresh(scope);
   });
 
   // Initial check for updates (if enabled)

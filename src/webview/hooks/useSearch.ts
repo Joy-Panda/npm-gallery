@@ -34,21 +34,29 @@ export function useSearch(): {
 
     const parsed = parseQuery(searchQuery);
 
+    const supportsFilter = (filter: string) => sourceInfo.supportedFilters.includes(filter);
     const searchText = buildQuery({
       baseQuery: parsed.baseQuery,
-      author: parsed.author,
-      maintainer: parsed.maintainer,
-      scope: parsed.scope,
-      keywords: parsed.keywords,
-      excludeUnstable: parsed.excludeUnstable,
-      excludeInsecure: parsed.excludeInsecure,
-      includeUnstable: parsed.includeUnstable,
-      includeInsecure: parsed.includeInsecure,
+      author: supportsFilter('author') ? parsed.author : undefined,
+      maintainer: supportsFilter('maintainer') ? parsed.maintainer : undefined,
+      scope: supportsFilter('scope') ? parsed.scope : undefined,
+      keywords: supportsFilter('keywords') ? parsed.keywords : undefined,
+      excludeDeprecated: supportsFilter('deprecated') ? parsed.excludeDeprecated : undefined,
+      includeDeprecated: supportsFilter('deprecated') ? parsed.includeDeprecated : undefined,
+      excludeUnstable: supportsFilter('unstable') ? parsed.excludeUnstable : undefined,
+      excludeInsecure: supportsFilter('insecure') ? parsed.excludeInsecure : undefined,
+      includeUnstable: supportsFilter('unstable') ? parsed.includeUnstable : undefined,
+      includeInsecure: supportsFilter('insecure') ? parsed.includeInsecure : undefined,
       // sort is passed separately
     });
 
-    search(searchText, 0, 20, parsed.sortBy || 'relevance');
-  }, [searchQuery, search]);
+    const selectedSort = parsed.sortBy || 'relevance';
+    const effectiveSort = sourceInfo.supportedSortOptions.includes(selectedSort)
+      ? selectedSort
+      : (sourceInfo.supportedSortOptions[0] as typeof selectedSort | undefined) || 'relevance';
+
+    search(searchText, 0, 20, effectiveSort, parsed.exactName);
+  }, [searchQuery, search, sourceInfo.supportedSortOptions]);
 
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query);
@@ -56,7 +64,8 @@ export function useSearch(): {
 
   const loadMore = useCallback(() => {
     if (searchResults && searchResults.hasMore) {
-      search(searchQuery, searchResults.packages.length);
+      const parsed = parseQuery(searchQuery);
+      search(searchQuery, searchResults.packages.length, 20, undefined, parsed.exactName);
     }
   }, [search, searchQuery, searchResults]);
 

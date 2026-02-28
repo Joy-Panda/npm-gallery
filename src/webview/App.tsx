@@ -1,17 +1,19 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { SearchBar } from './components/SearchBar';
 import { SearchResults } from './components/SearchResults';
 import { AdvancedSearch } from './components/AdvancedSearch';
 import { useSearch } from './hooks/useSearch';
 import { useVSCode } from './context/VSCodeContext';
 import { parseQuery, buildQuery, extractBaseText, parseQueryToFilters } from './utils/queryParser';
-import type { PackageInfo, SearchOptions, SearchSortBy } from '../types/package';
+import type { DependencyType, PackageInfo, SearchOptions, SearchSortBy } from '../types/package';
 
 interface FilterState {
   author: string;
   maintainer: string;
   scope: string;
   keywords: string;
+  excludeDeprecated: boolean;
+  includeDeprecated: boolean;
   excludeUnstable: boolean;
   excludeInsecure: boolean;
   includeUnstable: boolean;
@@ -23,6 +25,8 @@ const defaultFilters: FilterState = {
   maintainer: '',
   scope: '',
   keywords: '',
+  excludeDeprecated: false,
+  includeDeprecated: false,
   excludeUnstable: false,
   excludeInsecure: false,
   includeUnstable: false,
@@ -36,15 +40,38 @@ export const App: React.FC = () => {
   const [filters, setFilters] = useState<FilterState>(defaultFilters);
   
   // Get searchQuery from useSearch hook (this is used for actual searching)
-  const { searchQuery, setSearchQuery, triggerSearch, searchResults, isLoading, error } = useSearch();
+  const {
+    searchQuery,
+    setSearchQuery,
+    triggerSearch,
+    searchResults,
+    isLoading,
+    error,
+    supportedSortOptions,
+    supportedFilters,
+    sourceInfo,
+  } = useSearch();
   const { installPackage, postMessage } = useVSCode();
+
+  const availableSortOptions = supportedSortOptions as SearchSortBy[];
+  const sourceHint = buildSourceHint(
+    availableSortOptions,
+    supportedFilters,
+    sourceInfo.detectedPackageManager,
+    sourceInfo.installTarget
+  );
+  const canInstall = sourceInfo.supportedCapabilities.includes('installation');
+  const supportedInstallTypes: DependencyType[] =
+    sourceInfo.currentProjectType === 'npm'
+      ? ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']
+      : ['dependencies'];
 
   const handlePackageSelect = (pkg: PackageInfo) => {
     // Send message to extension to open package details in editor panel
     postMessage({ type: 'openPackageDetails', packageName: pkg.name });
   };
 
-  const handleInstall = (pkg: PackageInfo, type: 'dependencies' | 'devDependencies') => {
+  const handleInstall = (pkg: PackageInfo, type: DependencyType) => {
     installPackage(pkg.name, { type, version: pkg.version });
   };
 
@@ -55,7 +82,12 @@ export const App: React.FC = () => {
     
     // Parse the query string and update filters/sort
     const parsed = parseQuery(newQuery);
-    setSortBy(parsed.sortBy || 'relevance');
+    const nextSort = parsed.sortBy || 'relevance';
+    setSortBy(
+      availableSortOptions.includes(nextSort)
+        ? nextSort
+        : (availableSortOptions[0] || 'relevance')
+    );
     setFilters(parseQueryToFilters(newQuery));
   };
 
@@ -78,6 +110,9 @@ export const App: React.FC = () => {
 
   // 3. When user changes sort in SearchResults
   const handleSortChange = (newSortBy: SearchSortBy) => {
+    if (!availableSortOptions.includes(newSortBy)) {
+      return;
+    }
     setSortBy(newSortBy);
     
     // Extract base text from current search query
@@ -97,12 +132,40 @@ export const App: React.FC = () => {
   const handleAdvancedSearch = (options: SearchOptions) => {
     setSearchOptions(options);
     const parsed = parseQuery(options.query);
-    setSortBy(parsed.sortBy || 'relevance');
+    const nextSort = parsed.sortBy || 'relevance';
+    setSortBy(
+      availableSortOptions.includes(nextSort)
+        ? nextSort
+        : (availableSortOptions[0] || 'relevance')
+    );
     setFilters(parseQueryToFilters(options.query));
     setSearchQuery(options.query);
     // Trigger search immediately when applying advanced search
     setTimeout(() => triggerSearch(), 0);
   };
+
+  useEffect(() => {
+    if (!availableSortOptions.includes(sortBy)) {
+      setSortBy(availableSortOptions[0] || 'relevance');
+    }
+  }, [availableSortOptions, sortBy]);
+
+  useEffect(() => {
+    setFilters((current) => ({
+      ...current,
+      author: supportedFilters.includes('author') ? current.author : '',
+      maintainer: supportedFilters.includes('maintainer') ? current.maintainer : '',
+      scope: supportedFilters.includes('scope') ? current.scope : '',
+      keywords: supportedFilters.includes('keywords') ? current.keywords : '',
+      excludeDeprecated: supportedFilters.includes('deprecated') ? current.excludeDeprecated : false,
+      includeDeprecated: supportedFilters.includes('deprecated') ? current.includeDeprecated : false,
+      excludeUnstable: supportedFilters.includes('unstable') ? current.excludeUnstable : false,
+      includeUnstable: supportedFilters.includes('unstable') ? current.includeUnstable : false,
+      excludeInsecure: supportedFilters.includes('insecure') ? current.excludeInsecure : false,
+      includeInsecure: supportedFilters.includes('insecure') ? current.includeInsecure : false,
+    }));
+    setIsAdvancedSearchOpen((open) => open && supportedFilters.length > 0);
+  }, [supportedFilters]);
 
   return (
     <div className="app">
@@ -111,8 +174,11 @@ export const App: React.FC = () => {
         onChange={handleSearchBarChange}
         onSearch={triggerSearch}
         isLoading={isLoading}
-        onAdvancedSearchToggle={() => setIsAdvancedSearchOpen(!isAdvancedSearchOpen)}
+        onAdvancedSearchToggle={
+          supportedFilters.length > 0 ? () => setIsAdvancedSearchOpen(!isAdvancedSearchOpen) : undefined
+        }
         isAdvancedSearchOpen={isAdvancedSearchOpen}
+        sourceHint={sourceHint}
       />
       <AdvancedSearch
         isOpen={isAdvancedSearchOpen}
@@ -120,6 +186,7 @@ export const App: React.FC = () => {
         currentOptions={searchOptions}
         filters={filters}
         onFilterChange={handleFilterChange}
+        supportedFilters={supportedFilters}
       />
       {error && <div className="error-message">{error}</div>}
       <SearchResults
@@ -129,7 +196,10 @@ export const App: React.FC = () => {
         onPackageSelect={handlePackageSelect}
         onInstall={handleInstall}
         sortBy={sortBy}
-        onSortChange={handleSortChange}
+        onSortChange={availableSortOptions.length > 1 ? handleSortChange : undefined}
+        supportedSortOptions={availableSortOptions}
+        supportedInstallTypes={supportedInstallTypes}
+        showInstall={canInstall}
       />
 
       <style>{`
@@ -152,3 +222,44 @@ export const App: React.FC = () => {
     </div>
   );
 };
+
+function buildSourceHint(
+  sortOptions: SearchSortBy[],
+  filters: string[],
+  packageManager?: string,
+  installTarget?: { label: string; description: string; packageManager: string }
+): string {
+  const sortLabels = sortOptions.map((option) => {
+    switch (option) {
+      case 'quality':
+        return 'quality score';
+      case 'maintenance':
+        return 'maintenance score';
+      case 'name':
+        return 'name (A-Z)';
+      default:
+        return option;
+    }
+  });
+
+  const filterLabels = filters.map((filter) => {
+    switch (filter) {
+      case 'unstable':
+        return 'stable/unstable';
+      case 'deprecated':
+        return 'deprecated';
+      case 'insecure':
+        return 'secure/insecure';
+      default:
+        return filter;
+    }
+  });
+
+  const sortsText = sortLabels.length > 0 ? sortLabels.join(', ') : 'none';
+  const filtersText = filterLabels.length > 0 ? filterLabels.join(', ') : 'none';
+  const managerText = packageManager ? ` Detected package manager: ${packageManager}.` : '';
+  const installText = installTarget
+    ? ` Install target: ${installTarget.label} (${installTarget.packageManager})${installTarget.description ? ` - ${installTarget.description}` : ''}.`
+    : '';
+  return `Current source supports sorts: ${sortsText}. Filters: ${filtersText}.${managerText}${installText}`;
+}

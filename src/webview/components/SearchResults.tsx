@@ -4,16 +4,19 @@ import { Search, Loader2, Package, SortAsc } from 'lucide-react';
 import { Badge } from './ui/badge';
 import { Card } from './ui/card';
 import { Separator } from './ui/separator';
-import type { PackageInfo, SearchSortBy } from '../../types/package';
+import type { DependencyType, PackageInfo, SearchSortBy } from '../../types/package';
 
 interface SearchResultsProps {
   packages: PackageInfo[];
   total: number;
   isLoading: boolean;
   onPackageSelect: (pkg: PackageInfo) => void;
-  onInstall: (pkg: PackageInfo, type: 'dependencies' | 'devDependencies') => void;
+  onInstall: (pkg: PackageInfo, type: DependencyType) => void;
   sortBy?: SearchSortBy;
   onSortChange?: (sortBy: SearchSortBy) => void;
+  supportedSortOptions?: SearchSortBy[];
+  supportedInstallTypes?: DependencyType[];
+  showInstall?: boolean;
 }
 
 export const SearchResults: React.FC<SearchResultsProps> = ({
@@ -24,6 +27,9 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
   onInstall,
   sortBy = 'relevance',
   onSortChange,
+  supportedSortOptions = ['relevance'],
+  supportedInstallTypes = ['dependencies'],
+  showInstall = true,
 }) => {
   // Loading state
   if (isLoading && packages.length === 0) {
@@ -82,9 +88,9 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
                 onChange={(e) => onSortChange(e.target.value as SearchSortBy)}
                 className="sort-select"
               >
-                {(['relevance', 'popularity', 'quality', 'maintenance'] as SearchSortBy[]).map((option) => (
+                {supportedSortOptions.map((option) => (
                   <option key={option} value={option}>
-                    {option.charAt(0).toUpperCase() + option.slice(1)}
+                    {formatSortLabel(option)}
                   </option>
                 ))}
               </select>
@@ -108,6 +114,8 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
             package={pkg}
             onClick={() => onPackageSelect(pkg)}
             onInstall={(type) => onInstall(pkg, type)}
+            supportedInstallTypes={supportedInstallTypes}
+            showInstall={showInstall}
           />
         ))}
       </div>
@@ -124,6 +132,15 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
     </div>
   );
 };
+
+function formatSortLabel(option: SearchSortBy): string {
+  switch (option) {
+    case 'name':
+      return 'Name (A-Z)';
+    default:
+      return option.charAt(0).toUpperCase() + option.slice(1);
+  }
+}
 
 const styles = `
   .results-container {

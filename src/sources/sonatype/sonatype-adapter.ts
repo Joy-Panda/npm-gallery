@@ -57,14 +57,14 @@ export class SonatypeSourceAdapter extends BaseSourceAdapter {
    * Search for packages
    */
   async search(options: SearchOptions): Promise<SearchResult> {
-    const { query, from = 0, size = 20 } = options;
+    const { query, exactName, from = 0, size = 20, signal } = options;
 
-    if (!query.trim()) {
+    if (!query.trim() && !exactName) {
       return { packages: [], total: 0, hasMore: false };
     }
 
     // Build search query
-    let searchQuery = query;
+    let searchQuery = query || exactName || '';
     
     // If query looks like a coordinate (groupId:artifactId), parse it
     if (query.includes(':')) {
@@ -78,7 +78,7 @@ export class SonatypeSourceAdapter extends BaseSourceAdapter {
       }
     }
 
-    const response = await this.client.search(searchQuery, { from, size });
+    const response = await this.client.search(searchQuery, { from, size, signal });
     const result = this.transformer.transformSearchResult(response, from, size);
 
     // Client-side name sorting if needed
@@ -86,7 +86,7 @@ export class SonatypeSourceAdapter extends BaseSourceAdapter {
       result.packages = this.sortPackagesByName(result.packages);
     }
 
-    return result;
+    return this.prioritizeExactMatch(result, exactName);
   }
 
   /**
@@ -260,5 +260,40 @@ export class SonatypeSourceAdapter extends BaseSourceAdapter {
    */
   private sortPackagesByName(packages: PackageInfo[]): PackageInfo[] {
     return [...packages].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  private async prioritizeExactMatch(
+    result: SearchResult,
+    exactName?: string
+  ): Promise<SearchResult> {
+    if (!exactName) {
+      return result;
+    }
+
+    const normalizedExactName = exactName.toLowerCase();
+    const matchingResult = result.packages.find(
+      (pkg) => pkg.name.toLowerCase() === normalizedExactName
+    );
+
+    if (matchingResult) {
+      return {
+        ...result,
+        packages: [
+          { ...matchingResult, exactMatch: true },
+          ...result.packages.filter((pkg) => pkg.name.toLowerCase() !== normalizedExactName),
+        ],
+      };
+    }
+
+    try {
+      const exact = await this.getPackageInfo(exactName);
+      return {
+        ...result,
+        packages: [{ ...exact, exactMatch: true }, ...result.packages],
+        total: Math.max(result.total, result.packages.length + 1),
+      };
+    } catch {
+      return result;
+    }
   }
 }

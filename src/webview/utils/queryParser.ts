@@ -2,10 +2,13 @@ import type { SearchSortBy } from '../../types/package';
 
 export interface ParsedQuery {
   baseQuery: string;
+  exactName?: string;
   author?: string;
   maintainer?: string;
   scope?: string;
   keywords?: string;
+  excludeDeprecated?: boolean;
+  includeDeprecated?: boolean;
   excludeUnstable?: boolean;
   excludeInsecure?: boolean;
   includeUnstable?: boolean;
@@ -24,6 +27,14 @@ export function parseQuery(query: string): ParsedQuery {
 
   if (!query || !query.trim()) {
     return result;
+  }
+
+  const exactMatch = query.match(/"([^"]+)"/);
+  if (exactMatch) {
+    const exactName = exactMatch[1]?.trim();
+    if (exactName) {
+      result.exactName = exactName;
+    }
   }
 
   // Use regex to match qualifiers while preserving the rest as base query
@@ -60,8 +71,10 @@ export function parseQuery(query: string): ParsedQuery {
 
   // Handle boolean flags
   const booleanPatterns = [
+    { pattern: /\bnot:deprecated\b/g, key: 'excludeDeprecated' as const },
     { pattern: /\bnot:unstable\b/g, key: 'excludeUnstable' as const },
     { pattern: /\bnot:insecure\b/g, key: 'excludeInsecure' as const },
+    { pattern: /\bis:deprecated\b/g, key: 'includeDeprecated' as const },
     { pattern: /\bis:unstable\b/g, key: 'includeUnstable' as const },
     { pattern: /\bis:insecure\b/g, key: 'includeInsecure' as const },
   ];
@@ -78,6 +91,9 @@ export function parseQuery(query: string): ParsedQuery {
 
   // Remove all matched qualifiers from the query
   let processedQuery = query;
+  if (exactMatch) {
+    processedQuery = processedQuery.replace(exactMatch[0], ' ');
+  }
   for (const match of matchesToRemove) {
     // Escape special regex characters in the match string
     const escapedMatch = match.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -99,6 +115,8 @@ export function buildQuery(params: {
   maintainer?: string;
   scope?: string;
   keywords?: string;
+  excludeDeprecated?: boolean;
+  includeDeprecated?: boolean;
   excludeUnstable?: boolean;
   excludeInsecure?: boolean;
   includeUnstable?: boolean;
@@ -124,6 +142,12 @@ export function buildQuery(params: {
   }
   if (params.keywords) {
     parts.push(`keywords:${params.keywords}`);
+  }
+  if (params.excludeDeprecated) {
+    parts.push('not:deprecated');
+  }
+  if (params.includeDeprecated) {
+    parts.push('is:deprecated');
   }
   if (params.excludeUnstable) {
     parts.push('not:unstable');
@@ -157,13 +181,16 @@ export function extractBaseText(query: string): string {
 
   // Patterns for all qualifiers
   const qualifierPatterns = [
+    /"([^"]+)"/g,
     /\bauthor:([^\s]+)/g,
     /\bmaintainer:([^\s]+)/g,
     /\bscope:([^\s]+)/g,
     /\bkeywords:([^\s]+)/g,
     /\bsort:([^\s]+)/g,
+    /\bnot:deprecated\b/g,
     /\bnot:unstable\b/g,
     /\bnot:insecure\b/g,
+    /\bis:deprecated\b/g,
     /\bis:unstable\b/g,
     /\bis:insecure\b/g,
   ];
@@ -188,6 +215,8 @@ export function parseQueryToFilters(query: string): {
   maintainer: string;
   scope: string;
   keywords: string;
+  excludeDeprecated: boolean;
+  includeDeprecated: boolean;
   excludeUnstable: boolean;
   excludeInsecure: boolean;
   includeUnstable: boolean;
@@ -199,6 +228,8 @@ export function parseQueryToFilters(query: string): {
     maintainer: parsed.maintainer || '',
     scope: parsed.scope || '',
     keywords: parsed.keywords || '',
+    excludeDeprecated: parsed.excludeDeprecated || false,
+    includeDeprecated: parsed.includeDeprecated || false,
     excludeUnstable: parsed.excludeUnstable || false,
     excludeInsecure: parsed.excludeInsecure || false,
     includeUnstable: parsed.includeUnstable || false,

@@ -28,11 +28,17 @@ Enable developers to search the npm registry without leaving VS Code.
 ### 1.2 Functional Requirements
 
 #### Search Input
-- Real-time search with debouncing (300ms delay)
-- Minimum 2 characters to trigger search
 - Support for exact match queries using quotes
 - Scope-aware search (@scope/package)
-- Keyboard shortcut to focus search: `Ctrl+K` within panel
+
+**Exact match query behavior**
+- Input like `"react"` treats `react` as an explicit exact-match target.
+- Input like `router "react-router"` keeps the normal search term (`router`) and also marks `react-router` as an explicit exact-match target.
+- Input like `"@types/node"` works the same way for scoped packages.
+- When an exact-match target exists and can be resolved, that package should be promoted to the top of the results and shown with an `exact match` badge.
+- Input like `"react"` and `react "react"` should produce the same effective behavior: run the normal search and prioritize `react` as the exact match.
+- If the exact-match target cannot be resolved, fall back to normal search results without showing the `exact match` badge.
+- Only complete quoted segments count as exact-match syntax; unmatched quotes are treated as normal text.
 
 #### Search Results
 | Field | Description | Source |
@@ -44,18 +50,12 @@ Enable developers to search the npm registry without leaving VS Code.
 | Score | Quality/popularity score | npms.io |
 | Bundle size | Minified + gzipped size | Bundlephobia |
 
-#### Filters
-- **Type**: All, Official (@types/*), Scoped
-- **Size**: Any, < 10KB, < 50KB, < 100KB
-- **Maintenance**: Any, Active (updated < 6 months)
-- **Popularity**: Any, > 10K/week, > 100K/week
+#### Filters & Sorting Options
+**按当前 Source 自适应**：筛选与排序均只展示当前数据源支持的维度。
 
-#### Sorting Options
-- Relevance (default)
-- Popularity (downloads)
-- Quality score
-- Recently updated
-- Name (A-Z)
+**筛选**：npm 源支持 author、maintainer、scope、keywords、unstable、insecure 等；npms 源在此基础上还可选 deprecated；Maven（Sonatype）源支持 groupId；其他源可能无筛选或维度不同。
+
+**排序**：npm 源通常支持 relevance（默认）、popularity、quality、maintenance、name；Maven 等源可能仅支持 relevance、popularity；具体以当前源为准。
 
 ### 1.3 User Interface
 ```
@@ -78,9 +78,8 @@ Enable developers to search the npm registry without leaving VS Code.
 ```
 
 ### 1.4 Technical Implementation
-- Use npms.io search API for enhanced results
+- 支持 npms 与 npm-registry 两种搜索源，默认使用 npm-registry，用户可切换
 - Implement local caching (5 min TTL)
-- Virtual scrolling for large result sets
 - Cancel pending requests on new search
 
 ---
@@ -103,10 +102,8 @@ Display comprehensive package information to help developers make informed decis
 | Metric | Description |
 |--------|-------------|
 | Weekly downloads | Last 7 days download count |
-| Monthly downloads | Last 30 days download count |
-| Total downloads | All-time downloads |
-| GitHub stars | Repository star count |
-| Open issues | Current open issues |
+| GitHub Link | Repository link |
+| Open issues Link | Open Repo issues link |
 | Last publish | Time since last version |
 
 #### Tabs
@@ -147,7 +144,6 @@ Display comprehensive package information to help developers make informed decis
 - Individual vulnerability details
 - CVE links
 - Remediation suggestions
-- Last security audit date
 
 ### 2.3 User Interface
 ```
@@ -195,6 +191,19 @@ One-click package installation with version and type selection.
 - Custom version/range input
 - Tag selection (latest, next, beta, etc.)
 
+#### Package Manager Detection
+- Auto-detect package manager from workspace lockfiles
+- Supported package managers: npm, yarn, pnpm, bun
+- Show detected package manager in the UI
+- Adapt install/update/remove commands to the detected tool automatically
+- In multi-project workspaces, prompt for the target `package.json` before install
+- Sort target project suggestions by editor context:
+  - currently viewed project
+  - opened but not currently viewed project
+  - unopened projects
+- Remember the last selected install target during the session
+- Show the current install target in the UI
+
 ### 3.3 Installation Flow
 ```
 1. User clicks "Install" button
@@ -236,6 +245,7 @@ One-click package installation with version and type selection.
 | npm | `npm install` | package-lock.json |
 | yarn | `yarn add` | yarn.lock |
 | pnpm | `pnpm add` | pnpm-lock.yaml |
+| bun | `bun add` | bun.lock / bun.lockb |
 
 Auto-detect based on lock file presence.
 
@@ -298,6 +308,18 @@ When typing package names:
 - Show version hints
 - Display package info inline
 - Recent/popular packages first
+
+### 4.7 Custom Editor
+- Open `package.json` with a dedicated custom editor by default
+- Built-in tabs:
+  - `Text`
+  - `Dependency Analyzer`
+- The analyzer view supports:
+  - recursive dependency tree visualization
+  - transitive version conflict detection
+  - search/filter by package name or version
+  - direct-only mode
+  - hide dev root dependencies
 
 ---
 
@@ -589,6 +611,51 @@ Before updating, show relevant changelog:
 
 ## 10. Workspace Support
 
+### 10.1 Multi-Manifest Workspaces
+- Support multiple `package.json` files in a single workspace
+- Support multiple `pom.xml` files in a single workspace
+- In multi-root VS Code workspaces, group by workspace folder first
+- When only one manifest exists, keep the simple dependency-type grouping
+- When multiple manifests exist, group by manifest path/name before dependency type
+
+### 10.2 Monorepo Discovery
+- npm / Yarn workspaces via root `package.json.workspaces`
+- pnpm workspaces via `pnpm-workspace.yaml`
+- Lerna package discovery via `lerna.json`
+- Nx package/project discovery via `nx.json`, `project.json`, and `workspace.json`
+- Fall back to scanning all manifests when no explicit workspace configuration exists
+
+### 10.3 Local Dependency Semantics
+- Preserve and label non-registry specs:
+  - `workspace:*`
+  - `file:../..`
+  - relative local paths
+  - git-based dependencies
+- Detect and label workspace-local/self references in installed package views, hover, and CodeLens
+
+### 10.4 Workspace Graph And Alignment
+- Build a project graph for workspace manifests
+- Detect local project-to-project dependencies inside monorepos
+- Detect shared dependency version mismatches across projects
+- Command: `Show Workspace Graph`
+- Command: `Align Workspace Dependency Versions`
+- Open a dedicated `Dependency Analyzer` editor panel
+- For `package.json`, support `Analyzer / package.json` view switching inside the analyzer panel
+- Support manifest-scoped recursive conflict detection for transitive dependencies
+- Support analyzer filtering:
+  - search/filter by package or version
+  - only conflicts
+  - direct dependencies only
+  - hide dev root dependencies
+
+### 10.5 Scoped Refresh And Performance
+- Refresh by workspace folder group
+- Refresh by manifest group
+- Scope tree data refresh to the selected group
+- Scope latest-version invalidation to affected packages
+- Scope local dependency tree invalidation to the affected workspace root
+- Use document-level CodeLens caching with scope-based invalidation
+
 ### 10.1 Overview
 Support for monorepos and multi-package workspaces.
 
@@ -599,6 +666,16 @@ Auto-detect workspace configuration:
 - pnpm workspaces
 - Lerna projects
 - Nx workspaces
+- Multiple `package.json` manifests in one workspace
+- Multiple `pom.xml` manifests in one workspace
+
+Discovery sources:
+- Root `package.json` `workspaces`
+- `pnpm-workspace.yaml` `packages`
+- `lerna.json` `packages`
+- `nx.json` with sibling `project.json` / `package.json`
+- `workspace.json` project roots
+- Fallback full manifest scan when no explicit workspace config is present
 
 ### 10.3 Multi-Package View
 ```
@@ -615,6 +692,16 @@ Auto-detect workspace configuration:
 │ Total vulnerabilities: 0 ✓                  │
 └─────────────────────────────────────────────┘
 ```
+
+Current workspace behavior:
+- Scan all `package.json` and `pom.xml` files in the workspace
+- Treat each manifest as an independent dependency source
+- Support multi-root VS Code workspaces
+- When multiple workspace folders are present, group views by workspace folder first
+- When only one manifest is present, keep the flat dependency-category view
+- When multiple manifests are present, group `Installed Packages` and `Available Updates` by manifest path first, then by dependency type
+- Preserve local dependency specifiers such as `file:`, `workspace:`, relative paths, and git references instead of displaying them as normal versions
+- Resolve install/update/remove commands against the correct workspace root when a package originates from a specific manifest
 
 ### 10.4 Version Alignment
 Identify and fix version mismatches:

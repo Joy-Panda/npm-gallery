@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../../types/messages';
-import type { SearchResult } from '../../types/package';
+import type { DependencyType, PackageManager, SearchResult } from '../../types/package';
 import type { ProjectType, SourceType } from '../../types/project';
 import { SOURCE_DISPLAY_NAMES, PROJECT_DISPLAY_NAMES } from '../../types/project';
 
@@ -12,6 +12,13 @@ interface VSCodeAPI {
 
 export interface SourceInfo {
   currentProjectType: ProjectType;
+  detectedPackageManager: PackageManager;
+  installTarget?: {
+    manifestPath: string;
+    label: string;
+    description: string;
+    packageManager: string;
+  };
   currentSource: SourceType;
   availableSources: SourceType[];
   supportedSortOptions: string[];
@@ -34,8 +41,14 @@ interface VSCodeContextValue {
   sourceInfo: SourceInfo;
 
   // Actions
-  search: (query: string, from?: number, size?: number, sortBy?: 'relevance' | 'popularity' | 'quality' | 'maintenance' | 'name') => void;
-  installPackage: (packageName: string, options: { type: string; version?: string }) => void;
+  search: (
+    query: string,
+    from?: number,
+    size?: number,
+    sortBy?: 'relevance' | 'popularity' | 'quality' | 'maintenance' | 'name',
+    exactName?: string
+  ) => void;
+  installPackage: (packageName: string, options: { type: DependencyType; version?: string }) => void;
   openExternal: (url: string) => void;
   copyToClipboard: (text: string) => void;
   postMessage: (message: unknown) => void;
@@ -51,6 +64,8 @@ interface VSCodeContextValue {
 
 const defaultSourceInfo: SourceInfo = {
   currentProjectType: 'npm',
+  detectedPackageManager: 'npm',
+  installTarget: undefined,
   currentSource: 'npm-registry',
   availableSources: ['npm-registry', 'npms-io'],
   supportedSortOptions: ['relevance', 'popularity', 'quality', 'maintenance', 'name'],
@@ -119,20 +134,26 @@ export const VSCodeProvider: React.FC<VSCodeProviderProps> = ({ vscode, children
 
   // Actions
   const search = useCallback(
-    (query: string, from = 0, size = 20, sortBy?: 'relevance' | 'popularity' | 'quality' | 'maintenance' | 'name') => {
+    (
+      query: string,
+      from = 0,
+      size = 20,
+      sortBy?: 'relevance' | 'popularity' | 'quality' | 'maintenance' | 'name',
+      exactName?: string
+    ) => {
       setError(null);
-      postMessage({ type: 'search', query, from, size, sortBy });
+      postMessage({ type: 'search', query, exactName, from, size, sortBy });
     },
     [postMessage]
   );
 
   const installPackage = useCallback(
-    (packageName: string, options: { type: string; version?: string }) => {
+    (packageName: string, options: { type: DependencyType; version?: string }) => {
       postMessage({
         type: 'install',
         packageName,
         options: {
-          type: options.type as 'dependencies' | 'devDependencies' | 'peerDependencies',
+          type: options.type,
           version: options.version,
         },
       });

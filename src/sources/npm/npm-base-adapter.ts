@@ -40,6 +40,8 @@ export abstract class NpmBaseAdapter extends BaseSourceAdapter {
     if (version) {
       const versionSpec = `${packageName}@${version}`;
       switch (packageManager) {
+        case 'bun':
+          return `bun add ${versionSpec}`;
         case 'yarn':
           return `yarn add ${versionSpec}`;
         case 'pnpm':
@@ -52,6 +54,8 @@ export abstract class NpmBaseAdapter extends BaseSourceAdapter {
     
     // No version specified, use update command
     switch (packageManager) {
+      case 'bun':
+        return `bun update ${packageName}`;
       case 'yarn':
         return `yarn upgrade ${packageName}`;
       case 'pnpm':
@@ -70,6 +74,8 @@ export abstract class NpmBaseAdapter extends BaseSourceAdapter {
     const packageManager = this.detectPackageManagerSync();
     
     switch (packageManager) {
+      case 'bun':
+        return `bun remove ${packageName}`;
       case 'yarn':
         return `yarn remove ${packageName}`;
       case 'pnpm':
@@ -98,6 +104,8 @@ export abstract class NpmBaseAdapter extends BaseSourceAdapter {
 
       // Check for lock files (synchronous check)
       const lockFiles: Array<{ file: string; manager: PackageManager }> = [
+        { file: 'bun.lock', manager: 'bun' },
+        { file: 'bun.lockb', manager: 'bun' },
         { file: 'pnpm-lock.yaml', manager: 'pnpm' },
         { file: 'yarn.lock', manager: 'yarn' },
         { file: 'package-lock.json', manager: 'npm' },
@@ -138,6 +146,8 @@ export abstract class NpmBaseAdapter extends BaseSourceAdapter {
     exact: boolean
   ): string {
     switch (packageManager) {
+      case 'bun':
+        return this.getBunInstallCommand(packageSpec, type, exact);
       case 'yarn':
         return this.getYarnInstallCommand(packageSpec, type, exact);
       case 'pnpm':
@@ -150,13 +160,26 @@ export abstract class NpmBaseAdapter extends BaseSourceAdapter {
 
   protected getNpmInstallCommand(packageSpec: string, type: string, exact: boolean): string {
     const flags: string[] = [];
+    if (type === 'peerDependencies') flags.push('--save-peer');
+    if (type === 'optionalDependencies') flags.push('--save-optional');
     if (type === 'devDependencies') flags.push('--save-dev');
     if (exact) flags.push('--save-exact');
     return `npm install ${packageSpec} ${flags.join(' ')}`.trim();
   }
 
+  protected getBunInstallCommand(packageSpec: string, type: string, exact: boolean): string {
+    const flags: string[] = [];
+    if (type === 'devDependencies') flags.push('--dev');
+    if (type === 'peerDependencies') flags.push('--peer');
+    if (type === 'optionalDependencies') flags.push('--optional');
+    if (exact) flags.push('--exact');
+    return `bun add ${packageSpec} ${flags.join(' ')}`.trim();
+  }
+
   protected getYarnInstallCommand(packageSpec: string, type: string, exact: boolean): string {
     const flags: string[] = [];
+    if (type === 'peerDependencies') flags.push('--peer');
+    if (type === 'optionalDependencies') flags.push('--optional');
     if (type === 'devDependencies') flags.push('--dev');
     if (exact) flags.push('--exact');
     return `yarn add ${packageSpec} ${flags.join(' ')}`.trim();
@@ -164,6 +187,8 @@ export abstract class NpmBaseAdapter extends BaseSourceAdapter {
 
   protected getPnpmInstallCommand(packageSpec: string, type: string, exact: boolean): string {
     const flags: string[] = [];
+    if (type === 'peerDependencies') flags.push('--save-peer');
+    if (type === 'optionalDependencies') flags.push('--save-optional');
     if (type === 'devDependencies') flags.push('--save-dev');
     if (exact) flags.push('--save-exact');
     return `pnpm add ${packageSpec} ${flags.join(' ')}`.trim();

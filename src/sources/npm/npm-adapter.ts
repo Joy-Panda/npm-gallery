@@ -32,7 +32,7 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
     'maintenance',
     'name',
   ];
-  readonly supportedFilters = ['author', 'maintainer', 'scope', 'keywords'];
+  readonly supportedFilters = ['author', 'maintainer', 'scope', 'keywords', 'unstable', 'insecure'];
 
   private transformer: NpmTransformer;
 
@@ -72,19 +72,21 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
    * Search for packages
    */
   async search(options: SearchOptions): Promise<SearchResult> {
-    const { query, from = 0, size = 20, sortBy = 'relevance' } = options;
+    const { query, exactName, from = 0, size = 20, sortBy = 'relevance', signal } = options;
 
-    if (!query.trim()) {
+    if (!query.trim() && !exactName) {
       return { packages: [], total: 0, hasMore: false };
     }
+    const searchQuery = query.trim() || exactName || '';
 
     // Map sortBy to npm registry format
     const apiSortBy = sortBy === 'name' ? 'relevance' : sortBy;
 
-    const response = await this.client.search(query, {
+    const response = await this.client.search(searchQuery, {
       from,
       size,
       sortBy: apiSortBy as 'relevance' | 'popularity' | 'quality' | 'maintenance',
+      signal,
     });
 
     const result = this.transformer.transformSearchResult(response, from, size);
@@ -94,7 +96,7 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
       result.packages = this.sortPackagesByName(result.packages);
     }
 
-    return result;
+    return this.prioritizeExactMatch(result, exactName);
   }
 
   /**
@@ -140,7 +142,12 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
     details.version = selectedVersion;
     details.license = selectedData?.license || pkg.license;
     details.description = selectedData?.description || pkg.description;
-    details.repository = selectedData?.repository || pkg.repository;
+    details.repository = selectedData?.repository
+      ? {
+          ...selectedData.repository,
+          directory: selectedData.repository.directory || pkg.repository?.directory,
+        }
+      : pkg.repository;
     details.dependencies = selectedData?.dependencies;
     details.devDependencies = selectedData?.devDependencies;
     details.peerDependencies = selectedData?.peerDependencies;
@@ -245,5 +252,40 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
    */
   private sortPackagesByName(packages: PackageInfo[]): PackageInfo[] {
     return [...packages].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  private async prioritizeExactMatch(
+    result: SearchResult,
+    exactName?: string
+  ): Promise<SearchResult> {
+    if (!exactName) {
+      return result;
+    }
+
+    const normalizedExactName = exactName.toLowerCase();
+    const matchingResult = result.packages.find(
+      (pkg) => pkg.name.toLowerCase() === normalizedExactName
+    );
+
+    if (matchingResult) {
+      return {
+        ...result,
+        packages: [
+          { ...matchingResult, exactMatch: true },
+          ...result.packages.filter((pkg) => pkg.name.toLowerCase() !== normalizedExactName),
+        ],
+      };
+    }
+
+    try {
+      const exact = await this.getPackageInfo(exactName);
+      return {
+        ...result,
+        packages: [{ ...exact, exactMatch: true }, ...result.packages],
+        total: Math.max(result.total, result.packages.length + 1),
+      };
+    } catch {
+      return result;
+    }
   }
 }

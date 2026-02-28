@@ -1,13 +1,17 @@
 import React from 'react';
-import { Download, Package, Star, Scale, User, Plus, Loader2 } from 'lucide-react';
-import type { PackageDetails } from '../../types/package';
+import { Download, Package, Star, Scale, User } from 'lucide-react';
+import type { DependencyType, PackageDetails } from '../../types/package';
+import { InstallMenuButton } from './InstallMenuButton';
 
 interface PackageHeaderProps {
   details: PackageDetails;
   installing: boolean;
-  onInstall: (type: 'dependencies' | 'devDependencies') => void;
+  onInstall: (type: DependencyType) => void;
   formatDownloads: (count: number) => string;
   formatBytes: (bytes: number) => string;
+  supportedInstallTypes: DependencyType[];
+  showInstall: boolean;
+  installTargetLabel?: string;
 }
 
 const headerStyles = `
@@ -72,57 +76,15 @@ const headerStyles = `
 
   .actions {
     display: flex;
+    flex-direction: column;
     gap: 10px;
   }
 
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 10px 20px;
-    border: none;
-    border-radius: 8px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.15s;
+  .install-target {
+    font-size: 12px;
+    color: var(--vscode-descriptionForeground);
   }
 
-  .btn:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .btn.primary {
-    background: var(--vscode-button-background);
-    color: var(--vscode-button-foreground);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-  }
-
-  .btn.primary:hover:not(:disabled) {
-    background: var(--vscode-button-hoverBackground);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-  }
-
-  .btn.secondary {
-    background: var(--vscode-button-secondaryBackground);
-    color: var(--vscode-button-secondaryForeground);
-  }
-
-  .btn.secondary:hover:not(:disabled) {
-    background: var(--vscode-button-secondaryHoverBackground);
-  }
-
-  .spinner {
-    animation: spin 1s linear infinite;
-  }
-
-  @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
-  }
 `;
 
 export const PackageHeader: React.FC<PackageHeaderProps> = ({
@@ -131,6 +93,9 @@ export const PackageHeader: React.FC<PackageHeaderProps> = ({
   onInstall,
   formatDownloads,
   formatBytes,
+  supportedInstallTypes,
+  showInstall,
+  installTargetLabel,
 }) => {
   const authorName = details.author
     ? typeof details.author === 'string'
@@ -184,15 +149,18 @@ export const PackageHeader: React.FC<PackageHeaderProps> = ({
       <p className="description">{details.description || 'No description available'}</p>
 
       {/* Actions */}
-      <div className="actions">
-        <button className="btn primary" onClick={() => onInstall('dependencies')} disabled={installing}>
-          {installing ? <Loader2 size={14} className="spinner" /> : <Plus size={14} />}
-          {installing ? 'Installing...' : 'Install'}
-        </button>
-        <button className="btn secondary" onClick={() => onInstall('devDependencies')} disabled={installing}>
-          Install as Dev
-        </button>
-      </div>
+      {showInstall && (
+        <div className="actions">
+          <InstallMenuButton
+            variant="primary"
+            onInstall={onInstall}
+            disabled={installing}
+            loading={installing}
+            supportedTypes={supportedInstallTypes}
+          />
+          {installTargetLabel && <div className="install-target">Install target: {installTargetLabel}</div>}
+        </div>
+      )}
     </header>
     </>
   );

@@ -1,9 +1,10 @@
 import React from 'react';
 import { ShieldCheck, ShieldAlert } from 'lucide-react';
-import type { PackageDetails } from '../../types/package';
+import type { PackageDetails, PackageManager } from '../../types/package';
 
 interface PackageSidebarProps {
   details: PackageDetails;
+  detectedPackageManager?: PackageManager;
   onOpenExternal: (url: string) => void;
   formatBytes: (bytes: number) => string;
   formatRelativeTime: (dateString?: string) => string;
@@ -121,6 +122,7 @@ const sidebarStyles = `
 
 export const PackageSidebar: React.FC<PackageSidebarProps> = ({
   details,
+  detectedPackageManager,
   onOpenExternal,
   formatBytes,
   formatRelativeTime,
@@ -167,10 +169,19 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
       </div>
 
       {/* Info */}
-      {(details.bundleSize || (details.maintainers && details.maintainers.length > 0) || publishedAt) && (
+      {(details.bundleSize ||
+        (details.maintainers && details.maintainers.length > 0) ||
+        publishedAt ||
+        detectedPackageManager) && (
         <div className="sidebar-section">
           <span className="section-label">Info</span>
           <div className="info-inline">
+            {detectedPackageManager && (
+              <div className="info-row">
+                <span>Package Manager</span>
+                <span>{detectedPackageManager}</span>
+              </div>
+            )}
             {details.bundleSize?.dependencyCount !== undefined && (
               <div className="info-row">
                 <span>Dependencies</span>

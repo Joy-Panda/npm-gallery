@@ -75,8 +75,30 @@
         "category": "NPM Gallery"
       },
       {
+        "command": "npmGallery.showWorkspaceGraph",
+        "title": "Show Workspace Graph",
+        "category": "NPM Gallery"
+      },
+      {
+        "command": "npmGallery.alignWorkspaceDependencyVersions",
+        "title": "Align Workspace Dependency Versions",
+        "category": "NPM Gallery"
+      },
+      {
+        "command": "npmGallery.openDependencyAnalyzer",
+        "title": "Open Dependency Analyzer",
+        "category": "NPM Gallery",
+        "icon": "$(list-tree)"
+      },
+      {
         "command": "npmGallery.refreshView",
         "title": "Refresh",
+        "category": "NPM Gallery",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "npmGallery.refreshGroup",
+        "title": "Refresh Group",
         "category": "NPM Gallery",
         "icon": "$(refresh)"
       }
@@ -107,11 +129,30 @@
         }
       ]
     },
+    "customEditors": [
+      {
+        "viewType": "npmGallery.packageJsonEditor",
+        "displayName": "NPM Gallery Package.json",
+        "selector": [
+          {
+            "filenamePattern": "package.json"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
     "menus": {
       "view/title": [
         {
           "command": "npmGallery.refreshView",
           "when": "view == npmGallery.installedView || view == npmGallery.updatesView",
+          "group": "navigation"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "npmGallery.openDependencyAnalyzer",
+          "when": "resourceFilename == package.json && activeCustomEditorId != npmGallery.packageJsonEditor",
           "group": "navigation"
         }
       ],
@@ -128,6 +169,16 @@
         {
           "command": "npmGallery.showPackageDetails",
           "when": "(view == npmGallery.installedView && viewItem == installedPackage) || view == npmGallery.updatesView"
+        },
+        {
+          "command": "npmGallery.refreshGroup",
+          "when": "view == npmGallery.installedView && (viewItem == workspaceGroup || viewItem == manifestGroup)",
+          "group": "inline"
+        },
+        {
+          "command": "npmGallery.refreshGroup",
+          "when": "view == npmGallery.updatesView && (viewItem == updateWorkspaceGroup || viewItem == updateManifestGroup)",
+          "group": "inline"
         }
       ]
     },
@@ -144,7 +195,8 @@
           "enum": [
             "npm",
             "yarn",
-            "pnpm"
+            "pnpm",
+            "bun"
           ],
           "default": "npm",
           "description": "Preferred package manager"

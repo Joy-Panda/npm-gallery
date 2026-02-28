@@ -109,6 +109,49 @@ const packageDetailsConfig = {
   plugins: [esbuildProblemMatcherPlugin],
 };
 
+// Dependency analyzer webview configuration (Browser)
+const dependencyAnalyzerConfig = {
+  entryPoints: ['src/webview/dependency-analyzer.tsx'],
+  bundle: true,
+  format: 'iife',
+  minify: production,
+  sourcemap: !production,
+  sourcesContent: false,
+  platform: 'browser',
+  outfile: 'dist/dependency-analyzer.js',
+  logLevel: 'silent',
+  loader: {
+    '.tsx': 'tsx',
+    '.ts': 'ts',
+    '.css': 'css',
+  },
+  define: {
+    'process.env.NODE_ENV': production ? '"production"' : '"development"',
+  },
+  plugins: [esbuildProblemMatcherPlugin],
+};
+
+const packageJsonEditorConfig = {
+  entryPoints: ['src/webview/package-json-editor.tsx'],
+  bundle: true,
+  format: 'iife',
+  minify: production,
+  sourcemap: !production,
+  sourcesContent: false,
+  platform: 'browser',
+  outfile: 'dist/package-json-editor.js',
+  logLevel: 'silent',
+  loader: {
+    '.tsx': 'tsx',
+    '.ts': 'ts',
+    '.css': 'css',
+  },
+  define: {
+    'process.env.NODE_ENV': production ? '"production"' : '"development"',
+  },
+  plugins: [esbuildProblemMatcherPlugin],
+};
+
 async function main() {
   try {
     // Copy codicon assets first
@@ -120,12 +163,16 @@ async function main() {
     // Build webviews
     const webviewCtx = await esbuild.context(webviewConfig);
     const packageDetailsCtx = await esbuild.context(packageDetailsConfig);
+    const dependencyAnalyzerCtx = await esbuild.context(dependencyAnalyzerConfig);
+    const packageJsonEditorCtx = await esbuild.context(packageJsonEditorConfig);
 
     if (watch) {
       await Promise.all([
         extensionCtx.watch(),
         webviewCtx.watch(),
         packageDetailsCtx.watch(),
+        dependencyAnalyzerCtx.watch(),
+        packageJsonEditorCtx.watch(),
       ]);
       console.log('[watch] watching for changes...');
     } else {
@@ -133,10 +180,14 @@ async function main() {
         extensionCtx.rebuild(),
         webviewCtx.rebuild(),
         packageDetailsCtx.rebuild(),
+        dependencyAnalyzerCtx.rebuild(),
+        packageJsonEditorCtx.rebuild(),
       ]);
       await extensionCtx.dispose();
       await webviewCtx.dispose();
       await packageDetailsCtx.dispose();
+      await dependencyAnalyzerCtx.dispose();
+      await packageJsonEditorCtx.dispose();
     }
   } catch (e) {
     console.error(e);

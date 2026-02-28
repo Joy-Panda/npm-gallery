@@ -4,7 +4,7 @@ import {
   Layers, Loader2, BookOpen,
   GitBranch
 } from 'lucide-react';
-import type { PackageDetails, Vulnerability } from '../../types/package';
+import type { DependencyType, PackageDetails, Vulnerability } from '../../types/package';
 import { useVSCode } from '../context/VSCodeContext';
 import { PackageHeader } from './PackageHeader';
 import { PackageSidebar } from './PackageSidebar';
@@ -37,6 +37,11 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
   // If security data is already present on the details payload, still show the tab.
   const supportsSecurity =
     sourceInfo.supportedCapabilities.includes('security') || !!details?.security;
+  const supportsInstallation = sourceInfo.supportedCapabilities.includes('installation');
+  const supportedInstallTypes: DependencyType[] =
+    sourceInfo.currentProjectType === 'npm'
+      ? ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']
+      : ['dependencies'];
   const [isLoading, setIsLoading] = useState(!initialData);
   const [error, setError] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
@@ -95,7 +100,7 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
     return () => window.removeEventListener('message', handleMessage);
   }, [vscode]);
 
-  const install = (type: 'dependencies' | 'devDependencies', version?: string) => {
+  const install = (type: DependencyType, version?: string) => {
     if (!details) return;
     setInstalling(true);
     vscode.postMessage({
@@ -280,6 +285,13 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
           onInstall={install}
           formatDownloads={formatDownloads}
           formatBytes={formatBytes}
+          supportedInstallTypes={supportedInstallTypes}
+          showInstall={supportsInstallation}
+          installTargetLabel={
+            sourceInfo.installTarget
+              ? `${sourceInfo.installTarget.label} (${sourceInfo.installTarget.packageManager})`
+              : undefined
+          }
         />
 
         {/* Content */}
@@ -351,13 +363,15 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
 
             {/* Tab Content */}
             <div className="tab-content">
-              {activeTab === 'readme' && <ReadmeTab details={details} />}
+              {activeTab === 'readme' && <ReadmeTab details={details} onOpenExternal={openExternal} />}
               {activeTab === 'versions' && (
                 <VersionsTab
                   details={details}
                   onInstall={install}
                   formatRelativeTime={formatRelativeTime}
                   formatFullDate={formatFullDate}
+                  supportedInstallTypes={supportedInstallTypes}
+                  showInstall={supportsInstallation}
                 />
               )}
               {activeTab === 'dependencies' && (
@@ -394,6 +408,7 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
 
           <PackageSidebar
             details={details}
+            detectedPackageManager={sourceInfo.detectedPackageManager}
             onOpenExternal={openExternal}
             formatBytes={formatBytes}
             formatRelativeTime={formatRelativeTime}

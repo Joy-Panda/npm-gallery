@@ -1,11 +1,14 @@
 import type { PackageInfo, SearchResult, SearchOptions } from '../types/package';
 import type { SourceSelector } from '../registry/source-selector';
+import { MemoryCache } from '../cache/memory-cache';
 
 /**
  * Service for package search
  * Uses source selector for multi-source support
  */
 export class SearchService {
+  private searchCache = new MemoryCache(200);
+
   constructor(private sourceSelector?: SourceSelector) {}
 
   /**
@@ -19,9 +22,9 @@ export class SearchService {
    * Search for packages
    */
   async search(options: SearchOptions): Promise<SearchResult> {
-    const { query } = options;
+    const { query, exactName } = options;
 
-    if (!query.trim()) {
+    if (!query.trim() && !exactName) {
       return { packages: [], total: 0, hasMore: false };
     }
 
@@ -29,10 +32,26 @@ export class SearchService {
       throw new Error('SearchService not initialized: SourceSelector is required');
     }
 
+    const sourceType = this.sourceSelector.getCurrentSourceType();
+    const cacheKey = [
+      sourceType,
+      query.trim(),
+      options.exactName || '',
+      options.from || 0,
+      options.size || 20,
+      options.sortBy || 'relevance',
+    ].join(':');
+    const cached = this.searchCache.get<SearchResult>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
     // Use source selector with fallback support
-    return this.sourceSelector.executeWithFallback(
+    const result = await this.sourceSelector.executeWithFallback(
       adapter => adapter.search(options)
     );
+    this.searchCache.set(cacheKey, result, 5 * 60 * 1000);
+    return result;
   }
 
   /**
@@ -87,7 +106,7 @@ export class SearchService {
    */
   getSupportedFilters(): string[] {
     if (!this.sourceSelector) {
-      return ['author', 'maintainer', 'scope', 'keywords'];
+      return ['author', 'maintainer', 'scope', 'keywords', 'unstable', 'insecure'];
     }
     return this.sourceSelector.getSupportedFilters();
   }

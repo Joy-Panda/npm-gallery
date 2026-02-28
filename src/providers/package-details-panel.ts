@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { getServices } from '../services';
 import type { WebviewToExtensionMessage } from '../types/messages';
+import type { SourceInfoMessage } from '../types/messages';
+import { getInstallTargetSummary, selectInstallTargetManifest } from '../utils/install-target';
 
 /**
  * Manages package details webview panels that open in the editor area
@@ -126,12 +128,33 @@ export class PackageDetailsPanel {
     switch (message.type) {
       case 'ready': {
         // React app is ready, load and send package details
+        await this.sendSourceInfo();
         await this.loadPackageDetails();
         break;
       }
 
+      case 'getSourceInfo': {
+        await this.sendSourceInfo();
+        break;
+      }
+
       case 'install': {
-        const result = await services.install.install(message.packageName, message.options);
+        const targetManifestPath = await selectInstallTargetManifest(
+          message.packageName,
+          services.workspace,
+          services.install,
+          vscode.window.activeTextEditor?.document.uri.fsPath
+        );
+        if (!targetManifestPath && (await services.workspace.getPackageJsonFiles()).length > 1) {
+          break;
+        }
+
+        const result = await services.install.install(
+          message.packageName,
+          message.options,
+          targetManifestPath
+        );
+        await this.sendSourceInfo();
         if (result.success) {
           this._panel.webview.postMessage({
             type: 'installSuccess',
@@ -207,6 +230,47 @@ export class PackageDetailsPanel {
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
+  }
+
+  private async sendSourceInfo(): Promise<void> {
+    const services = getServices();
+    const supportedCapabilities = services.package.getSupportedCapabilities();
+    const activePath = vscode.window.activeTextEditor?.document.uri.fsPath;
+    const detectedPackageManager = await services.install.detectPackageManager(activePath);
+    const installTarget = await getInstallTargetSummary(
+      services.workspace,
+      services.install,
+      activePath
+    );
+
+    const capabilitySupport: Record<string, { capability: string; supported: boolean; reason?: string }> = {};
+    for (const cap of supportedCapabilities) {
+      const support = services.package.getCapabilitySupport(cap);
+      if (support) {
+        capabilitySupport[cap] = {
+          capability: cap,
+          supported: support.supported,
+          reason: support.reason,
+        };
+      }
+    }
+
+    const sourceInfo: SourceInfoMessage = {
+      type: 'sourceInfo',
+      data: {
+        currentProjectType: services.getCurrentProjectType(),
+        detectedPackageManager,
+        installTarget: installTarget || undefined,
+        currentSource: services.getCurrentSourceType(),
+        availableSources: services.getAvailableSources(),
+        supportedSortOptions: services.getSupportedSortOptions(),
+        supportedFilters: services.getSupportedFilters(),
+        supportedCapabilities: supportedCapabilities.map((c) => c.toString()),
+        capabilitySupport,
+      },
+    };
+
+    this._panel.webview.postMessage(sourceInfo);
   }
 
   private escapeHtml(text: string): string {
