@@ -19,8 +19,8 @@ export function useSearch(): {
   supportedSortOptions: SearchSortBy[];
   supportedFilters: SearchFilter[];
 } {
-  const [searchQuery, setSearchQuery] = useState('');
-  const { search, searchResults, isLoading, error, sourceInfo, refreshSourceInfo } = useVSCode();
+  const { search, searchResults, isLoading, error, sourceInfo, refreshSourceInfo, persistedSearchState } = useVSCode();
+  const [searchQuery, setSearchQuery] = useState(() => persistedSearchState?.searchQuery ?? '');
 
   // Refresh source info on mount
   useEffect(() => {

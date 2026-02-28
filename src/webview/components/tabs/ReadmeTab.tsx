@@ -15,6 +15,14 @@ const readmeStyles = `
     align-items: start;
   }
 
+  .readme-wrapper.readme-no-toc {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .readme-wrapper.readme-no-toc .readme-content {
+    max-width: none;
+  }
+
   .readme-toc {
     position: sticky;
     top: 0;
@@ -106,7 +114,7 @@ export const ReadmeTab: React.FC<ReadmeTabProps> = ({ details, onOpenExternal })
   return (
     <>
       <style>{readmeStyles}</style>
-      <div className="readme-wrapper">
+      <div className={`readme-wrapper${headings.length === 0 ? ' readme-no-toc' : ''}`}>
         {headings.length > 0 && (
           <aside className="readme-toc">
             <h3 className="readme-toc-title">Contents</h3>

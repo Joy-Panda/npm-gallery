@@ -139,14 +139,33 @@ export class PackageDetailsPanel {
         break;
       }
 
+      case 'changeSource': {
+        services.setSelectedSource(message.source);
+        await this.sendSourceInfo();
+        break;
+      }
+
+      case 'changeProjectType': {
+        services.setProjectType(message.projectType);
+        await this.sendSourceInfo();
+        break;
+      }
+
       case 'install': {
+        const projectType = services.getCurrentProjectType();
+        const currentSource = services.getCurrentSourceType();
         const targetManifestPath = await selectInstallTargetManifest(
           message.packageName,
           services.workspace,
           services.install,
-          vscode.window.activeTextEditor?.document.uri.fsPath
+          vscode.window.activeTextEditor?.document.uri.fsPath,
+          projectType,
+          currentSource
         );
-        if (!targetManifestPath && (await services.workspace.getPackageJsonFiles()).length > 1) {
+        const manifestFiles = projectType === 'dotnet' || currentSource === 'nuget'
+          ? await services.workspace.getDotNetManifestFiles()
+          : await services.workspace.getPackageJsonFiles();
+        if (!targetManifestPath && manifestFiles.length > 1) {
           break;
         }
 
@@ -270,10 +289,14 @@ export class PackageDetailsPanel {
     const supportedCapabilities = services.package.getSupportedCapabilities();
     const activePath = vscode.window.activeTextEditor?.document.uri.fsPath;
     const detectedPackageManager = await services.install.detectPackageManager(activePath);
+    const projectType = services.getCurrentProjectType();
+    const currentSource = services.getCurrentSourceType();
     const installTarget = await getInstallTargetSummary(
       services.workspace,
       services.install,
-      activePath
+      activePath,
+      projectType,
+      currentSource
     );
 
     const capabilitySupport: Record<string, { capability: string; supported: boolean; reason?: string }> = {};
@@ -288,13 +311,18 @@ export class PackageDetailsPanel {
       }
     }
 
+    const isDotNet = projectType === 'dotnet' || currentSource === 'nuget';
+    const detectedNuGetStyle = isDotNet ? services.install.detectNuGetManagementStyle(activePath) : undefined;
+
     const sourceInfo: SourceInfoMessage = {
       type: 'sourceInfo',
       data: {
         currentProjectType: services.getCurrentProjectType(),
         detectedPackageManager,
+        detectedNuGetStyle,
         installTarget: installTarget || undefined,
-        currentSource: services.getCurrentSourceType(),
+        currentSource,
+        detectedProjectTypes: services.getDetectedProjectTypes(),
         availableSources: services.getAvailableSources(),
         supportedSortOptions: services.getSupportedSortOptions(),
         supportedFilters: services.getSupportedFilters(),

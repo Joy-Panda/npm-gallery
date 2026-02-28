@@ -183,6 +183,16 @@ export abstract class NpmBaseAdapter extends BaseSourceAdapter {
         },
         exactFlag: '--save-exact',
       },
+      dotnet: {
+        command: 'dotnet add package',
+        flags: {},
+        exactFlag: '',
+      },
+      paket: {
+        command: 'paket add',
+        flags: {},
+        exactFlag: '',
+      },
     };
 
     const managerConfig = config[packageManager] || config.npm;

@@ -56,12 +56,19 @@ const defaultFilters: FilterState = {
 };
 
 export const App: React.FC = () => {
+  const { installPackage, postMessage, persistedSearchState, persistSearchState } = useVSCode();
   const [isAdvancedSearchOpen, setIsAdvancedSearchOpen] = useState(false);
   const [searchOptions, setSearchOptions] = useState<SearchOptions | undefined>();
-  const [sortBy, setSortBy] = useState<SearchSortBy>('relevance');
-  const [filters, setFilters] = useState<FilterState>(defaultFilters);
-  
-  // Get searchQuery from useSearch hook (this is used for actual searching)
+  const [sortBy, setSortBy] = useState<SearchSortBy>(() => {
+    const s = persistedSearchState?.sortBy;
+    return (s && typeof s === 'string') ? (s as SearchSortBy) : 'relevance';
+  });
+  const [filters, setFilters] = useState<FilterState>(() => {
+    const p = persistedSearchState?.filters;
+    if (!p || typeof p !== 'object') return defaultFilters;
+    return { ...defaultFilters, ...p } as FilterState;
+  });
+
   const {
     searchQuery,
     setSearchQuery,
@@ -73,11 +80,57 @@ export const App: React.FC = () => {
     supportedSortOptions,
     supportedFilters,
   } = useSearch();
-  const { installPackage, postMessage } = useVSCode();
   
   // Track previous source to detect source changes
   const previousSourceRef = useRef<string | undefined>(sourceInfo.currentSource);
-  
+  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stateToPersistRef = useRef({ searchQuery, filters, sortBy, searchResults });
+
+  // Keep ref in sync so we can persist on hide
+  useEffect(() => {
+    stateToPersistRef.current = { searchQuery, filters, sortBy, searchResults };
+  }, [searchQuery, filters, sortBy, searchResults]);
+
+  // Persist when page is about to be hidden (sidebar closed) so state survives if webview is recreated
+  useEffect(() => {
+    const persist = () => {
+      const { searchQuery: q, filters: f, sortBy: s, searchResults: r } = stateToPersistRef.current;
+      persistSearchState({
+        searchQuery: q,
+        filters: { ...f },
+        sortBy: typeof s === 'string' ? s : (s as { value?: string })?.value,
+        searchResults: r ?? undefined,
+      });
+    };
+    const onHide = () => persist();
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') onHide();
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('pagehide', onHide);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('pagehide', onHide);
+    };
+  }, [persistSearchState]);
+
+  // Also persist on change (debounced) so we save even if hide event doesn't fire
+  useEffect(() => {
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    persistTimerRef.current = setTimeout(() => {
+      persistTimerRef.current = null;
+      persistSearchState({
+        searchQuery,
+        filters: { ...filters },
+        sortBy: typeof sortBy === 'string' ? sortBy : (sortBy as { value?: string })?.value,
+        searchResults: searchResults ?? undefined,
+      });
+    }, 200);
+    return () => {
+      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    };
+  }, [searchQuery, filters, sortBy, searchResults, persistSearchState]);
+
   // Clear filters and search input when source changes, then trigger search
   useEffect(() => {
     const previousSource = previousSourceRef.current;

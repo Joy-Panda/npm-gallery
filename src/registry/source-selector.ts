@@ -1,5 +1,6 @@
 import type { ISourceAdapter } from '../sources/base/source-adapter.interface';
 import type { SourceType, ProjectType } from '../types/project';
+import { PROJECT_SOURCE_MAP } from '../types/project';
 import type { SourceRegistry } from './source-registry';
 import type { ProjectDetector } from './project-detector';
 import type { SourceConfigManager } from '../config/source-config';
@@ -8,10 +9,13 @@ import { createSortOption, createFilterOption, getFilterValue } from '../types/p
 
 /**
  * Source selector
- * Handles source selection based on project type and user preferences
+ * Handles source selection based on project type and user preferences.
+ * Workspace-style: multiple project types (npm, dotnet) can coexist; user switches context.
  */
 export class SourceSelector {
   private currentProjectType: ProjectType = 'unknown';
+  /** Project types detected in workspace (e.g. [npm, dotnet]) for multi-selector */
+  private detectedTypes: ProjectType[] = [];
   private userSelectedSource: SourceType | null = null;
   private detectionPromise: Promise<void> | null = null;
 
@@ -34,15 +38,24 @@ export class SourceSelector {
   }
 
   /**
-   * Detect and set the current project type
+   * Detect and set the current project type + detected types (workspace-style)
    */
   private async detectAndSetProjectType(): Promise<void> {
     try {
       const detected = await this.detector.detectProjects();
+      this.detectedTypes = detected.detectedTypes ?? [];
       this.currentProjectType = detected.primary;
     } catch {
       this.currentProjectType = 'unknown';
+      this.detectedTypes = [];
     }
+  }
+
+  /**
+   * Get all project types detected in workspace (for multi-selector UI)
+   */
+  getDetectedProjectTypes(): ProjectType[] {
+    return this.detectedTypes.length > 0 ? [...this.detectedTypes] : [this.currentProjectType].filter(t => t !== 'unknown');
   }
 
   /**
@@ -125,14 +138,25 @@ export class SourceSelector {
   }
 
   /**
-   * Get available sources for the current project type
-   * Returns all registered sources to allow manual switching between different source types
+   * Get available sources for the current context.
+   * Workspace-style: when multiple project types exist, return sources for detected types only
+   * (so user can switch between npm and nuget etc. without seeing irrelevant sources).
+   * When dotnet is detected or current, NuGet is the only search source (like npm for Node, Maven for Java).
    */
   getAvailableSources(): SourceType[] {
-    // Return all registered adapters to allow manual switching
-    // This enables users to switch from npm to sonatype, etc.
-    const allAdapters = this.registry.getAllAdapters();
-    return allAdapters.map(adapter => adapter.sourceType);
+    const types = this.detectedTypes.length > 0 ? this.detectedTypes : [this.currentProjectType];
+    const sourceSet = new Set<SourceType>();
+    for (const t of types) {
+      const sources = PROJECT_SOURCE_MAP[t] ?? PROJECT_SOURCE_MAP.unknown;
+      sources.forEach(s => sourceSet.add(s));
+    }
+    const registryTypes = this.registry.getRegisteredTypes();
+    let result = registryTypes.filter(s => sourceSet.has(s));
+    // Ensure dotnet workspace always has NuGet as available source (e.g. detection race or only CPM/Paket/Cake)
+    if (result.length === 0 && (this.currentProjectType === 'dotnet' || types.includes('dotnet'))) {
+      result = registryTypes.includes('nuget') ? ['nuget'] : result;
+    }
+    return result;
   }
 
   /**

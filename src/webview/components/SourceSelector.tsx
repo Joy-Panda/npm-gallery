@@ -1,25 +1,27 @@
 import React from 'react';
-import { ChevronDown, Database } from 'lucide-react';
+import { ChevronDown, Database, FolderKanban } from 'lucide-react';
 import { useVSCode } from '../context/VSCodeContext';
-import type { SourceType } from '../../types/project';
+import type { SourceType, ProjectType } from '../../types/project';
+import { PROJECT_SOURCE_MAP } from '../../types/project';
 
 interface SourceSelectorProps {
   compact?: boolean;
 }
 
 export const SourceSelector: React.FC<SourceSelectorProps> = ({ compact = false }) => {
-  const { sourceInfo, changeSource, getSourceDisplayName, getProjectTypeDisplayName } = useVSCode();
+  const { sourceInfo, changeSource, changeProjectType, getSourceDisplayName, getProjectTypeDisplayName } = useVSCode();
   const [isOpen, setIsOpen] = React.useState(false);
   const dropdownRef = React.useRef<HTMLDivElement>(null);
 
-  // Close dropdown when clicking outside
+  const detectedTypes = sourceInfo.detectedProjectTypes ?? [];
+  const hasMultipleProjectTypes = detectedTypes.length > 1;
+
   React.useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsOpen(false);
       }
     };
-
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
@@ -29,41 +31,46 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({ compact = false 
     setIsOpen(false);
   };
 
-  // Filter available sources based on project type
-  const getFilteredSources = (): SourceType[] => {
-    const projectType = sourceInfo.currentProjectType;
-    
-    if (projectType === 'npm') {
-      // For npm projects (package.json), only show npm-registry and npms-io
-      return sourceInfo.availableSources.filter(
-        source => source === 'npm-registry' || source === 'npms-io'
-      );
-    } else if (projectType === 'maven') {
-      // For maven projects (pom.xml/gradle), only show sonatype
-      return sourceInfo.availableSources.filter(source => source === 'sonatype');
-    }
-    
-    // For other project types, return all available sources
-    return sourceInfo.availableSources;
+  const handleProjectTypeChange = (projectType: ProjectType) => {
+    changeProjectType(projectType);
+    setIsOpen(false);
   };
 
-  const filteredSources = getFilteredSources();
+  const sourcesForCurrentType = (PROJECT_SOURCE_MAP[sourceInfo.currentProjectType] ?? []).filter(
+    s => sourceInfo.availableSources.includes(s)
+  );
+  const filteredSources = sourcesForCurrentType.length > 0 ? sourcesForCurrentType : sourceInfo.availableSources;
 
-  // Always show the selector if there are any sources available
-  // This allows users to see and switch between different source types
-  if (filteredSources.length === 0) {
-    return null; // Only hide if no sources available
+  if (filteredSources.length === 0 && !hasMultipleProjectTypes) {
+    return null;
   }
 
   const hasMultipleSources = filteredSources.length > 1;
 
   return (
     <div className="source-selector" ref={dropdownRef}>
+      {hasMultipleProjectTypes && (
+        <div className="source-selector-project-tabs">
+          {detectedTypes.map((type) => (
+            <button
+              key={type}
+              type="button"
+              className={`source-selector-project-tab ${type === sourceInfo.currentProjectType ? 'active' : ''}`}
+              onClick={() => handleProjectTypeChange(type)}
+              title={getProjectTypeDisplayName(type)}
+            >
+              <FolderKanban size={12} />
+              {getProjectTypeDisplayName(type)}
+            </button>
+          ))}
+        </div>
+      )}
       <button
+        type="button"
         className="source-selector-button"
-        onClick={() => hasMultipleSources && setIsOpen(!isOpen)}
-        title={`Current: ${getSourceDisplayName(sourceInfo.currentSource)} (${getProjectTypeDisplayName(sourceInfo.currentProjectType)})`}
-        style={{ cursor: hasMultipleSources ? 'pointer' : 'default' }}
+        onClick={() => (hasMultipleSources || hasMultipleProjectTypes) && setIsOpen(!isOpen)}
+        title={`${getSourceDisplayName(sourceInfo.currentSource)} (${getProjectTypeDisplayName(sourceInfo.currentProjectType)})`}
+        style={{ cursor: hasMultipleSources || hasMultipleProjectTypes ? 'pointer' : 'default' }}
       >
         <Database size={14} />
         {!compact && (
@@ -71,7 +78,7 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({ compact = false 
             {getSourceDisplayName(sourceInfo.currentSource)}
           </span>
         )}
-        {hasMultipleSources && (
+        {(hasMultipleSources || hasMultipleProjectTypes) && (
           <ChevronDown size={12} className={`chevron ${isOpen ? 'open' : ''}`} />
         )}
       </button>
@@ -86,6 +93,7 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({ compact = false 
           {filteredSources.map((source) => (
             <button
               key={source}
+              type="button"
               className={`source-selector-option ${source === sourceInfo.currentSource ? 'active' : ''}`}
               onClick={() => handleSourceChange(source)}
             >
@@ -102,6 +110,43 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({ compact = false 
         .source-selector {
           position: relative;
           display: inline-flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 6px;
+        }
+
+        .source-selector-project-tabs {
+          display: inline-flex;
+          gap: 2px;
+          background: var(--vscode-input-background);
+          border: 1px solid var(--vscode-input-border, transparent);
+          border-radius: 4px;
+          padding: 2px;
+        }
+
+        .source-selector-project-tab {
+          display: inline-flex;
+          align-items: center;
+          gap: 4px;
+          padding: 4px 8px;
+          font-size: 11px;
+          border: none;
+          border-radius: 3px;
+          background: transparent;
+          color: var(--vscode-foreground);
+          cursor: pointer;
+          opacity: 0.85;
+        }
+
+        .source-selector-project-tab:hover {
+          opacity: 1;
+          background: var(--vscode-list-hoverBackground);
+        }
+
+        .source-selector-project-tab.active {
+          background: var(--vscode-list-activeSelectionBackground);
+          color: var(--vscode-list-activeSelectionForeground);
+          opacity: 1;
         }
 
         .source-selector-button {

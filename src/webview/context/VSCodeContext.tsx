@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../../types/messages';
-import type { DependencyType, PackageManager, SearchResult } from '../../types/package';
+import type { DependencyType, PackageManager, SearchResult, NuGetManagementStyle } from '../../types/package';
+import { NUGET_MANAGEMENT_STYLE_LABELS } from '../../types/package';
 import type { ProjectType, SourceType } from '../../types/project';
 import { SOURCE_DISPLAY_NAMES, PROJECT_DISPLAY_NAMES } from '../../types/project';
 
@@ -10,9 +11,19 @@ interface VSCodeAPI {
   setState: (state: unknown) => void;
 }
 
+/** Persisted search state so sidebar keeps search when closed/reopened */
+export interface PersistedSearchState {
+  searchQuery?: string;
+  filters?: Record<string, unknown>;
+  sortBy?: string;
+  searchResults?: SearchResult | null;
+}
+
 export interface SourceInfo {
   currentProjectType: ProjectType;
   detectedPackageManager: PackageManager;
+  /** When NuGet: detected management style (Paket, CPM, etc.) */
+  detectedNuGetStyle?: NuGetManagementStyle;
   installTarget?: {
     manifestPath: string;
     label: string;
@@ -20,6 +31,8 @@ export interface SourceInfo {
     packageManager: string;
   };
   currentSource: SourceType;
+  /** Workspace-style: project types in workspace (e.g. [npm, dotnet]) */
+  detectedProjectTypes?: ProjectType[];
   availableSources: SourceType[];
   supportedSortOptions: string[]; // For backward compatibility
   supportedSortOptionsWithLabels?: Array<{ value: string; label: string }>; // Full sort options with labels
@@ -38,7 +51,10 @@ interface VSCodeContextValue {
   isLoading: boolean;
   error: string | null;
   searchResults: SearchResult | null;
-  
+  /** Restored from getState() on mount; used to init search/filters/sort/results */
+  persistedSearchState: PersistedSearchState | null;
+  persistSearchState: (state: PersistedSearchState) => void;
+
   // Source information
   sourceInfo: SourceInfo;
 
@@ -58,11 +74,13 @@ interface VSCodeContextValue {
   
   // Source actions
   changeSource: (source: SourceType) => void;
+  changeProjectType: (projectType: ProjectType) => void;
   refreshSourceInfo: () => void;
   
   // Helpers
   getSourceDisplayName: (source: SourceType) => string;
   getProjectTypeDisplayName: (type: ProjectType) => string;
+  getDetectedNuGetStyleLabel: (style: NuGetManagementStyle | undefined) => string;
 }
 
 const defaultSourceInfo: SourceInfo = {
@@ -84,10 +102,26 @@ interface VSCodeProviderProps {
   children: ReactNode;
 }
 
+function getInitialPersistedState(vscode: VSCodeAPI): PersistedSearchState | null {
+  try {
+    const raw = vscode.getState();
+    if (raw && typeof raw === 'object' && 'search' in raw) {
+      return (raw as { search: PersistedSearchState }).search;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
 export const VSCodeProvider: React.FC<VSCodeProviderProps> = ({ vscode, children }) => {
+  const [persistedSearchState] = useState<PersistedSearchState | null>(() => getInitialPersistedState(vscode));
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [searchResults, setSearchResults] = useState<SearchResult | null>(null);
+  const [searchResults, setSearchResults] = useState<SearchResult | null>(() => {
+    const init = getInitialPersistedState(vscode);
+    return (init?.searchResults ?? null) as SearchResult | null;
+  });
   const [sourceInfo, setSourceInfo] = useState<SourceInfo>(defaultSourceInfo);
 
   // Handle messages from extension
@@ -200,6 +234,25 @@ export const VSCodeProvider: React.FC<VSCodeProviderProps> = ({ vscode, children
     postMessage({ type: 'getSourceInfo' });
   }, [postMessage]);
 
+  const changeProjectType = useCallback(
+    (projectType: ProjectType) => {
+      postMessage({ type: 'changeProjectType', projectType });
+    },
+    [postMessage]
+  );
+
+  const persistSearchState = useCallback(
+    (state: PersistedSearchState) => {
+      try {
+        const current = (vscode.getState() as Record<string, unknown>) ?? {};
+        vscode.setState({ ...current, search: state });
+      } catch {
+        // ignore
+      }
+    },
+    [vscode]
+  );
+
   // Helpers
   const getSourceDisplayName = useCallback((source: SourceType): string => {
     return SOURCE_DISPLAY_NAMES[source] || source;
@@ -209,10 +262,16 @@ export const VSCodeProvider: React.FC<VSCodeProviderProps> = ({ vscode, children
     return PROJECT_DISPLAY_NAMES[type] || type;
   }, []);
 
+  const getDetectedNuGetStyleLabel = useCallback((style: NuGetManagementStyle | undefined): string => {
+    return style ? (NUGET_MANAGEMENT_STYLE_LABELS[style] || style) : '';
+  }, []);
+
   const value: VSCodeContextValue = {
     isLoading,
     error,
     searchResults,
+    persistedSearchState,
+    persistSearchState,
     sourceInfo,
     search,
     getPackageDetails,
@@ -221,9 +280,11 @@ export const VSCodeProvider: React.FC<VSCodeProviderProps> = ({ vscode, children
     copyToClipboard,
     postMessage: (message: unknown) => vscode.postMessage(message),
     changeSource,
+    changeProjectType,
     refreshSourceInfo,
     getSourceDisplayName,
     getProjectTypeDisplayName,
+    getDetectedNuGetStyleLabel,
   };
 
   return <VSCodeContext.Provider value={value}>{children}</VSCodeContext.Provider>;

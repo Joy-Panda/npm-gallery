@@ -5,6 +5,7 @@ import { OSVClient } from './osv';
 import { SonatypeApiClient } from './sonatype-api';
 import { LibrariesIoClient } from './libraries-io';
 import { DepsDevClient } from './deps-dev';
+import { NuGetApiClient } from './nuget-api';
 
 /**
  * All API clients
@@ -17,6 +18,7 @@ export interface ApiClients {
   sonatype: SonatypeApiClient;
   librariesIo: LibrariesIoClient;
   depsDev: DepsDevClient;
+  nuget: NuGetApiClient;
 }
 
 // Singleton instances
@@ -39,6 +41,7 @@ export function createApiClients(): ApiClients {
       sonatype: new SonatypeApiClient(),
       librariesIo: librariesIoClient,
       depsDev: new DepsDevClient(),
+      nuget: new NuGetApiClient(),
     };
   }
   return apiClients;

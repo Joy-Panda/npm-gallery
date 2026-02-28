@@ -18,6 +18,43 @@ export interface PackageInfo {
   deprecated?: string;
 }
 
+/** NuGet: dependency group per target framework */
+export interface NuGetDependencyGroup {
+  targetFramework: string;
+  dependencies: Array<{ id: string; range: string }>;
+}
+
+/** NuGet: used-by section – top NuGet packages and GitHub repos */
+export interface NuGetDependentsInfo {
+  totalNuGet?: number;
+  totalGitHub?: number;
+  nugetPackages: Array<{
+    name: string;
+    description?: string;
+    downloads?: number;
+  }>;
+  githubRepos?: Array<{
+    name: string;
+    fullName?: string;
+    description?: string;
+    stars?: number;
+    url?: string;
+  }>;
+  webUrl?: string;
+}
+
+/** NuGet: one target framework version line (compatible or computed) */
+export interface NuGetFrameworkVersion {
+  version: string;
+  status: 'compatible' | 'computed';
+}
+
+/** NuGet: product (e.g. .NET, .NET Framework) and its versions */
+export interface NuGetFrameworkProduct {
+  product: string;
+  versions: NuGetFrameworkVersion[];
+}
+
 /**
  * Detailed package information
  */
@@ -29,6 +66,12 @@ export interface PackageDetails extends PackageInfo {
   peerDependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
   dependents?: DependentsInfo;
+  /** NuGet: dependencies grouped by target framework */
+  nugetDependencyGroups?: NuGetDependencyGroup[];
+  /** NuGet: used-by (top NuGet packages + GitHub repos) */
+  nugetDependents?: NuGetDependentsInfo;
+  /** NuGet: supported target frameworks by product */
+  nugetFrameworks?: NuGetFrameworkProduct[];
   requirements?: RequirementsInfo;
   maintainers?: PackageMaintainer[];
   time?: Record<string, string>;
@@ -233,17 +276,99 @@ export function buildToolRequiresCopy(buildTool: BuildTool | null): boolean {
   return buildTool !== null;
 }
 
+/** NuGet copy/run format: PackageReference, .NET CLI, CPM, Paket, Cake, PMC, Script, etc. */
+export type NuGetCopyFormat =
+  | 'packagereference'   // Copy to .csproj
+  | 'dotnet-cli'        // Run in terminal
+  | 'cpm'               // Copy to Directory.Packages.props (PackageVersion)
+  | 'cpm-project'       // Copy to .csproj when using CPM (PackageReference without version)
+  | 'paket'             // Run in terminal (paket add)
+  | 'paket-deps'        // Copy to paket.dependencies
+  | 'cake'              // Copy: Cake Addin (#addin)
+  | 'cake-tool'         // Copy: Cake Tool (#tool)
+  | 'pmc'               // Copy then run in PMC (Install-Package)
+  | 'script'            // Copy: Script & Interactive (#r "nuget: ...")
+  | 'file-based';       // Copy: File-based Apps (#:package ...)
+
+/** How to apply this format: run in terminal, copy to PMC, or copy to file */
+export type NuGetFormatRunType = 'terminal' | 'pmc' | 'copy';
+
+/** Which formats are runnable in terminal vs need copy */
+export const NUGET_FORMAT_RUN_TYPE: Record<NuGetCopyFormat, NuGetFormatRunType> = {
+  packagereference: 'copy',
+  'dotnet-cli': 'terminal',
+  cpm: 'copy',
+  'cpm-project': 'copy',
+  paket: 'terminal',
+  'paket-deps': 'copy',
+  cake: 'copy',
+  'cake-tool': 'copy',
+  pmc: 'pmc',
+  script: 'copy',
+  'file-based': 'copy',
+};
+
+/** Short label for UI: "Run in terminal" / "Run in PMC" / "Copy" */
+export const NUGET_FORMAT_RUN_LABELS: Record<NuGetFormatRunType, string> = {
+  terminal: 'Run in terminal',
+  pmc: 'Run in PMC',
+  copy: 'Copy to clipboard',
+};
+
+/** Display names for NuGet copy/run formats */
+export const NUGET_COPY_FORMAT_LABELS: Record<NuGetCopyFormat, string> = {
+  packagereference: 'PackageReference (.csproj)',
+  'dotnet-cli': '.NET CLI (terminal)',
+  cpm: 'CPM - Directory.Packages.props',
+  'cpm-project': 'CPM - Project file (PackageReference)',
+  paket: 'Paket CLI (terminal)',
+  'paket-deps': 'Paket (paket.dependencies)',
+  cake: 'Cake Addin (#addin)',
+  'cake-tool': 'Cake Tool (#tool)',
+  pmc: 'PMC (Install-Package)',
+  script: 'Script & Interactive (#r nuget:)',
+  'file-based': 'File-based (#:package)',
+};
+
+/**
+ * .NET/NuGet management style (detected from workspace, like npm/yarn/pnpm/bun).
+ * - packagereference: .csproj with PackageReference (or SDK-style)
+ * - cpm: Central Package Management (Directory.Packages.props)
+ * - paket: Paket CLI (paket.dependencies)
+ * - packages.config: Legacy file-based (packages.config)
+ * - cake: Cake build scripts (.cake)
+ */
+export type NuGetManagementStyle = 'packagereference' | 'cpm' | 'paket' | 'packages.config' | 'cake';
+
+/** Map NuGet management style to default copy/run format */
+export const NUGET_STYLE_TO_COPY_FORMAT: Record<NuGetManagementStyle, NuGetCopyFormat> = {
+  packagereference: 'packagereference',
+  cpm: 'cpm',
+  paket: 'paket',
+  'packages.config': 'pmc',
+  cake: 'cake',
+};
+
+/** Display names for NuGet management styles */
+export const NUGET_MANAGEMENT_STYLE_LABELS: Record<NuGetManagementStyle, string> = {
+  packagereference: 'PackageReference (.NET CLI)',
+  cpm: 'Central Package Management (CPM)',
+  paket: 'Paket CLI',
+  'packages.config': 'packages.config (Legacy)',
+  cake: 'Cake',
+};
+
 export interface CopyOptions {
   version?: string;
   scope?: 'compile' | 'test' | 'runtime' | 'provided';
-  format?: 'xml' | 'gradle' | 'sbt' | 'grape' | 'other';
+  format?: 'xml' | 'gradle' | 'sbt' | 'grape' | 'other' | NuGetCopyFormat;
   buildTool?: BuildTool; // Auto-detect if not provided
 }
 
 /**
  * Package manager type
  */
-export type PackageManager = 'npm' | 'yarn' | 'pnpm' | 'bun';
+export type PackageManager = 'npm' | 'yarn' | 'pnpm' | 'bun' | 'dotnet' | 'paket';
 
 /**
  * Search result from APIs
@@ -422,7 +547,7 @@ export interface SearchFilters {
   license?: string[];
 }
 
-export type EcosystemName = 'npm' | 'maven' | 'go' | 'unknown';
+export type EcosystemName = 'npm' | 'maven' | 'go' | 'nuget' | 'unknown';
 
 export interface DependentPackageRef {
   system: string;

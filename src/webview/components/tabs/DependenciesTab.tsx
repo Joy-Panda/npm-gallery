@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { ChevronRight, ChevronDown } from 'lucide-react';
-import type { PackageDetails } from '../../../types/package';
+import type { PackageDetails, NuGetDependencyGroup } from '../../../types/package';
 
 interface DependenciesTabProps {
   details: PackageDetails;
@@ -130,6 +130,23 @@ const dependenciesStyles = `
     padding: 48px;
     font-size: 13px;
   }
+
+  .deps-framework-header {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--vscode-foreground);
+    margin: 0 0 6px 0;
+  }
+
+  .deps-framework-block {
+    margin-bottom: 20px;
+  }
+
+  .deps-no-deps {
+    color: var(--vscode-descriptionForeground);
+    font-size: 12px;
+    padding: 4px 0;
+  }
 `;
 
 export const DependenciesTab: React.FC<DependenciesTabProps> = ({
@@ -138,6 +155,19 @@ export const DependenciesTab: React.FC<DependenciesTabProps> = ({
   onToggleSection,
   onOpenPackageDetails,
 }) => {
+  const [expandedFrameworks, setExpandedFrameworks] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (details.nugetDependencyGroups?.length) {
+      setExpandedFrameworks(
+        details.nugetDependencyGroups.reduce<Record<string, boolean>>((acc, g) => {
+          acc[g.targetFramework] = true;
+          return acc;
+        }, {})
+      );
+    }
+  }, [details.nugetDependencyGroups]);
+
   const renderDependencyList = (dependencies: Record<string, string>) => (
     <div className="deps-list">
       {Object.entries(dependencies).map(([name, version]) => (
@@ -151,6 +181,76 @@ export const DependenciesTab: React.FC<DependenciesTabProps> = ({
       ))}
     </div>
   );
+
+  const renderNuGetByFramework = (groups: NuGetDependencyGroup[]) => (
+    <>
+      {groups.map((group) => {
+        const isExpanded = expandedFrameworks[group.targetFramework] !== false;
+        return (
+          <div key={group.targetFramework} className="deps-section">
+            <h3
+              className="deps-section-title"
+              onClick={() =>
+                setExpandedFrameworks((prev) => ({
+                  ...prev,
+                  [group.targetFramework]: !prev[group.targetFramework],
+                }))
+              }
+            >
+              <div className="deps-title-left">
+                {isExpanded ? (
+                  <ChevronDown size={16} className="chevron-icon" />
+                ) : (
+                  <ChevronRight size={16} className="chevron-icon" />
+                )}
+                <span className="deps-title-text">{group.targetFramework}</span>
+                {group.dependencies.length > 0 && (
+                  <span className="deps-count">({group.dependencies.length})</span>
+                )}
+              </div>
+            </h3>
+            {isExpanded && (
+              <div className="deps-framework-block">
+                {group.dependencies.length === 0 ? (
+                  <div className="deps-no-deps">No dependencies.</div>
+                ) : (
+                  <div className="deps-list">
+                    {group.dependencies.map((d) => (
+                      <div
+                        key={d.id}
+                        className="dep-item"
+                        onClick={() => onOpenPackageDetails(d.id)}
+                      >
+                        <span className="dep-name">{d.id}</span>
+                        <div className="dep-right">
+                          <span className="dep-version">({d.range})</span>
+                          <ChevronRight size={14} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </>
+  );
+
+  if (details.nugetDependencyGroups && details.nugetDependencyGroups.length > 0) {
+    const groupsWithDeps = details.nugetDependencyGroups.filter((g) => g.dependencies.length > 0);
+    return (
+      <>
+        <style>{dependenciesStyles}</style>
+        <div className="deps-wrapper">
+          {groupsWithDeps.length > 0
+            ? renderNuGetByFramework(groupsWithDeps)
+            : <div className="empty-tab">{details.name} {details.version} has no dependencies.</div>}
+        </div>
+      </>
+    );
+  }
 
   return (
     <>

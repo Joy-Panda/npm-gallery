@@ -5,6 +5,7 @@ import type {
   InstallOptions,
   CopyOptions,
   PackageManager,
+  NuGetManagementStyle,
 } from './package';
 import type { ProjectType, SourceType } from './project';
 
@@ -84,6 +85,8 @@ export interface SourceInfoMessage {
   data: {
     currentProjectType: ProjectType;
     detectedPackageManager: PackageManager;
+    /** When current source is NuGet: detected style (Paket, CPM, PackageReference, etc.) for copy format default */
+    detectedNuGetStyle?: NuGetManagementStyle;
     installTarget?: {
       manifestPath: string;
       label: string;
@@ -91,6 +94,8 @@ export interface SourceInfoMessage {
       packageManager: string;
     };
     currentSource: SourceType;
+    /** Workspace-style: project types present in workspace (e.g. [npm, dotnet]) */
+    detectedProjectTypes?: ProjectType[];
     availableSources: SourceType[];
     supportedSortOptions: string[]; // For backward compatibility, contains values
     supportedSortOptionsWithLabels?: Array<{ value: string; label: string }>; // Full sort options with labels
@@ -118,6 +123,7 @@ export type WebviewToExtensionMessage =
   | OpenPackageDetailsMessage
   | ReadyMessage
   | ChangeSourceMessage
+  | ChangeProjectTypeMessage
   | GetSourceInfoMessage;
 
 export interface SearchMessage {
@@ -167,6 +173,11 @@ export interface ReadyMessage {
 export interface ChangeSourceMessage {
   type: 'changeSource';
   source: SourceType;
+}
+
+export interface ChangeProjectTypeMessage {
+  type: 'changeProjectType';
+  projectType: ProjectType;
 }
 
 export interface GetSourceInfoMessage {

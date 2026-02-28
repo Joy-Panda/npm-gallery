@@ -10,6 +10,7 @@ import { NpmRegistrySourceAdapter } from '../sources/npm/npm-adapter';
 import { NpmsSourceAdapter } from '../sources/npm/npms-adapter';
 import { SonatypeSourceAdapter } from '../sources/sonatype/sonatype-adapter';
 import { LibrariesIoSourceAdapter } from '../sources/libraries-io';
+import { NuGetSourceAdapter } from '../sources/nuget';
 import { getApiClients } from '../api/clients';
 import type { ProjectType, SourceType } from '../types/project';
 
@@ -45,10 +46,10 @@ export class ServiceContainer {
     );
 
     // Initialize services with source selector
+    this.workspace = new WorkspaceService();
     this.package = new PackageService(this.sourceSelector);
     this.search = new SearchService(this.sourceSelector);
-    this.install = new InstallService(this.sourceSelector);
-    this.workspace = new WorkspaceService();
+    this.install = new InstallService(this.sourceSelector, this.workspace);
 
     // Register source adapters
     this.registerAdapters();
@@ -103,6 +104,10 @@ export class ServiceContainer {
     // Pass sourceSelector so it can determine the correct platform based on current project type
     const librariesIoAdapter = new LibrariesIoSourceAdapter(clients.librariesIo, clients.audit, this.sourceSelector);
     this.sourceRegistry.register('libraries-io', librariesIoAdapter);
+
+    // Register NuGet adapter for .NET (PackageReference, CPM, Paket, Cake, PMC, .NET CLI)
+    const nugetAdapter = new NuGetSourceAdapter(clients.nuget, clients.audit, clients.depsDev);
+    this.sourceRegistry.register('nuget', nugetAdapter);
   }
 
   /**
@@ -134,10 +139,17 @@ export class ServiceContainer {
   }
 
   /**
-   * Get available sources for current project type
+   * Get available sources for current context (workspace-style: only for detected types)
    */
   getAvailableSources(): SourceType[] {
     return this.sourceSelector.getAvailableSources();
+  }
+
+  /**
+   * Get project types detected in workspace (for multi-selector, e.g. [npm, dotnet])
+   */
+  getDetectedProjectTypes(): ProjectType[] {
+    return this.sourceSelector.getDetectedProjectTypes();
   }
 
   /**

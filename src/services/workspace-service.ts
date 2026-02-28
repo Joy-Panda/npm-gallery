@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { InstalledPackage, DependencyType, WorkspacePackageScope } from '../types/package';
+import type { InstalledPackage, DependencyType, WorkspacePackageScope, NuGetManagementStyle } from '../types/package';
 import { getServices } from './index';
 import {
   formatDependencySpecDisplay,
@@ -34,7 +34,7 @@ export class WorkspaceService {
 
     // Watch for package manifests and monorepo config changes
     this.fileWatcher = vscode.workspace.createFileSystemWatcher(
-      '**/{package.json,pom.xml,lerna.json,nx.json,workspace.json,pnpm-workspace.yaml}'
+      '**/{package.json,pom.xml,lerna.json,nx.json,workspace.json,pnpm-workspace.yaml,Directory.Packages.props,paket.dependencies,*.cake}'
     );
 
     const invalidateAndNotify = (uri?: vscode.Uri) => {
@@ -91,6 +91,98 @@ export class WorkspaceService {
    */
   async getPomXmlFiles(): Promise<vscode.Uri[]> {
     return vscode.workspace.findFiles('**/pom.xml', '**/target/**');
+  }
+
+  /**
+   * Get .NET/NuGet manifest files that list packages (for Installed / Updates views).
+   * Returns Directory.Packages.props, paket.dependencies, and *.cake.
+   */
+  async getDotNetInstalledManifestFiles(): Promise<vscode.Uri[]> {
+    const exclude = '**/node_modules/**,**/bin/**,**/obj/**,**/out/**';
+    const [cpmFiles, paketFiles, cakeFiles] = await Promise.all([
+      vscode.workspace.findFiles('**/Directory.Packages.props', exclude, 5),
+      vscode.workspace.findFiles('**/paket.dependencies', exclude, 10),
+      vscode.workspace.findFiles('**/*.cake', exclude, 20),
+    ]);
+    return [...cpmFiles, ...paketFiles, ...cakeFiles];
+  }
+
+  /**
+   * Get .NET/NuGet manifest files for install target.
+   * Order: Directory.Packages.props (CPM), paket.dependencies (Paket), packages.config (Legacy), then .csproj/.vbproj/.fsproj (PackageReference).
+   */
+  async getDotNetManifestFiles(): Promise<vscode.Uri[]> {
+    const exclude = '**/node_modules/**,**/bin/**,**/obj/**,**/out/**';
+    const [cpmFiles, paketFiles, packagesConfigFiles, csprojFiles] = await Promise.all([
+      vscode.workspace.findFiles('**/Directory.Packages.props', exclude, 5),
+      vscode.workspace.findFiles('**/paket.dependencies', exclude, 10),
+      vscode.workspace.findFiles('**/packages.config', exclude, 20),
+      vscode.workspace.findFiles('**/*.csproj', exclude, 20),
+    ]);
+    const vbproj = await vscode.workspace.findFiles('**/*.vbproj', exclude, 10);
+    const fsproj = await vscode.workspace.findFiles('**/*.fsproj', exclude, 10);
+    const all = [...cpmFiles, ...paketFiles, ...packagesConfigFiles, ...csprojFiles, ...vbproj, ...fsproj];
+    return [...new Map(all.map((u) => [u.fsPath, u])).values()];
+  }
+
+  /**
+   * Check if workspace has Directory.Packages.props (NuGet CPM).
+   */
+  async hasDirectoryPackagesProps(): Promise<boolean> {
+    const files = await vscode.workspace.findFiles('**/Directory.Packages.props', '**/node_modules/**', 1);
+    return files.length > 0;
+  }
+
+  /**
+   * Detect .NET/NuGet management style from a path (walk up dirs, like npm/yarn/pnpm/bun detection).
+   * Priority: Paket > CPM > packages.config > Cake (current or parent dir) > PackageReference.
+   */
+  detectNuGetManagementStyle(startPath?: string): NuGetManagementStyle {
+    const path = require('path') as typeof import('path');
+    const fs = require('fs') as typeof import('fs');
+    const folders = vscode.workspace.workspaceFolders;
+    if (!folders?.length) {
+      return 'packagereference';
+    }
+    const rootPaths = folders.map((f) => f.uri.fsPath);
+    let currentDir: string;
+    try {
+      if (startPath && fs.existsSync(startPath)) {
+        currentDir = fs.statSync(startPath).isFile() ? path.dirname(startPath) : startPath;
+      } else {
+        const active = vscode.window.activeTextEditor?.document.uri.fsPath;
+        currentDir = active ? path.dirname(active) : rootPaths[0];
+      }
+    } catch {
+      const active = vscode.window.activeTextEditor?.document.uri.fsPath;
+      currentDir = active ? path.dirname(active) : rootPaths[0];
+    }
+    const isInWorkspace = (p: string) => rootPaths.some((r) => p === r || p.startsWith(r + path.sep));
+    while (currentDir && isInWorkspace(currentDir)) {
+      if (fs.existsSync(path.join(currentDir, 'paket.dependencies'))) {
+        return 'paket';
+      }
+      if (fs.existsSync(path.join(currentDir, 'Directory.Packages.props'))) {
+        return 'cpm';
+      }
+      if (fs.existsSync(path.join(currentDir, 'packages.config'))) {
+        return 'packages.config';
+      }
+      try {
+        const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+        if (entries.some((e) => e.isFile() && e.name.toLowerCase().endsWith('.cake'))) {
+          return 'cake';
+        }
+      } catch {
+        // ignore
+      }
+      const parent = path.dirname(currentDir);
+      if (parent === currentDir) {
+        break;
+      }
+      currentDir = parent;
+    }
+    return 'packagereference';
   }
 
   private async discoverWorkspacePackageJsonFiles(): Promise<vscode.Uri[]> {
@@ -394,18 +486,21 @@ export class WorkspaceService {
   private async loadInstalledPackages(): Promise<InstalledPackage[]> {
     const packageJsonFiles = await this.getPackageJsonFiles();
     const pomXmlFiles = await this.getPomXmlFiles();
-    return this.loadInstalledPackagesForUris(packageJsonFiles, pomXmlFiles);
+    const dotnetManifestFiles = await this.getDotNetInstalledManifestFiles();
+    return this.loadInstalledPackagesForUris(packageJsonFiles, pomXmlFiles, dotnetManifestFiles);
   }
 
   private async loadInstalledPackagesForScope(scope: WorkspacePackageScope): Promise<InstalledPackage[]> {
     const packageJsonFiles = await this.getPackageJsonFilesForScope(scope);
     const pomXmlFiles = await this.getPomXmlFilesForScope(scope);
-    return this.loadInstalledPackagesForUris(packageJsonFiles, pomXmlFiles);
+    const dotnetManifestFiles = await this.getDotNetManifestFilesForScope(scope);
+    return this.loadInstalledPackagesForUris(packageJsonFiles, pomXmlFiles, dotnetManifestFiles);
   }
 
   private async loadInstalledPackagesForUris(
     packageJsonFiles: vscode.Uri[],
-    pomXmlFiles: vscode.Uri[]
+    pomXmlFiles: vscode.Uri[],
+    dotnetManifestFiles: vscode.Uri[] = []
   ): Promise<InstalledPackage[]> {
     const installedPackages: InstalledPackage[] = [];
     type PackageJsonInfo = {
@@ -494,7 +589,48 @@ export class WorkspaceService {
       }
     }
 
+    // Get .NET/NuGet packages (CPM, Paket, Cake)
+    for (const uri of dotnetManifestFiles) {
+      try {
+        const content = await vscode.workspace.fs.readFile(uri);
+        const text = content.toString();
+        const pathLower = uri.fsPath.toLowerCase();
+        let dotnetPackages: InstalledPackage[] = [];
+        if (pathLower.endsWith('directory.packages.props')) {
+          dotnetPackages = this.parseDirectoryPackagesProps(text, uri.fsPath);
+        } else if (pathLower.endsWith('paket.dependencies')) {
+          dotnetPackages = this.parsePaketDependencies(text, uri.fsPath);
+        } else if (pathLower.endsWith('.cake')) {
+          dotnetPackages = this.parseCakePackages(text, uri.fsPath);
+        }
+        installedPackages.push(...dotnetPackages);
+      } catch {
+        // Skip invalid manifest files
+      }
+    }
+
     return installedPackages;
+  }
+
+  private async getDotNetManifestFilesForScope(scope: WorkspacePackageScope): Promise<vscode.Uri[]> {
+    if (scope.manifestPath) {
+      const p = scope.manifestPath.toLowerCase();
+      if (
+        p.endsWith('directory.packages.props') ||
+        p.endsWith('paket.dependencies') ||
+        p.endsWith('.cake')
+      ) {
+        return [vscode.Uri.file(scope.manifestPath)];
+      }
+      return [];
+    }
+    const all = await this.getDotNetInstalledManifestFiles();
+    if (!scope.workspaceFolderPath) {
+      return all;
+    }
+    return all.filter(
+      (uri) => vscode.workspace.getWorkspaceFolder(uri)?.uri.fsPath === scope.workspaceFolderPath
+    );
   }
 
   private async getPackageJsonFilesForScope(scope: WorkspacePackageScope): Promise<vscode.Uri[]> {
@@ -619,6 +755,92 @@ export class WorkspaceService {
       // Return empty array if parsing fails
     }
 
+    return packages;
+  }
+
+  /**
+   * Parse Directory.Packages.props and extract PackageVersion entries
+   */
+  private parseDirectoryPackagesProps(xml: string, manifestPath: string): InstalledPackage[] {
+    const packages: InstalledPackage[] = [];
+    const re = /<PackageVersion\s+Include="([^"]+)"\s+Version="([^"]+)"\s*\/>|<PackageVersion\s+Version="([^"]+)"\s+Include="([^"]+)"\s*\/>/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(xml)) !== null) {
+      const id = (m[1] ?? m[4])?.trim();
+      const version = (m[2] ?? m[3])?.trim();
+      if (id && version) {
+        packages.push({
+          workspaceFolderPath: vscode.workspace.getWorkspaceFolder(vscode.Uri.file(manifestPath))?.uri.fsPath,
+          manifestName: 'Directory.Packages.props',
+          name: id,
+          currentVersion: version,
+          resolvedVersion: version,
+          versionSpecifier: version,
+          isRegistryResolvable: true,
+          type: 'dependencies',
+          hasUpdate: false,
+          packageJsonPath: manifestPath,
+        });
+      }
+    }
+    return packages;
+  }
+
+  /**
+   * Parse paket.dependencies and extract nuget lines
+   */
+  private parsePaketDependencies(text: string, manifestPath: string): InstalledPackage[] {
+    const packages: InstalledPackage[] = [];
+    const re = /^\s*nuget\s+([^\s]+)\s+([^\s~]+)/gim;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      const id = m[1]?.trim();
+      const version = m[2]?.trim();
+      if (id && version) {
+        packages.push({
+          workspaceFolderPath: vscode.workspace.getWorkspaceFolder(vscode.Uri.file(manifestPath))?.uri.fsPath,
+          manifestName: 'paket.dependencies',
+          name: id,
+          currentVersion: version,
+          resolvedVersion: version,
+          versionSpecifier: version,
+          isRegistryResolvable: true,
+          type: 'dependencies',
+          hasUpdate: false,
+          packageJsonPath: manifestPath,
+        });
+      }
+    }
+    return packages;
+  }
+
+  /**
+   * Parse .cake file and extract #addin / #tool nuget refs with version
+   */
+  private parseCakePackages(text: string, manifestPath: string): InstalledPackage[] {
+    const packages: InstalledPackage[] = [];
+    const re = /#(addin|tool)\s+nuget:\?package=([^&\s]+)(?:&version=([^\s&]+))?/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      const id = m[2]?.trim();
+      const version = m[3]?.trim();
+      if (!id) continue;
+      // Only include lines that pin a version (so they appear in installed/updates)
+      if (!version) continue;
+      const kind = (m[1] ?? 'addin').toLowerCase();
+      packages.push({
+        workspaceFolderPath: vscode.workspace.getWorkspaceFolder(vscode.Uri.file(manifestPath))?.uri.fsPath,
+        manifestName: kind === 'tool' ? 'Cake (tool)' : 'Cake (addin)',
+        name: id,
+        currentVersion: version,
+        resolvedVersion: version,
+        versionSpecifier: version,
+        isRegistryResolvable: true,
+        type: 'dependencies',
+        hasUpdate: false,
+        packageJsonPath: manifestPath,
+      });
+    }
     return packages;
   }
 
@@ -839,8 +1061,14 @@ export class WorkspaceService {
   }
 
   private getScopeForUri(uri: vscode.Uri): WorkspacePackageScope | undefined {
-    const fileName = uri.fsPath.split(/[/\\]/).pop();
-    if (fileName === 'package.json' || fileName === 'pom.xml') {
+    const fileName = uri.fsPath.split(/[/\\]/).pop()?.toLowerCase();
+    if (
+      fileName === 'package.json' ||
+      fileName === 'pom.xml' ||
+      fileName === 'directory.packages.props' ||
+      fileName === 'paket.dependencies' ||
+      fileName?.endsWith('.cake')
+    ) {
       return { manifestPath: uri.fsPath };
     }
     return undefined;
@@ -1080,6 +1308,105 @@ export class WorkspaceService {
         return false; // No change made
       }
 
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(updatedText));
+      this.invalidateInstalledPackagesCache();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Update CPM package version in Directory.Packages.props
+   */
+  async updateCpmPackage(propsPath: string, packageId: string, newVersion: string): Promise<boolean> {
+    try {
+      const uri = vscode.Uri.file(propsPath);
+      const content = await vscode.workspace.fs.readFile(uri);
+      const xml = content.toString();
+
+      // Match <PackageVersion Include="PackageId" Version="current" /> (order of attributes may vary)
+      const escapedId = this.escapeRegex(packageId);
+      const re = new RegExp(
+        `(<PackageVersion\\s+Include="${escapedId}"\\s+Version=")([^"]+)("\\s*/>)`,
+        'i'
+      );
+      const updatedXml = xml.replace(re, `$1${newVersion}$3`);
+
+      if (updatedXml === xml) {
+        // Try alternate attribute order: Version before Include
+        const re2 = new RegExp(
+          `(<PackageVersion\\s+Version=")([^"]+)("\\s+Include="${escapedId}"\\s*/>)`,
+          'i'
+        );
+        const updated2 = xml.replace(re2, `$1${newVersion}$3`);
+        if (updated2 === xml) {
+          return false;
+        }
+        await vscode.workspace.fs.writeFile(uri, Buffer.from(updated2));
+      } else {
+        await vscode.workspace.fs.writeFile(uri, Buffer.from(updatedXml));
+      }
+      this.invalidateInstalledPackagesCache();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Update Paket dependency version in paket.dependencies
+   */
+  async updatePaketDependency(depsPath: string, packageId: string, newVersion: string): Promise<boolean> {
+    try {
+      const uri = vscode.Uri.file(depsPath);
+      const content = await vscode.workspace.fs.readFile(uri);
+      const text = content.toString();
+
+      // Match "nuget PackageId currentVersion" (line-based, allow optional ~> constraint)
+      const escapedId = this.escapeRegex(packageId);
+      const re = new RegExp(
+        `^(\\s*nuget\\s+${escapedId}\\s+)([^\\s~]+)([^\\n]*)`,
+        'im'
+      );
+      const updatedText = text.replace(re, `$1${newVersion}$3`);
+
+      if (updatedText === text) {
+        return false;
+      }
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(updatedText));
+      this.invalidateInstalledPackagesCache();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Update Cake addin/tool version in .cake file (#addin nuget:?package=Id&version=x or #tool ...)
+   */
+  async updateCakePackage(
+    cakePath: string,
+    packageId: string,
+    newVersion: string,
+    kind: 'addin' | 'tool'
+  ): Promise<boolean> {
+    try {
+      const uri = vscode.Uri.file(cakePath);
+      const content = await vscode.workspace.fs.readFile(uri);
+      const text = content.toString();
+
+      const escapedId = this.escapeRegex(packageId);
+      // Match #addin or #tool line with package=Id and optional &version=current
+      const re = new RegExp(
+        `(#${kind}\\s+nuget:\\?package=${escapedId})(?:&version=[^\\s&]+)?([^\\n]*)`,
+        'im'
+      );
+      const updatedText = text.replace(re, `$1&version=${newVersion}$2`);
+
+      if (updatedText === text) {
+        return false;
+      }
       await vscode.workspace.fs.writeFile(uri, Buffer.from(updatedText));
       this.invalidateInstalledPackagesCache();
       return true;

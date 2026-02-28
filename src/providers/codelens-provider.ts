@@ -15,7 +15,8 @@ interface CodeLensCacheEntry {
 }
 
 /**
- * Provides CodeLens for package updates in package.json, pom.xml, and Gradle files
+ * Provides CodeLens for package updates in package.json, pom.xml, Gradle,
+ * Directory.Packages.props (CPM), paket.dependencies (Paket), and Cake (.cake) scripts.
  */
 export class PackageCodeLensProvider implements vscode.CodeLensProvider {
   private _onDidChangeCodeLenses = new vscode.EventEmitter<void>();
@@ -68,6 +69,27 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
     // Handle Gradle files
     if (fileName.endsWith('build.gradle') || fileName.endsWith('build.gradle.kts')) {
       const lenses = await this.provideCodeLensesForGradle(document, text);
+      this.codeLensCache.set(cacheKey, { version: document.version, lenses });
+      return lenses;
+    }
+
+    // Handle CPM Directory.Packages.props
+    if (fileName.endsWith('directory.packages.props')) {
+      const lenses = await this.provideCodeLensesForDirectoryPackagesProps(document, text);
+      this.codeLensCache.set(cacheKey, { version: document.version, lenses });
+      return lenses;
+    }
+
+    // Handle Paket paket.dependencies
+    if (fileName.endsWith('paket.dependencies')) {
+      const lenses = await this.provideCodeLensesForPaketDependencies(document, text);
+      this.codeLensCache.set(cacheKey, { version: document.version, lenses });
+      return lenses;
+    }
+
+    // Handle Cake build scripts (.cake, e.g. build.cake)
+    if (fileName.endsWith('.cake')) {
+      const lenses = await this.provideCodeLensesForCake(document, text);
       this.codeLensCache.set(cacheKey, { version: document.version, lenses });
       return lenses;
     }
@@ -211,6 +233,172 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
                   title: this.formatUpdateTitle(latestVersion, updateType),
                   command: 'npmGallery.updateGradleDependency',
                   arguments: [document.uri.fsPath, groupId, artifactId, latestVersion],
+                })
+              );
+            }
+          } catch {
+            // Skip packages that fail
+          }
+        })()
+      );
+    }
+
+    await Promise.all(updatePromises);
+    return codeLenses;
+  }
+
+  /**
+   * Provide CodeLenses for Directory.Packages.props (CPM)
+   */
+  private async provideCodeLensesForDirectoryPackagesProps(
+    document: vscode.TextDocument,
+    text: string
+  ): Promise<vscode.CodeLens[]> {
+    const codeLenses: vscode.CodeLens[] = [];
+    const services = getServices();
+    const nugetAdapter = services.sourceRegistry.getAdapter('nuget');
+    if (!nugetAdapter) {
+      return codeLenses;
+    }
+
+    // Match <PackageVersion Include="Id" Version="x" /> or Version then Include
+    const packageVersionRegex = /<PackageVersion\s+Include="([^"]+)"\s+Version="([^"]+)"\s*\/>|<PackageVersion\s+Version="([^"]+)"\s+Include="([^"]+)"\s*\/>/gi;
+    let match;
+    const updatePromises: Promise<void>[] = [];
+
+    while ((match = packageVersionRegex.exec(text)) !== null) {
+      const includeId = match[1] ?? match[4];
+      const version = match[2] ?? match[3];
+      if (!includeId || !version) continue;
+
+      const matchIndex = match.index;
+      const versionAttrStart = text.indexOf(version, matchIndex);
+      if (versionAttrStart === -1) continue;
+
+      updatePromises.push(
+        (async () => {
+          try {
+            const info = await nugetAdapter.getPackageInfo(includeId);
+            const latestVersion = info?.version ?? null;
+            if (latestVersion && isNewerVersion(version, latestVersion)) {
+              const updateType = getUpdateType(version, latestVersion);
+              const position = document.positionAt(versionAttrStart);
+              const range = new vscode.Range(position, position);
+              codeLenses.push(
+                new vscode.CodeLens(range, {
+                  title: this.formatUpdateTitle(latestVersion, updateType),
+                  command: 'npmGallery.updateCpmPackage',
+                  arguments: [document.uri.fsPath, includeId, latestVersion],
+                })
+              );
+            }
+          } catch {
+            // Skip packages that fail
+          }
+        })()
+      );
+    }
+
+    await Promise.all(updatePromises);
+    return codeLenses;
+  }
+
+  /**
+   * Provide CodeLenses for paket.dependencies
+   */
+  private async provideCodeLensesForPaketDependencies(
+    document: vscode.TextDocument,
+    text: string
+  ): Promise<vscode.CodeLens[]> {
+    const codeLenses: vscode.CodeLens[] = [];
+    const services = getServices();
+    const nugetAdapter = services.sourceRegistry.getAdapter('nuget');
+    if (!nugetAdapter) {
+      return codeLenses;
+    }
+
+    // Match "nuget PackageId version" lines (version may be followed by ~> or rest of line)
+    const nugetLineRegex = /^\s*nuget\s+([^\s]+)\s+([^\s~]+)([^\n]*)/gim;
+    let match;
+    const updatePromises: Promise<void>[] = [];
+
+    while ((match = nugetLineRegex.exec(text)) !== null) {
+      const packageId = match[1];
+      const currentVersion = match[2];
+      if (!packageId || !currentVersion) continue;
+
+      const versionStart = match.index + match[0].indexOf(currentVersion);
+
+      updatePromises.push(
+        (async () => {
+          try {
+            const info = await nugetAdapter.getPackageInfo(packageId);
+            const latestVersion = info?.version ?? null;
+            if (latestVersion && isNewerVersion(currentVersion, latestVersion)) {
+              const updateType = getUpdateType(currentVersion, latestVersion);
+              const position = document.positionAt(versionStart);
+              const range = new vscode.Range(position, position);
+              codeLenses.push(
+                new vscode.CodeLens(range, {
+                  title: this.formatUpdateTitle(latestVersion, updateType),
+                  command: 'npmGallery.updatePaketDependency',
+                  arguments: [document.uri.fsPath, packageId, latestVersion],
+                })
+              );
+            }
+          } catch {
+            // Skip packages that fail
+          }
+        })()
+      );
+    }
+
+    await Promise.all(updatePromises);
+    return codeLenses;
+  }
+
+  /**
+   * Provide CodeLenses for Cake build scripts (#addin / #tool nuget:?package=Id&version=x)
+   */
+  private async provideCodeLensesForCake(
+    document: vscode.TextDocument,
+    text: string
+  ): Promise<vscode.CodeLens[]> {
+    const codeLenses: vscode.CodeLens[] = [];
+    const services = getServices();
+    const nugetAdapter = services.sourceRegistry.getAdapter('nuget');
+    if (!nugetAdapter) {
+      return codeLenses;
+    }
+
+    // Match #addin nuget:?package=Id&version=x or #tool nuget:?package=Id&version=x (version optional)
+    const cakeRegex = /#(addin|tool)\s+nuget:\?package=([^&\s]+)(?:&version=([^\s&]+))?/gi;
+    let match;
+    const updatePromises: Promise<void>[] = [];
+
+    while ((match = cakeRegex.exec(text)) !== null) {
+      const kind = (match[1] ?? 'addin').toLowerCase() as 'addin' | 'tool';
+      const packageId = match[2];
+      const currentVersion = match[3]; // may be undefined if no &version=
+      if (!packageId) continue;
+      // Only show update CodeLens when a version is pinned (so we can suggest newer)
+      if (!currentVersion) continue;
+
+      const versionStart = match.index + (match[0].indexOf(currentVersion));
+      updatePromises.push(
+        (async () => {
+          try {
+            const info = await nugetAdapter.getPackageInfo(packageId);
+            const latestVersion = info?.version ?? null;
+            if (latestVersion && isNewerVersion(currentVersion, latestVersion)) {
+              const updateType = getUpdateType(currentVersion, latestVersion);
+              const position = document.positionAt(versionStart);
+              const range = new vscode.Range(position, position);
+              codeLenses.push(
+                new vscode.CodeLens(range, {
+                  title: this.formatUpdateTitle(latestVersion, updateType),
+                  command: 'npmGallery.updateCakePackage',
+                  arguments: [document.uri.fsPath, packageId, latestVersion, kind],
                 })
               );
             }

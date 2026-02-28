@@ -69,6 +69,27 @@ export async function activate(context: vscode.ExtensionContext) {
     )
   );
 
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider(
+      { language: 'xml', pattern: '**/Directory.Packages.props' },
+      codeLensProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider(
+      { scheme: 'file', pattern: '**/paket.dependencies' },
+      codeLensProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider(
+      { scheme: 'file', pattern: '**/*.cake' },
+      codeLensProvider
+    )
+  );
+
   // Register webview provider
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(

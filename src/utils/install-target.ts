@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { InstallService } from '../services/install-service';
 import type { WorkspaceService } from '../services/workspace-service';
+import type { ProjectType, SourceType } from '../types/project';
 
 interface InstallTargetItem extends vscode.QuickPickItem {
   manifestPath: string;
@@ -19,9 +20,14 @@ export async function selectInstallTargetManifest(
   packageName: string,
   workspaceService: WorkspaceService,
   installService: InstallService,
-  preferredTargetPath?: string
+  preferredTargetPath?: string,
+  projectType?: ProjectType,
+  currentSource?: SourceType
 ): Promise<string | undefined> {
-  const manifestUris = await workspaceService.getPackageJsonFiles();
+  const useDotNet = projectType === 'dotnet' || currentSource === 'nuget';
+  const manifestUris = useDotNet
+    ? await workspaceService.getDotNetManifestFiles()
+    : await workspaceService.getPackageJsonFiles();
   const manifestPaths = [...new Set(manifestUris.map((uri) => uri.fsPath))];
 
   if (manifestPaths.length <= 1) {
@@ -30,17 +36,23 @@ export async function selectInstallTargetManifest(
     return singlePath;
   }
 
-  const items = await Promise.all(
-    manifestPaths.map((manifestPath) =>
-      buildInstallTargetItem(manifestPath, workspaceService, installService)
-    )
-  );
+  const items = useDotNet
+    ? await Promise.all(
+        manifestPaths.map((manifestPath) =>
+          buildDotNetInstallTargetItem(manifestPath)
+        )
+      )
+    : await Promise.all(
+        manifestPaths.map((manifestPath) =>
+          buildInstallTargetItem(manifestPath, workspaceService, installService)
+        )
+      );
 
   const preferredManifestPath =
     getRememberedInstallTarget(manifestPaths, preferredTargetPath) ||
-    (preferredTargetPath && preferredTargetPath.endsWith('package.json')
+    (preferredTargetPath && (preferredTargetPath.endsWith('package.json') || preferredTargetPath.endsWith('Directory.Packages.props') || preferredTargetPath.endsWith('.csproj'))
       ? preferredTargetPath
-      : getPreferredManifestPath(manifestPaths));
+      : getPreferredManifestPath(manifestPaths, useDotNet));
 
   items.sort((a, b) => {
     const rankDiff = getManifestPriority(a.manifestPath) - getManifestPriority(b.manifestPath);
@@ -71,8 +83,10 @@ export async function selectInstallTargetManifest(
   }
 
   const selection = await vscode.window.showQuickPick(items, {
-    placeHolder: `Select the target package.json for ${packageName}`,
-    title: 'Install into which project?',
+    placeHolder: useDotNet
+      ? `Select target for ${packageName} (NuGet CPM or PackageReference)`
+      : `Select the target package.json for ${packageName}`,
+    title: useDotNet ? 'Copy to which manifest?' : 'Install into which project?',
     matchOnDescription: true,
     matchOnDetail: true,
   });
@@ -84,9 +98,14 @@ export async function selectInstallTargetManifest(
 export async function getInstallTargetSummary(
   workspaceService: WorkspaceService,
   installService: InstallService,
-  preferredTargetPath?: string
+  preferredTargetPath?: string,
+  projectType?: ProjectType,
+  currentSource?: SourceType
 ): Promise<InstallTargetSummary | null> {
-  const manifestUris = await workspaceService.getPackageJsonFiles();
+  const useDotNet = projectType === 'dotnet' || currentSource === 'nuget';
+  const manifestUris = useDotNet
+    ? await workspaceService.getDotNetManifestFiles()
+    : await workspaceService.getPackageJsonFiles();
   const manifestPaths = [...new Set(manifestUris.map((uri) => uri.fsPath))];
   if (manifestPaths.length === 0) {
     return null;
@@ -94,17 +113,50 @@ export async function getInstallTargetSummary(
 
   const manifestPath =
     getRememberedInstallTarget(manifestPaths, preferredTargetPath) ||
-    (preferredTargetPath && preferredTargetPath.endsWith('package.json')
+    (preferredTargetPath && (preferredTargetPath.endsWith('package.json') || preferredTargetPath.endsWith('Directory.Packages.props') || preferredTargetPath.endsWith('.csproj'))
       ? preferredTargetPath
-      : getPreferredManifestPath(manifestPaths)) ||
+      : getPreferredManifestPath(manifestPaths, useDotNet)) ||
     manifestPaths[0];
 
-  const item = await buildInstallTargetItem(manifestPath, workspaceService, installService);
+  const item = useDotNet
+    ? await buildDotNetInstallTargetItem(manifestPath)
+    : await buildInstallTargetItem(manifestPath, workspaceService, installService);
   return {
     manifestPath,
     label: item.label,
     description: item.description || '',
     packageManager: item.detail?.split(' - ')[0] || '',
+  };
+}
+
+function getDotNetManifestLabel(manifestPath: string): { label: string; packageManager: string } {
+  const lower = manifestPath.replace(/\\/g, '/').toLowerCase();
+  if (lower.endsWith('directory.packages.props')) {
+    return { label: 'Directory.Packages.props (CPM)', packageManager: 'NuGet CPM' };
+  }
+  if (lower.endsWith('paket.dependencies')) {
+    return { label: 'paket.dependencies (Paket CLI)', packageManager: 'Paket' };
+  }
+  if (lower.endsWith('packages.config')) {
+    return { label: 'packages.config (Legacy)', packageManager: 'packages.config' };
+  }
+  const name = manifestPath.split(/[/\\]/).pop() || manifestPath;
+  if (lower.endsWith('.csproj') || lower.endsWith('.vbproj') || lower.endsWith('.fsproj')) {
+    return { label: `${name} (PackageReference)`, packageManager: 'PackageReference' };
+  }
+  return { label: name, packageManager: 'NuGet' };
+}
+
+async function buildDotNetInstallTargetItem(manifestPath: string): Promise<InstallTargetItem> {
+  const relativePath = vscode.workspace.asRelativePath(manifestPath) || manifestPath;
+  const { label, packageManager } = getDotNetManifestLabel(manifestPath);
+  const workspaceFolder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(manifestPath));
+  const detail = workspaceFolder ? `${packageManager} - ${workspaceFolder.name}` : packageManager;
+  return {
+    label,
+    description: relativePath,
+    detail,
+    manifestPath,
   };
 }
 
@@ -161,10 +213,20 @@ function getRememberedInstallTarget(
   return rememberedPath && manifestPaths.includes(rememberedPath) ? rememberedPath : undefined;
 }
 
-function getPreferredManifestPath(manifestPaths: string[]): string | undefined {
+function getPreferredManifestPath(manifestPaths: string[], useDotNet?: boolean): string | undefined {
   const activePath = vscode.window.activeTextEditor?.document.uri.fsPath;
-  if (activePath && activePath.endsWith('package.json') && manifestPaths.includes(activePath)) {
-    return activePath;
+  if (activePath && manifestPaths.includes(activePath)) {
+    const lower = activePath.toLowerCase();
+    if (lower.endsWith('package.json') || lower.endsWith('directory.packages.props') || lower.endsWith('.csproj') || lower.endsWith('.vbproj') || lower.endsWith('.fsproj')) {
+      return activePath;
+    }
+  }
+
+  if (useDotNet) {
+    const cpm = manifestPaths.find((p) => p.replace(/\\/g, '/').toLowerCase().endsWith('directory.packages.props'));
+    if (cpm) {
+      return cpm;
+    }
   }
 
   return manifestPaths.find((manifestPath) => {

@@ -249,7 +249,7 @@ export abstract class BaseSourceAdapter implements ISourceAdapter {
       return null;
     }
 
-    return this.depsDevClient.getDependents(ecosystem as 'npm' | 'maven' | 'go', _name, _version);
+    return this.depsDevClient.getDependents(ecosystem as 'npm' | 'maven' | 'go' | 'nuget', _name, _version);
   }
 
   async getRequirements?(_name: string, _version: string): Promise<RequirementsInfo | null> {
@@ -266,6 +266,6 @@ export abstract class BaseSourceAdapter implements ISourceAdapter {
       return null;
     }
 
-    return this.depsDevClient.getRequirements(ecosystem as 'npm' | 'maven' | 'go', _name, _version);
+    return this.depsDevClient.getRequirements(ecosystem as 'npm' | 'maven' | 'go' | 'nuget', _name, _version);
   }
 }

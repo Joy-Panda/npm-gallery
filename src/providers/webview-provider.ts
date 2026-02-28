@@ -22,16 +22,24 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
     _context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken
   ): void {
-    this._view = webviewView;
-
+    // Installed Packages / Available Updates 是 TreeDataProvider（原生树，无 webview），展开即显。
+    // Search 是 WebviewView，需加载 iframe。retainContextWhenHidden 让收起时不销毁内容，再展开时尽量复用同一 view，避免重载。
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [this.extensionUri],
-    };
+      retainContextWhenHidden: true,
+    } as vscode.WebviewOptions;
+
+    // 若是同一 view 再次展开（已有内容），不再设置 html，避免重新加载导致的 1～2 秒空白
+    const isSameViewReShow = this._view === webviewView
+      && this._view.webview.html
+      && this._view.webview.html.length > 100;
+    if (isSameViewReShow) {
+      return;
+    }
+    this._view = webviewView;
 
     webviewView.webview.html = this.getHtmlContent(webviewView.webview);
-
-    // Handle messages from webview
     webviewView.webview.onDidReceiveMessage(async (message: WebviewToExtensionMessage) => {
       await this.handleMessage(message);
     });
@@ -84,13 +92,20 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
       }
 
       case 'install': {
+        const projectType = services.getCurrentProjectType();
+        const currentSource = services.getCurrentSourceType();
         const targetManifestPath = await selectInstallTargetManifest(
           message.packageName,
           services.workspace,
           services.install,
-          vscode.window.activeTextEditor?.document.uri.fsPath
+          vscode.window.activeTextEditor?.document.uri.fsPath,
+          projectType,
+          currentSource
         );
-        if (!targetManifestPath && (await services.workspace.getPackageJsonFiles()).length > 1) {
+        const manifestFiles = projectType === 'dotnet' || currentSource === 'nuget'
+          ? await services.workspace.getDotNetManifestFiles()
+          : await services.workspace.getPackageJsonFiles();
+        if (!targetManifestPath && manifestFiles.length > 1) {
           break;
         }
 
@@ -166,6 +181,12 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
         await this.sendSourceInfo();
         break;
       }
+
+      case 'changeProjectType': {
+        services.setProjectType(message.projectType);
+        await this.sendSourceInfo();
+        break;
+      }
     }
   }
 
@@ -177,10 +198,14 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
     const supportedCapabilities = services.package.getSupportedCapabilities();
     const activePath = vscode.window.activeTextEditor?.document.uri.fsPath;
     const detectedPackageManager = await services.install.detectPackageManager(activePath);
+    const projectType = services.getCurrentProjectType();
+    const currentSource = services.getCurrentSourceType();
     const installTarget = await getInstallTargetSummary(
       services.workspace,
       services.install,
-      activePath
+      activePath,
+      projectType,
+      currentSource
     );
     
     // Build capability support map
@@ -198,13 +223,18 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
     
     const sortOptionsWithLabels = services.search.getSupportedSortOptionsWithLabels();
     const filterOptionsWithLabels = services.search.getSupportedFiltersWithLabels();
+    const isDotNet = projectType === 'dotnet' || currentSource === 'nuget';
+    const detectedNuGetStyle = isDotNet ? services.install.detectNuGetManagementStyle(activePath) : undefined;
+
     const sourceInfo: SourceInfoMessage = {
       type: 'sourceInfo',
       data: {
         currentProjectType: services.getCurrentProjectType(),
         detectedPackageManager,
+        detectedNuGetStyle,
         installTarget: installTarget || undefined,
-        currentSource: services.getCurrentSourceType(),
+        currentSource,
+        detectedProjectTypes: services.getDetectedProjectTypes(),
         availableSources: services.getAvailableSources(),
         supportedSortOptions: services.getSupportedSortOptions(), // For backward compatibility
         supportedSortOptionsWithLabels: sortOptionsWithLabels.map(opt => {
@@ -266,14 +296,19 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
       color: var(--vscode-foreground);
       background-color: var(--vscode-sideBar-background);
     }
-
     #root {
       padding: 0;
+      min-height: 100vh;
+    }
+    #root .load-placeholder {
+      padding: 12px;
+      color: var(--vscode-descriptionForeground);
+      font-size: 12px;
     }
   </style>
 </head>
 <body>
-  <div id="root"></div>
+  <div id="root"><div class="load-placeholder" aria-hidden="true">Loading…</div></div>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;

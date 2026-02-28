@@ -3,6 +3,7 @@ import { ShieldCheck, ShieldAlert } from 'lucide-react';
 
 import type { SourceInfo } from '../context/VSCodeContext';
 import type { PackageDetails, PackageManager } from '../../types/package';
+import { NUGET_MANAGEMENT_STYLE_LABELS } from '../../types/package';
 
 
 interface PackageSidebarProps {
@@ -161,6 +162,10 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
       registryLink = `https://pkg.go.dev/${details.name}`;
       registryLabel = 'pkg.go.dev';
       break;
+    case 'dotnet':
+      registryLink = `https://www.nuget.org/packages/${details.name}`;
+      registryLabel = 'NuGet';
+      break;
     case 'npm':
     case 'unknown':
     default:
@@ -204,7 +209,8 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
       {(details.bundleSize ||
         (details.maintainers && details.maintainers.length > 0) ||
         publishedAt ||
-        detectedPackageManager) && (
+        detectedPackageManager ||
+        sourceInfo?.detectedNuGetStyle) && (
         <div className="sidebar-section">
           <span className="section-label">Info</span>
           <div className="info-inline">
@@ -212,6 +218,12 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
               <div className="info-row">
                 <span>Package Manager</span>
                 <span>{detectedPackageManager}</span>
+              </div>
+            )}
+            {sourceInfo?.detectedNuGetStyle && (
+              <div className="info-row">
+                <span>NuGet style</span>
+                <span>{NUGET_MANAGEMENT_STYLE_LABELS[sourceInfo.detectedNuGetStyle] || sourceInfo.detectedNuGetStyle}</span>
               </div>
             )}
             {details.bundleSize?.dependencyCount !== undefined && (

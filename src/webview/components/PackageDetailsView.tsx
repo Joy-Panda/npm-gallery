@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck, ShieldAlert,
   Layers, Loader2, BookOpen,
-  GitBranch
+  GitBranch, Cpu
 } from 'lucide-react';
 import type { DependencyType, PackageDetails, Vulnerability } from '../../types/package';
 import { useVSCode } from '../context/VSCodeContext';
@@ -14,6 +14,7 @@ import { DependenciesTab } from './tabs/DependenciesTab';
 import { SecurityTab } from './tabs/SecurityTab';
 import { DependentsTab } from './tabs/DependentsTab';
 import { RequirementsTab } from './tabs/RequirementsTab';
+import { FrameworksTab } from './tabs/FrameworksTab';
 
 interface VSCodeAPI {
   postMessage: (message: unknown) => void;
@@ -29,7 +30,7 @@ interface PackageDetailsViewProps {
 export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, initialData }) => {
   const { sourceInfo } = useVSCode();
   const [details, setDetails] = useState<PackageDetails | null>(initialData || null);
-  const [activeTab, setActiveTab] = useState<'readme' | 'versions' | 'dependencies' | 'requirements' | 'dependents' | 'security'>('readme');
+  const [activeTab, setActiveTab] = useState<'readme' | 'versions' | 'dependencies' | 'requirements' | 'dependents' | 'frameworks' | 'security'>('readme');
   /** When true, opened from vulnerability CodeLens — show only Security tab, no full package details */
   const [securityOnlyView, setSecurityOnlyView] = useState(false);
 
@@ -344,14 +345,27 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
                   </span>
                 </button>
               )}
-              {details.dependents && details.dependents.totalCount > 0 && (
+              {(details.dependents?.totalCount ?? 0) > 0 || (details.nugetDependents && (details.nugetDependents.nugetPackages?.length > 0 || (details.nugetDependents.githubRepos?.length ?? 0) > 0)) ? (
                 <button
                   className={`tab ${activeTab === 'dependents' ? 'active' : ''}`}
                   onClick={() => setActiveTab('dependents')}
                 >
                   <GitBranch size={14} />
                   Dependents
-                  <span className="tab-badge">{details.dependents.totalCount}</span>
+                  <span className="tab-badge">
+                    {details.nugetDependents
+                      ? (details.nugetDependents.totalNuGet ?? 0) + (details.nugetDependents.totalGitHub ?? 0) || details.nugetDependents.nugetPackages.length + (details.nugetDependents.githubRepos?.length ?? 0)
+                      : details.dependents!.totalCount}
+                  </span>
+                </button>
+              ) : null}
+              {details.nugetFrameworks && details.nugetFrameworks.length > 0 && (
+                <button
+                  className={`tab ${activeTab === 'frameworks' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('frameworks')}
+                >
+                  <Cpu size={14} />
+                  Frameworks
                 </button>
               )}
               {supportsSecurity && (
@@ -396,7 +410,11 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
                 <DependentsTab
                   details={details}
                   onOpenPackageDetails={openPackageDetails}
+                  onOpenExternal={openExternal}
                 />
+              )}
+              {activeTab === 'frameworks' && (
+                <FrameworksTab details={details} />
               )}
               {activeTab === 'security' && supportsSecurity && (
                 <SecurityTab

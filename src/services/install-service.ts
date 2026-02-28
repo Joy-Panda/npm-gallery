@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
-import type { InstallOptions, CopyOptions, PackageManager, BuildTool } from '../types/package';
+import type { InstallOptions, CopyOptions, PackageManager, BuildTool, NuGetManagementStyle, NuGetCopyFormat } from '../types/package';
+import { NUGET_STYLE_TO_COPY_FORMAT, NUGET_FORMAT_RUN_TYPE, NUGET_FORMAT_RUN_LABELS, NUGET_COPY_FORMAT_LABELS } from '../types/package';
 import type { SourceSelector } from '../registry/source-selector';
+import type { WorkspaceService } from './workspace-service';
 import type { ProjectType } from '../types/project';
 import { SourceCapability } from '../sources/base/capabilities';
 
@@ -9,13 +11,28 @@ import { SourceCapability } from '../sources/base/capabilities';
  * Delegates command generation to source adapters, only handles execution
  */
 export class InstallService {
-  constructor(private sourceSelector?: SourceSelector) {}
+  constructor(
+    private sourceSelector?: SourceSelector,
+    private workspace?: WorkspaceService
+  ) {}
 
   /**
    * Set the source selector (for late initialization)
    */
   setSourceSelector(selector: SourceSelector): void {
     this.sourceSelector = selector;
+  }
+
+  setWorkspace(workspace: WorkspaceService): void {
+    this.workspace = workspace;
+  }
+
+  /**
+   * Detect .NET/NuGet management style (like detectPackageManager for npm/yarn/pnpm/bun).
+   * Used to default copy format and show "Detected: Paket" etc.
+   */
+  detectNuGetManagementStyle(targetPath?: string): NuGetManagementStyle {
+    return this.workspace?.detectNuGetManagementStyle(targetPath) ?? 'packagereference';
   }
 
   /**
@@ -272,37 +289,56 @@ export class InstallService {
         return { success: false, message: 'Copy snippet generation is not supported' };
       }
       
-      // Auto-detect build tool if not provided
-      let buildTool = options.buildTool;
-      if (!buildTool) {
-        buildTool = await this.detectBuildTool() || 'maven'; // Default to maven
-      }
-      
-      // Map build tool to format
-      let format: 'xml' | 'gradle' | 'sbt' | 'grape' | 'other' = 'xml';
-      if (buildTool === 'gradle') {
-        format = 'gradle';
-      } else if (buildTool === 'sbt') {
-        format = 'sbt';
-      } else if (buildTool === 'grape') {
-        format = 'grape';
-      } else if (buildTool === 'maven') {
-        format = 'xml';
+      // NuGet/dotnet: use format from options or default (CPM if Directory.Packages.props exists)
+      const projectType = this.sourceSelector?.getCurrentProjectType?.() ?? 'unknown';
+      const isNuGet = adapter.sourceType === 'nuget' || projectType === 'dotnet';
+
+      let format: CopyOptions['format'] = 'xml';
+      if (isNuGet) {
+        if (options.format) {
+          format = options.format;
+        } else {
+          const style = this.workspace?.detectNuGetManagementStyle(
+            vscode.window.activeTextEditor?.document.uri.fsPath
+          ) ?? 'packagereference';
+          format = NUGET_STYLE_TO_COPY_FORMAT[style] as NuGetCopyFormat;
+        }
       } else {
-        // For other build tools, try to use appropriate format
-        format = 'other';
+        // Auto-detect build tool for Maven/Gradle
+        let buildTool = options.buildTool;
+        if (!buildTool) {
+          buildTool = await this.detectBuildTool() || 'maven';
+        }
+        if (buildTool === 'gradle') {
+          format = 'gradle';
+        } else if (buildTool === 'sbt') {
+          format = 'sbt';
+        } else if (buildTool === 'grape') {
+          format = 'grape';
+        } else if (buildTool === 'maven') {
+          format = 'xml';
+        } else {
+          format = 'other';
+        }
       }
-      
+
       // Generate snippet with detected format
       const snippet = adapter.getCopySnippet(packageName, { ...options, format });
-      
+
       // Copy to clipboard
       await vscode.env.clipboard.writeText(snippet);
-      
-      return {
-        success: true,
-        message: `Copied ${packageName} snippet (${buildTool}) to clipboard!`,
-      };
+
+      let message: string;
+      if (isNuGet && typeof format === 'string' && NUGET_FORMAT_RUN_TYPE[format as NuGetCopyFormat]) {
+        const runType = NUGET_FORMAT_RUN_TYPE[format as NuGetCopyFormat];
+        const runHint = NUGET_FORMAT_RUN_LABELS[runType];
+        const formatLabel = NUGET_COPY_FORMAT_LABELS[format as NuGetCopyFormat] || format;
+        message = `Copied ${packageName} (${formatLabel}). ${runType === 'copy' ? 'Paste into your file.' : runHint}`;
+      } else {
+        const formatLabel = isNuGet ? (NUGET_COPY_FORMAT_LABELS[format as NuGetCopyFormat] || format) : (options.buildTool ?? 'maven');
+        message = `Copied ${packageName} snippet (${formatLabel}) to clipboard!`;
+      }
+      return { success: true, message };
     } catch (error) {
       return {
         success: false,
@@ -461,6 +497,7 @@ export class InstallService {
       npm: `NPM Gallery${workspaceSuffix}${targetSuffix}`,
       maven: `Maven Gallery${workspaceSuffix}${targetSuffix}`,
       go: `Go Gallery${workspaceSuffix}${targetSuffix}`,
+      dotnet: `NuGet Gallery${workspaceSuffix}${targetSuffix}`,
       unknown: `Package Gallery${workspaceSuffix}${targetSuffix}`,
     };
 

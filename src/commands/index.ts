@@ -96,13 +96,20 @@ export function registerCommands(
 
       if (!depType) return;
 
+      const projectType = services.getCurrentProjectType();
+      const currentSource = services.getCurrentSourceType();
       const targetManifestPath = await selectInstallTargetManifest(
         packageName,
         services.workspace,
         services.install,
-        vscode.window.activeTextEditor?.document.uri.fsPath
+        vscode.window.activeTextEditor?.document.uri.fsPath,
+        projectType,
+        currentSource
       );
-      if (!targetManifestPath && (await services.workspace.getPackageJsonFiles()).length > 1) {
+      const manifestFiles = projectType === 'dotnet' || currentSource === 'nuget'
+        ? await services.workspace.getDotNetManifestFiles()
+        : await services.workspace.getPackageJsonFiles();
+      if (!targetManifestPath && manifestFiles.length > 1) {
         return;
       }
 
@@ -212,6 +219,57 @@ export function registerCommands(
           providers.updates.refresh();
         } else {
           vscode.window.showErrorMessage(`Failed to update ${groupId}:${artifactId}`);
+        }
+      }
+    )
+  );
+
+  // Update CPM package (Directory.Packages.props)
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'npmGallery.updateCpmPackage',
+      async (propsPath: string, packageId: string, newVersion: string) => {
+        const result = await services.workspace.updateCpmPackage(propsPath, packageId, newVersion);
+        if (result) {
+          vscode.window.showInformationMessage(`Updated ${packageId} to ${newVersion}`);
+          const scope = { manifestPath: propsPath };
+          providers.codelens.refresh(scope);
+        } else {
+          vscode.window.showErrorMessage(`Failed to update ${packageId}`);
+        }
+      }
+    )
+  );
+
+  // Update Paket dependency (paket.dependencies)
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'npmGallery.updatePaketDependency',
+      async (depsPath: string, packageId: string, newVersion: string) => {
+        const result = await services.workspace.updatePaketDependency(depsPath, packageId, newVersion);
+        if (result) {
+          vscode.window.showInformationMessage(`Updated ${packageId} to ${newVersion}`);
+          const scope = { manifestPath: depsPath };
+          providers.codelens.refresh(scope);
+        } else {
+          vscode.window.showErrorMessage(`Failed to update ${packageId}`);
+        }
+      }
+    )
+  );
+
+  // Update Cake addin/tool (.cake)
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'npmGallery.updateCakePackage',
+      async (cakePath: string, packageId: string, newVersion: string, kind: 'addin' | 'tool') => {
+        const result = await services.workspace.updateCakePackage(cakePath, packageId, newVersion, kind);
+        if (result) {
+          vscode.window.showInformationMessage(`Updated ${packageId} (${kind}) to ${newVersion}`);
+          const scope = { manifestPath: cakePath };
+          providers.codelens.refresh(scope);
+        } else {
+          vscode.window.showErrorMessage(`Failed to update ${packageId}`);
         }
       }
     )

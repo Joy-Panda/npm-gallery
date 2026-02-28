@@ -33,6 +33,12 @@ export const DEFAULT_SOURCE_CONFIG: Record<ProjectType, SourceConfig> = {
     sortOptions: ['relevance', 'popularity'],
     filters: [],
   },
+  dotnet: {
+    primary: 'nuget',
+    fallbacks: [],
+    sortOptions: ['relevance', 'popularity', 'name'],
+    filters: ['author', 'tags', 'packageType'],
+  },
   unknown: {
     primary: 'npm-registry',
     fallbacks: ['npms-io'], // libraries-io is used as internal fallback, not in fallbacks list

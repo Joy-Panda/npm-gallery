@@ -90,14 +90,17 @@ export class DepsDevClient extends BaseApiClient {
   }
 
   async getDependents(system: DepsDevSystem, name: string, version: string): Promise<DependentsInfo | null> {
-    const response = await this.webClient.get<DependentsInfo>(
-      this.getDependentsWebPath(system, name, version)
-    );
-
-    return {
-      ...response.data,
-      webUrl: this.buildDependentsWebUrl(system, name, version),
-    };
+    try {
+      const response = await this.webClient.get<DependentsInfo>(
+        this.getDependentsWebPath(system, name, version)
+      );
+      return {
+        ...response.data,
+        webUrl: this.buildDependentsWebUrl(system, name, version),
+      };
+    } catch {
+      return null;
+    }
   }
 
   async getRequirements(system: DepsDevSystem, name: string, version: string): Promise<RequirementsInfo | null> {
