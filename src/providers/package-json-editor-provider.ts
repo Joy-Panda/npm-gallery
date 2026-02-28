@@ -50,6 +50,7 @@ export class PackageJsonEditorProvider implements vscode.CustomTextEditorProvide
           await this.updateDocumentText(document, message.text);
           break;
         case 'openManifest':
+          setPackageJsonEditorPreferredTab(message.manifestPath, 'analyzer');
           await vscode.commands.executeCommand(
             'vscode.openWith',
             vscode.Uri.file(message.manifestPath),
@@ -89,6 +90,7 @@ export class PackageJsonEditorProvider implements vscode.CustomTextEditorProvide
       activeManifestPath: document.uri.fsPath,
       manifestText: document.getText(),
       initialMode: 'manifest',
+      initialEditorTab: consumePreferredEditorTab(document.uri.fsPath),
     };
   }
 
@@ -115,6 +117,8 @@ export class PackageJsonEditorProvider implements vscode.CustomTextEditorProvide
     );
     const nonce = this.getNonce();
 
+    // Static tab bar in initial HTML (like maven-pom-editor) so "Text | Dependency Analyzer"
+    // appears immediately under the editor title, before React mounts.
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -123,9 +127,31 @@ export class PackageJsonEditorProvider implements vscode.CustomTextEditorProvide
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src ${webview.cspSource};">
   <link href="${codiconUri}" rel="stylesheet" />
   <title>package.json</title>
+  <style>
+    #root .pje-placeholder { min-height: 100vh; display: flex; flex-direction: column; background: var(--vscode-editor-background); }
+    #root .pje-chrome { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; min-height: 40px; padding: 0 10px; border-bottom: 1px solid var(--vscode-panel-border); }
+    #root .pje-tabstrip { display: flex; align-items: flex-end; gap: 1px; }
+    #root .pje-tab { appearance: none; border: 1px solid transparent; background: transparent; color: var(--vscode-tab-inactiveForeground, var(--vscode-foreground)); padding: 9px 14px 10px; border-radius: 8px 8px 0 0; cursor: default; font-size: 13px; }
+    #root .pje-tab.active { background: var(--vscode-editor-background); color: var(--vscode-tab-activeForeground, var(--vscode-foreground)); border-color: var(--vscode-panel-border); border-bottom-color: var(--vscode-editor-background); }
+    #root .pje-status { font-size: 12px; color: var(--vscode-descriptionForeground); padding-bottom: 8px; }
+    #root .pje-loading { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--vscode-descriptionForeground); font-size: 13px; }
+  </style>
 </head>
 <body>
-  <div id="root"></div>
+  <div id="root">
+    <div class="pje-placeholder">
+      <header>
+        <div class="pje-chrome">
+          <div class="pje-tabstrip">
+            <span class="pje-tab active">Text</span>
+            <span class="pje-tab">Dependency Analyzer</span>
+          </div>
+          <span class="pje-status">package.json</span>
+        </div>
+      </header>
+      <div class="pje-loading">Loading package.json editor…</div>
+    </div>
+  </div>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
@@ -146,4 +172,19 @@ export class PackageJsonEditorProvider implements vscode.CustomTextEditorProvide
     }
     return text;
   }
+}
+
+const preferredEditorTabs = new Map<string, 'text' | 'analyzer'>();
+
+export function setPackageJsonEditorPreferredTab(
+  manifestPath: string,
+  tab: 'text' | 'analyzer'
+): void {
+  preferredEditorTabs.set(manifestPath, tab);
+}
+
+function consumePreferredEditorTab(manifestPath: string): 'text' | 'analyzer' {
+  const tab = preferredEditorTabs.get(manifestPath) || 'text';
+  preferredEditorTabs.delete(manifestPath);
+  return tab;
 }

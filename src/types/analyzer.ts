@@ -35,4 +35,5 @@ export interface DependencyAnalyzerPayload {
   activeManifestPath?: string;
   manifestText?: string;
   initialMode: 'workspace' | 'manifest';
+  initialEditorTab?: 'text' | 'analyzer';
 }

@@ -32,6 +32,11 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "configurationDefaults": {
+      "workbench.editorAssociations": {
+        "**/package.json": "npmGallery.packageJsonEditor"
+      }
+    },
     "commands": [
       {
         "command": "npmGallery.openPanel",
@@ -86,9 +91,14 @@
       },
       {
         "command": "npmGallery.openDependencyAnalyzer",
-        "title": "Open Dependency Analyzer",
+        "title": "Open with NPM Gallery (Text + Dependency Analyzer)",
         "category": "NPM Gallery",
         "icon": "$(list-tree)"
+      },
+      {
+        "command": "npmGallery.setPackageJsonEditorDefault",
+        "title": "Use NPM Gallery as Default Editor for package.json",
+        "category": "NPM Gallery"
       },
       {
         "command": "npmGallery.refreshView",
@@ -152,6 +162,11 @@
       "editor/title": [
         {
           "command": "npmGallery.openDependencyAnalyzer",
+          "when": "resourceFilename == package.json && activeCustomEditorId != npmGallery.packageJsonEditor",
+          "group": "navigation"
+        },
+        {
+          "command": "npmGallery.setPackageJsonEditorDefault",
           "when": "resourceFilename == package.json && activeCustomEditorId != npmGallery.packageJsonEditor",
           "group": "navigation"
         }

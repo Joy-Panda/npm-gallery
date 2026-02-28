@@ -20,6 +20,7 @@ import type {
 } from '../types/analyzer';
 import type { SourceSelector } from '../registry/source-selector';
 import { SourceCapability, CapabilityNotSupportedError, type CapabilitySupport } from '../sources/base/capabilities';
+import { parseDependencySpec } from '../utils/version-utils';
 
 const execFileAsync = promisify(execFile);
 
@@ -65,15 +66,30 @@ export class PackageService {
       return;
     }
 
-    const workspacePath = this.resolveWorkspacePathFromScope(scope);
-    if (!workspacePath) {
-      this.localDependencyTreeCache.clear();
-      this.localDependencyTreePromises.clear();
+    const path = require('path') as typeof import('path');
+    if (typeof scope === 'string') {
+      const projectPath = scope.endsWith('package.json') ? path.dirname(scope) : scope;
+      this.localDependencyTreeCache.delete(projectPath);
+      this.localDependencyTreePromises.delete(projectPath);
       return;
     }
 
-    this.localDependencyTreeCache.delete(workspacePath);
-    this.localDependencyTreePromises.delete(workspacePath);
+    if (scope.manifestPath) {
+      const projectPath = path.dirname(scope.manifestPath);
+      this.localDependencyTreeCache.delete(projectPath);
+      this.localDependencyTreePromises.delete(projectPath);
+      return;
+    }
+
+    if (scope.workspaceFolderPath) {
+      for (const key of [...this.localDependencyTreeCache.keys()]) {
+        if (key.startsWith(scope.workspaceFolderPath)) {
+          this.localDependencyTreeCache.delete(key);
+          this.localDependencyTreePromises.delete(key);
+        }
+      }
+      return;
+    }
   }
 
   invalidateLatestVersionCache(packageNames?: string[]): void {
@@ -351,14 +367,13 @@ export class PackageService {
   }
 
   async getDependencyAnalyzerData(manifestPath: string): Promise<DependencyAnalyzerData | null> {
-    const workspaceFolder = this.resolveWorkspaceFolder(manifestPath);
-    if (!workspaceFolder) {
+    const localProject = await this.resolveLocalProjectContext(manifestPath);
+    if (!localProject) {
       return null;
     }
 
     const path = require('path') as typeof import('path');
     const fs = require('fs/promises') as typeof import('fs/promises');
-    const packageManager = await this.detectLocalPackageManager(workspaceFolder.uri.fsPath);
     const manifestDir = path.dirname(manifestPath);
 
     try {
@@ -376,7 +391,7 @@ export class PackageService {
           : path.basename(manifestDir);
 
       let nodes: DependencyAnalyzerNode[] = [];
-      switch (packageManager) {
+      switch (localProject.packageManager) {
         case 'pnpm':
           nodes = await this.loadPnpmDependencyTree(manifestDir);
           break;
@@ -392,8 +407,16 @@ export class PackageService {
           break;
       }
 
-      if (nodes.length === 0) {
-        nodes = this.buildDirectDependencyAnalyzerNodes(packageJson);
+      if (nodes.length === 0 || nodes.every((node) => node.children.length === 0)) {
+        const recursiveNodes = await this.buildRecursiveDependencyAnalyzerNodes(
+          packageJson,
+          manifestPath
+        );
+        if (recursiveNodes.length > 0) {
+          nodes = recursiveNodes;
+        } else if (nodes.length === 0) {
+          nodes = this.buildDirectDependencyAnalyzerNodes(packageJson);
+        }
       }
 
       const conflicts = this.collectDependencyConflicts(nodes);
@@ -406,7 +429,7 @@ export class PackageService {
       return {
         manifestPath,
         manifestName,
-        packageManager: packageManager || 'unknown',
+        packageManager: localProject.packageManager || 'unknown',
         nodes,
         conflicts,
       };
@@ -540,43 +563,43 @@ export class PackageService {
       return null;
     }
 
-    const workspaceFolder = this.resolveWorkspaceFolder(targetPath);
-    if (!workspaceFolder) {
+    const localProject = await this.resolveLocalProjectContext(targetPath);
+    if (!localProject) {
       return null;
     }
-    const workspacePath = workspaceFolder.uri.fsPath;
+    const cacheKey = localProject.projectPath;
 
-    if (this.localDependencyTreeCache.has(workspacePath)) {
-      return this.localDependencyTreeCache.get(workspacePath) ?? null;
+    if (this.localDependencyTreeCache.has(cacheKey)) {
+      return this.localDependencyTreeCache.get(cacheKey) ?? null;
     }
 
-    const pending = this.localDependencyTreePromises.get(workspacePath);
+    const pending = this.localDependencyTreePromises.get(cacheKey);
     if (pending) {
       return pending;
     }
 
-    const promise = this.loadLocalDependencyTree(workspaceFolder);
-    this.localDependencyTreePromises.set(workspacePath, promise);
+    const promise = this.loadLocalDependencyTree(localProject);
+    this.localDependencyTreePromises.set(cacheKey, promise);
 
     try {
       const tree = await promise;
-      this.localDependencyTreeCache.set(workspacePath, tree);
+      this.localDependencyTreeCache.set(cacheKey, tree);
       return tree;
     } finally {
-      this.localDependencyTreePromises.delete(workspacePath);
+      this.localDependencyTreePromises.delete(cacheKey);
     }
   }
 
   private async loadLocalDependencyTree(
-    workspaceFolder: vscode.WorkspaceFolder
+    localProject: { workspaceFolder: vscode.WorkspaceFolder; projectPath: string; packageManager: PackageManager | null }
   ): Promise<Map<string, Record<string, string> | null> | null> {
-    const packageManager = await this.detectLocalPackageManager(workspaceFolder.uri.fsPath);
+    const packageManager = localProject.packageManager;
     if (!packageManager) {
       return null;
     }
 
     if (packageManager === 'bun') {
-      return this.buildDependencyIndexFromNodeModules(workspaceFolder.uri.fsPath);
+      return this.buildDependencyIndexFromNodeModules(localProject.projectPath);
     }
 
     const command = this.getDependencyTreeCommand(packageManager);
@@ -586,7 +609,7 @@ export class PackageService {
 
     try {
       const { stdout } = await execFileAsync(command.file, command.args, {
-        cwd: workspaceFolder.uri.fsPath,
+        cwd: localProject.projectPath,
         encoding: 'utf8',
         timeout: 15000,
         maxBuffer: 20 * 1024 * 1024,
@@ -597,7 +620,10 @@ export class PackageService {
     }
   }
 
-  private async detectLocalPackageManager(workspacePath: string): Promise<PackageManager | null> {
+  private async detectLocalPackageManager(
+    startPath: string,
+    workspacePath: string
+  ): Promise<PackageManager | null> {
     try {
       const fs = require('fs') as typeof import('fs');
       const path = require('path') as typeof import('path');
@@ -610,10 +636,23 @@ export class PackageService {
         { file: 'package-lock.json', manager: 'npm' },
       ];
 
-      for (const { file, manager } of lockFiles) {
-        if (fs.existsSync(path.join(workspacePath, file))) {
-          return manager;
+      let currentPath = startPath;
+      while (currentPath.startsWith(workspacePath)) {
+        for (const { file, manager } of lockFiles) {
+          if (fs.existsSync(path.join(currentPath, file))) {
+            return manager;
+          }
         }
+
+        if (currentPath === workspacePath) {
+          break;
+        }
+
+        const parentPath = path.dirname(currentPath);
+        if (parentPath === currentPath) {
+          break;
+        }
+        currentPath = parentPath;
       }
     } catch {
       return null;
@@ -632,20 +671,26 @@ export class PackageService {
       : vscode.workspace.workspaceFolders?.[0];
   }
 
-  private resolveWorkspacePathFromScope(scope: WorkspacePackageScope | string): string | undefined {
-    if (typeof scope === 'string') {
-      return this.resolveWorkspaceFolder(scope)?.uri.fsPath;
+  private async resolveLocalProjectContext(
+    targetPath?: string
+  ): Promise<{ workspaceFolder: vscode.WorkspaceFolder; projectPath: string; packageManager: PackageManager | null } | null> {
+    const workspaceFolder = this.resolveWorkspaceFolder(targetPath);
+    if (!workspaceFolder) {
+      return null;
     }
 
-    if (scope.workspaceFolderPath) {
-      return scope.workspaceFolderPath;
-    }
+    const path = require('path') as typeof import('path');
+    const projectPath = targetPath ? path.dirname(targetPath) : workspaceFolder.uri.fsPath;
+    const packageManager = await this.detectLocalPackageManager(
+      projectPath,
+      workspaceFolder.uri.fsPath
+    );
 
-    if (scope.manifestPath) {
-      return this.resolveWorkspaceFolder(scope.manifestPath)?.uri.fsPath;
-    }
-
-    return undefined;
+    return {
+      workspaceFolder,
+      projectPath,
+      packageManager,
+    };
   }
 
   private getDependencyTreeCommand(
@@ -1238,6 +1283,90 @@ export class PackageService {
     }
 
     return nodes.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  private async buildRecursiveDependencyAnalyzerNodes(
+    packageJson: {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+      peerDependencies?: Record<string, string>;
+      optionalDependencies?: Record<string, string>;
+    },
+    manifestPath: string
+  ): Promise<DependencyAnalyzerNode[]> {
+    const entries: Array<[DependencyType, Record<string, string> | undefined]> = [
+      ['dependencies', packageJson.dependencies],
+      ['devDependencies', packageJson.devDependencies],
+      ['peerDependencies', packageJson.peerDependencies],
+      ['optionalDependencies', packageJson.optionalDependencies],
+    ];
+
+    const visited = new Set<string>();
+    const nodes: DependencyAnalyzerNode[] = [];
+
+    for (const [type, deps] of entries) {
+      for (const [name, spec] of Object.entries(deps || {})) {
+        const parsedSpec = parseDependencySpec(spec);
+        const node = await this.buildRecursiveDependencyAnalyzerNode(
+          name,
+          parsedSpec.normalizedVersion || parsedSpec.displayText,
+          manifestPath,
+          visited
+        );
+        if (node) {
+          node.dependencyType = type;
+          nodes.push(node);
+        }
+      }
+    }
+
+    return nodes.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  private async buildRecursiveDependencyAnalyzerNode(
+    name: string,
+    version: string,
+    manifestPath: string,
+    visited: Set<string>
+  ): Promise<DependencyAnalyzerNode | null> {
+    const nodeId = `${name}@${version}`;
+    if (visited.has(nodeId)) {
+      return {
+        id: nodeId,
+        name,
+        version,
+        children: [],
+      };
+    }
+
+    visited.add(nodeId);
+    const dependencies = await this.getPackageDependencies(name, version, manifestPath);
+    const children: DependencyAnalyzerNode[] = [];
+
+    for (const [childName, childVersionSpec] of Object.entries(dependencies || {}).sort(([a], [b]) =>
+      a.localeCompare(b)
+    )) {
+      const parsedSpec = parseDependencySpec(childVersionSpec);
+      const childVersion = parsedSpec.normalizedVersion || parsedSpec.displayText;
+      const childNode = await this.buildRecursiveDependencyAnalyzerNode(
+        childName,
+        childVersion,
+        manifestPath,
+        visited
+      );
+      if (childNode) {
+        children.push(childNode);
+      }
+    }
+
+    visited.delete(nodeId);
+
+    return {
+      id: nodeId,
+      name,
+      version,
+      children,
+    };
   }
 
   private markConflictNodes(nodes: DependencyAnalyzerNode[], conflictingNames: Set<string>): void {

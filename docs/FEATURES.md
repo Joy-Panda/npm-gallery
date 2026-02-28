@@ -91,27 +91,29 @@ Display comprehensive package information to help developers make informed decis
 
 ### 2.2 Information Sections
 
-#### Header Section
-- Package name and description
-- Latest version with publish date
-- Author/maintainers
-- License badge
-- Action buttons (Install, View on npm, GitHub)
+#### Header
+- 包名、描述
+- 作者、License、下载量、Bundle size、Score（以 stat 标签形式展示）
+- 安装按钮（含依赖类型选择）
 
-#### Statistics Panel
-| Metric | Description |
-|--------|-------------|
-| Weekly downloads | Last 7 days download count |
-| GitHub Link | Repository link |
-| Open issues Link | Open Repo issues link |
-| Last publish | Time since last version |
+最新版本、发布时间以及 npm / Homepage / Repository / Issues 链接**不在** Header 内，位于右侧**侧栏**。
+
+#### 侧栏（Resources / Info 等）
+| 区块 | 内容 |
+|------|------|
+| Version | 当前展示的版本号 |
+| Security | 漏洞数量与简要状态 |
+| Resources | npm、Homepage、Repository、Issues 等外链 |
+| Info | Published（发布时间）、Package Manager、Dependencies 数量、Unpacked Size、Maintainers 等 |
+| Keywords | 关键词列表（若有） |
 
 #### Tabs
 1. **README** - Rendered markdown documentation
 2. **Versions** - Version history with dates
-3. **Dependencies** - Required packages
-4. **Dependents** - Packages that use this
-5. **Security** - Vulnerability information
+3. **Dependencies** - Required packages（按 runtime/dev/peer/optional 分组）
+4. **Requirements** - 依赖/要求信息（按 section 分组，多见于 Maven 等生态）
+5. **Dependents** - Packages that use this
+6. **Security** - Vulnerability information
 
 #### README Tab
 - Full markdown rendering
@@ -133,11 +135,14 @@ Display comprehensive package information to help developers make informed decis
 ```
 
 #### Dependencies Tab
-- Runtime dependencies count
-- Dev dependencies count
-- Peer dependencies with versions
-- Optional dependencies
-- Dependency tree visualization
+- 按 **runtime / dev / peer / optional** 分组的平铺列表（可折叠各分组）
+- 每组内展示依赖名与版本，点击可跳转该包详情
+
+#### Requirements Tab
+- 展示当前包的 **requirements**（依赖/要求），多用于 Maven 等生态（`RequirementsInfo`：system、package、version、sections）
+- 按 **section** 分组（每 section 有 id、title、items），分组可折叠
+- 每项展示：依赖名、版本/requirement，以及 meta（scope、type、classifier、optional、exclusions 等）
+- 无数据时显示 “{name} {version} has no requirements.”
 
 #### Security Tab
 - Vulnerability count by severity
@@ -147,28 +152,26 @@ Display comprehensive package information to help developers make informed decis
 
 ### 2.3 User Interface
 ```
-┌─────────────────────────────────────────────────────┐
-│ ← Back to Search                                    │
-├─────────────────────────────────────────────────────┤
-│ 📦 lodash                                           │
-│ A modern JavaScript utility library delivering      │
-│ modularity, performance & extras.                   │
-│                                                     │
-│ v4.17.21 • MIT • Updated 2 years ago               │
-│                                                     │
-│ [Install ▼] [npm ↗] [GitHub ↗]                     │
-├─────────────────────────────────────────────────────┤
-│ ⬇️ 45M/week │ ⭐ 57.2K │ 🛡️ 0 vulns │ 📦 72KB     │
-├─────────────────────────────────────────────────────┤
-│ [README] [Versions] [Dependencies] [Security]       │
-├─────────────────────────────────────────────────────┤
-│                                                     │
-│ # Lodash                                            │
-│                                                     │
-│ A modern JavaScript utility library...              │
-│                                                     │
-└─────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┬─────────────────┐
+│ ← Back to Search                                      │ Version         │
+├──────────────────────────────────────────────────────┤ 4.17.21         │
+│ lodash                                                ├─────────────────┤
+│ A modern JavaScript utility library delivering        │ Security        │
+│ modularity, performance & extras.                     │ ✓ No vulns      │
+│                                                       ├─────────────────┤
+│ [Author] [⬇️ 45M/week] [📦 72KB] [⭐ 98] [MIT]        │ Resources       │
+│                                                       │ npm · Repo · …  │
+│ [Install ▼]  Install target: …                        ├─────────────────┤
+├──────────────────────────────────────────────────────┤ Info            │
+│ [README] [Versions] [Dependencies] [Dependents] …     │ Published: 2y ago│
+├──────────────────────────────────────────────────────┤                 │
+│                                                       │ Keywords        │
+│ # Lodash                                              │ # utility …     │
+│ A modern JavaScript utility library...                │                 │
+└──────────────────────────────────────────────────────┴─────────────────┘
+    主区域（Header + Tabs 内容）                              侧栏
 ```
+主区域 Header 仅含包名、描述、统计标签（作者/下载量/bundle size/score/license）与安装按钮；最新版本、发布时间、npm/Repository 等在右侧侧栏。
 
 ---
 
@@ -184,12 +187,6 @@ One-click package installation with version and type selection.
 - `devDependencies` - Development only
 - `peerDependencies` - Peer requirements
 - `optionalDependencies` - Optional packages
-
-#### Version Selection
-- Latest (default)
-- Specific version from dropdown
-- Custom version/range input
-- Tag selection (latest, next, beta, etc.)
 
 #### Package Manager Detection
 - Auto-detect package manager from workspace lockfiles
@@ -218,9 +215,6 @@ One-click package installation with version and type selection.
    │ ● devDependencies                   │
    │ ○ peerDependencies                  │
    │                                     │
-   │ Package manager: [npm ▼]            │
-   │                                     │
-   │ [Cancel]              [Install]     │
    └─────────────────────────────────────┘
 3. Execute installation command
 4. Show progress indicator

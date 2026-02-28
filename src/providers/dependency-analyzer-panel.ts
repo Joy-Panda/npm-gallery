@@ -1,6 +1,10 @@
 import * as vscode from 'vscode';
 import { getServices } from '../services';
 import type { DependencyAnalyzerPayload } from '../types/analyzer';
+import {
+  PackageJsonEditorProvider,
+  setPackageJsonEditorPreferredTab,
+} from './package-json-editor-provider';
 
 type AnalyzerMessage =
   | { type: 'ready' }
@@ -67,9 +71,12 @@ export class DependencyAnalyzerPanel {
         await this.loadData();
         break;
       case 'openManifest':
-        this._manifestPath = message.manifestPath;
-        this._mode = 'manifest';
-        await this.loadData();
+        setPackageJsonEditorPreferredTab(message.manifestPath, 'analyzer');
+        await vscode.commands.executeCommand(
+          'vscode.openWith',
+          vscode.Uri.file(message.manifestPath),
+          PackageJsonEditorProvider.viewType
+        );
         break;
       case 'alignDependency': {
         const services = getServices();

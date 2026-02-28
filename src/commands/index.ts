@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { getServices } from '../services';
 import type { PackageCodeLensProvider, InstalledPackagesProvider, UpdatesProvider } from '../providers';
 import { DependencyAnalyzerPanel, PackageDetailsPanel } from '../providers';
+import { PackageJsonEditorProvider, setPackageJsonEditorPreferredTab } from '../providers/package-json-editor-provider';
 import type { WorkspacePackageScope } from '../types/package';
 import { selectInstallTargetManifest } from '../utils/install-target';
 
@@ -459,10 +460,23 @@ export function registerCommands(
         return;
       }
 
+      setPackageJsonEditorPreferredTab(targetUri.fsPath, 'analyzer');
       await vscode.commands.executeCommand(
         'vscode.openWith',
         targetUri,
-        'npmGallery.packageJsonEditor'
+        PackageJsonEditorProvider.viewType
+      );
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('npmGallery.setPackageJsonEditorDefault', async () => {
+      const config = vscode.workspace.getConfiguration('workbench');
+      const current = config.get<Record<string, string>>('editorAssociations') ?? {};
+      const next: Record<string, string> = { ...current, '**/package.json': PackageJsonEditorProvider.viewType };
+      await config.update('editorAssociations', next, vscode.ConfigurationTarget.Global);
+      vscode.window.showInformationMessage(
+        'NPM Gallery is now the default editor for package.json. Newly opened package.json files will show Text + Dependency Analyzer tabs.'
       );
     })
   );

@@ -36,6 +36,7 @@ const App: React.FC = () => {
     const handler = (event: MessageEvent<{ type: string; data?: DependencyAnalyzerPayload }>) => {
       if (event.data.type === 'document' && event.data.data) {
         setPayload(event.data.data);
+        setActiveTab(event.data.data.initialEditorTab || 'text');
         const documentText = event.data.data.manifestText || '';
         const previousDocumentText = lastDocumentTextRef.current;
         lastDocumentTextRef.current = documentText;
@@ -99,19 +100,25 @@ const App: React.FC = () => {
     <div className="editor-shell">
       <style>{styles}</style>
       <header className="editor-header">
-        <div className="tab-row">
-          <button
-            className={activeTab === 'text' ? 'tab active' : 'tab'}
-            onClick={() => setActiveTab('text')}
-          >
-            Text
-          </button>
-          <button
-            className={activeTab === 'analyzer' ? 'tab active' : 'tab'}
-            onClick={() => setActiveTab('analyzer')}
-          >
-            Dependency Analyzer
-          </button>
+        <div className="editor-chrome">
+          <div className="editor-tabstrip">
+            <button
+              className={activeTab === 'text' ? 'editor-tab active' : 'editor-tab'}
+              onClick={() => setActiveTab('text')}
+            >
+              Text
+            </button>
+            <button
+              className={activeTab === 'analyzer' ? 'editor-tab active' : 'editor-tab'}
+              onClick={() => setActiveTab('analyzer')}
+            >
+              Dependency Analyzer
+            </button>
+          </div>
+          <div className="editor-statusline">
+            <span>{payload.activeManifestPath?.split(/[\\/]/).pop() || 'package.json'}</span>
+            {analyzer?.packageManager && <span>{analyzer.packageManager}</span>}
+          </div>
         </div>
         <div className="toolbar">
           {activeTab === 'analyzer' && (
@@ -320,6 +327,13 @@ const DependencyTree: React.FC<{
 };
 
 const styles = `
+  :root {
+    --editor-strip: color-mix(in srgb, var(--vscode-tab-inactiveBackground, #1b1b1b) 88%, black);
+    --editor-border: color-mix(in srgb, var(--vscode-widget-border, #2a2a2a) 78%, transparent);
+    --editor-accent: var(--vscode-tab-activeBorder, var(--vscode-focusBorder, #3794ff));
+    --editor-active-bg: color-mix(in srgb, var(--vscode-editor-background) 92%, white 8%);
+    --editor-hover-bg: color-mix(in srgb, var(--vscode-list-hoverBackground, #2a2d2e) 86%, transparent);
+  }
   body {
     margin: 0;
     padding: 0;
@@ -332,36 +346,86 @@ const styles = `
     min-height: 100vh;
     display: flex;
     flex-direction: column;
-    background:
-      radial-gradient(circle at top left, rgba(28, 131, 225, 0.08), transparent 28%),
-      linear-gradient(180deg, var(--vscode-editor-background), var(--vscode-sideBar-background));
+    background: var(--vscode-editor-background);
   }
   .editor-header {
     display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px;
-    border-bottom: 1px solid var(--vscode-widget-border);
-    background: rgba(24, 24, 24, 0.88);
-    backdrop-filter: blur(10px);
+    flex-direction: column;
+    border-bottom: 1px solid var(--editor-border);
+    background: var(--editor-strip);
   }
-  .tab-row { display: flex; gap: 8px; }
-  .tab, .action-btn {
+  .editor-chrome {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 40px;
+    padding: 0 10px;
+    border-bottom: 1px solid var(--editor-border);
+  }
+  .editor-tabstrip {
+    display: flex;
+    align-items: flex-end;
+    gap: 1px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .editor-tabstrip::-webkit-scrollbar { display: none; }
+  .editor-tab, .action-btn {
     appearance: none;
-    border: 1px solid var(--vscode-button-border, transparent);
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--vscode-tab-inactiveForeground, var(--vscode-foreground));
+    padding: 9px 14px 10px;
+    border-radius: 8px 8px 0 0;
+    cursor: pointer;
+    position: relative;
+    white-space: nowrap;
+  }
+  .editor-tab:hover {
+    background: var(--editor-hover-bg);
+    color: var(--vscode-tab-activeForeground, var(--vscode-foreground));
+  }
+  .editor-tab.active {
+    background: var(--editor-active-bg);
+    color: var(--vscode-tab-activeForeground, var(--vscode-foreground));
+    border-color: var(--editor-border);
+    border-bottom-color: var(--editor-active-bg);
+  }
+  .editor-tab.active::before {
+    content: '';
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    top: 0;
+    height: 2px;
+    border-radius: 999px;
+    background: var(--editor-accent);
+  }
+  .editor-statusline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 0 0 10px;
+    font-size: 11px;
+    color: var(--vscode-descriptionForeground);
+    white-space: nowrap;
+  }
+  .toolbar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 10px 12px;
+    background: color-mix(in srgb, var(--vscode-editor-background) 94%, transparent);
+  }
+  .action-btn {
+    border: 1px solid var(--editor-border);
     background: var(--vscode-button-secondaryBackground);
     color: var(--vscode-button-secondaryForeground);
+    border-radius: 8px;
     padding: 8px 12px;
-    border-radius: 10px;
-    cursor: pointer;
   }
-  .tab.active {
-    background: linear-gradient(135deg, rgba(24, 123, 213, 0.9), rgba(24, 123, 213, 0.58));
-    color: white;
-  }
-  .toolbar { display: flex; gap: 8px; align-items: center; flex: 1; justify-content: flex-end; }
   .search-input {
     min-width: 260px;
     max-width: 420px;
@@ -378,7 +442,7 @@ const styles = `
   }
   .editor-textarea {
     width: 100%;
-    min-height: calc(100vh - 76px);
+    min-height: calc(100vh - 96px);
     resize: none;
     border: none;
     outline: none;
@@ -493,6 +557,14 @@ const styles = `
     .content-grid { grid-template-columns: 1fr; }
     .toolbar { width: 100%; justify-content: stretch; }
     .search-input { max-width: none; }
+    .editor-chrome {
+      align-items: stretch;
+      flex-direction: column;
+      padding-top: 8px;
+    }
+    .editor-statusline {
+      padding: 0 4px 8px;
+    }
   }
 `;
 
