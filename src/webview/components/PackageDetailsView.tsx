@@ -4,7 +4,7 @@ import {
   Layers, Loader2, BookOpen,
   GitBranch
 } from 'lucide-react';
-import type { PackageDetails, Vulnerability } from '../../types/package';
+import type { DependencyType, PackageDetails, Vulnerability } from '../../types/package';
 import { useVSCode } from '../context/VSCodeContext';
 import { PackageHeader } from './PackageHeader';
 import { PackageSidebar } from './PackageSidebar';
@@ -12,6 +12,8 @@ import { ReadmeTab } from './tabs/ReadmeTab';
 import { VersionsTab } from './tabs/VersionsTab';
 import { DependenciesTab } from './tabs/DependenciesTab';
 import { SecurityTab } from './tabs/SecurityTab';
+import { DependentsTab } from './tabs/DependentsTab';
+import { RequirementsTab } from './tabs/RequirementsTab';
 
 interface VSCodeAPI {
   postMessage: (message: unknown) => void;
@@ -27,10 +29,19 @@ interface PackageDetailsViewProps {
 export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, initialData }) => {
   const { sourceInfo } = useVSCode();
   const [details, setDetails] = useState<PackageDetails | null>(initialData || null);
-  const [activeTab, setActiveTab] = useState<'readme' | 'versions' | 'dependencies' | 'security'>('readme');
-  
-  // Check if security capability is supported
-  const supportsSecurity = sourceInfo.supportedCapabilities.includes('security');
+  const [activeTab, setActiveTab] = useState<'readme' | 'versions' | 'dependencies' | 'requirements' | 'dependents' | 'security'>('readme');
+  /** When true, opened from vulnerability CodeLens — show only Security tab, no full package details */
+  const [securityOnlyView, setSecurityOnlyView] = useState(false);
+
+  // In the standalone details panel, sourceInfo may not be populated yet.
+  // If security data is already present on the details payload, still show the tab.
+  const supportsSecurity =
+    sourceInfo.supportedCapabilities.includes('security') || !!details?.security;
+  const supportsInstallation = sourceInfo.supportedCapabilities.includes('installation');
+  const supportedInstallTypes: DependencyType[] =
+    sourceInfo.currentProjectType === 'npm'
+      ? ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']
+      : ['dependencies'];
   const [isLoading, setIsLoading] = useState(!initialData);
   const [error, setError] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
@@ -67,6 +78,7 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
       switch (message.type) {
         case 'packageDetails':
           setDetails(message.data);
+          setSecurityOnlyView(!!message.securityOnlyView);
           setIsLoading(false);
           setError(null);
           break;
@@ -95,11 +107,7 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
     return () => window.removeEventListener('message', handleMessage);
   }, [vscode]);
 
-  // Check if current project type requires copy
-  // All Java/Scala build tools (maven, gradle, sbt, mill, ivy, grape, leiningen, buildr) require copy
-  const requiresCopy = sourceInfo.currentProjectType === 'maven';
-
-  const install = (type: 'dependencies' | 'devDependencies', version?: string) => {
+  const install = (type: DependencyType, version?: string) => {
     if (!details) return;
     setInstalling(true);
     vscode.postMessage({
@@ -110,21 +118,12 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
     setTimeout(() => setInstalling(false), 2000);
   };
 
-  const copy = (type: 'dependencies' | 'devDependencies', version?: string) => {
-    if (!details) return;
-    setInstalling(true);
-    // Get version from details if not provided
-    const packageVersion = version || details.version;
-    vscode.postMessage({
-      type: 'copySnippet',
-      packageName: details.name,
-      options: { version: packageVersion, scope: type === 'devDependencies' ? 'test' : 'compile' },
-    });
-    setTimeout(() => setInstalling(false), 2000);
-  };
-
   const openExternal = (url: string) => {
     vscode.postMessage({ type: 'openExternal', url });
+  };
+
+  const openPackageDetails = (packageName: string) => {
+    vscode.postMessage({ type: 'openPackageDetails', packageName });
   };
 
   const toggleVulnerability = (vulnId: number) => {
@@ -253,6 +252,36 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
   const depsCount = details.dependencies ? Object.keys(details.dependencies).length : 0;
   const isSecure = !details.security || details.security.summary.total === 0;
 
+  // Opened from vulnerability CodeLens: only show Security tab (no full package details/tabs/sidebar).
+  // Do not require supportsSecurity — package-details webview may not receive sourceInfo, and we already have security data for the installed version.
+  if (securityOnlyView) {
+    return (
+      <>
+        <style>{styles}</style>
+        <div className="package-view security-only-view">
+          <div className="security-only-header">
+            {isSecure ? <ShieldCheck size={20} /> : <ShieldAlert size={20} />}
+            <span className="security-only-title">
+              Vulnerabilities — {details.name}@{details.version}
+            </span>
+          </div>
+          <div className="tab-content security-only-content">
+            <SecurityTab
+              details={details}
+              expandedVulnerabilities={expandedVulnerabilities}
+              expandedSeverityTypes={expandedSeverityTypes}
+              onToggleVulnerability={toggleVulnerability}
+              onToggleSeverityType={toggleSeverityType}
+              onOpenExternal={openExternal}
+              formatRelativeTime={formatRelativeTime}
+              groupVulnerabilitiesBySeverity={groupVulnerabilitiesBySeverity}
+            />
+          </div>
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <style>{styles}</style>
@@ -263,8 +292,13 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
           onInstall={install}
           formatDownloads={formatDownloads}
           formatBytes={formatBytes}
-          requiresCopy={requiresCopy}
-          onCopy={requiresCopy ? copy : undefined}
+          supportedInstallTypes={supportedInstallTypes}
+          showInstall={supportsInstallation}
+          installTargetLabel={
+            sourceInfo.installTarget
+              ? `${sourceInfo.installTarget.label} (${sourceInfo.installTarget.packageManager})`
+              : undefined
+          }
         />
 
         {/* Content */}
@@ -296,8 +330,30 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
               >
                 <Layers size={14} />
                 Dependencies
-                {depsCount > 0 && <span className="tab-badge">{depsCount}</span>}
+                <span className="tab-badge">{depsCount}</span>
               </button>
+              {details.requirements && details.requirements.sections.length > 0 && (
+                <button
+                  className={`tab ${activeTab === 'requirements' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('requirements')}
+                >
+                  <Layers size={14} />
+                  Requirements
+                  <span className="tab-badge">
+                    {details.requirements.sections.reduce((count, section) => count + section.items.length, 0)}
+                  </span>
+                </button>
+              )}
+              {details.dependents && details.dependents.totalCount > 0 && (
+                <button
+                  className={`tab ${activeTab === 'dependents' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('dependents')}
+                >
+                  <GitBranch size={14} />
+                  Dependents
+                  <span className="tab-badge">{details.dependents.totalCount}</span>
+                </button>
+              )}
               {supportsSecurity && (
                 <button
                   className={`tab ${activeTab === 'security' ? 'active' : ''}`}
@@ -314,15 +370,15 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
 
             {/* Tab Content */}
             <div className="tab-content">
-              {activeTab === 'readme' && <ReadmeTab details={details} />}
+              {activeTab === 'readme' && <ReadmeTab details={details} onOpenExternal={openExternal} />}
               {activeTab === 'versions' && (
                 <VersionsTab
                   details={details}
                   onInstall={install}
                   formatRelativeTime={formatRelativeTime}
                   formatFullDate={formatFullDate}
-                  requiresCopy={requiresCopy}
-                  onCopy={requiresCopy ? copy : undefined}
+                  supportedInstallTypes={supportedInstallTypes}
+                  showInstall={supportsInstallation}
                 />
               )}
               {activeTab === 'dependencies' && (
@@ -330,7 +386,16 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
                   details={details}
                   expandedSections={expandedSections}
                   onToggleSection={(section) => setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }))}
-                  onOpenExternal={openExternal}
+                  onOpenPackageDetails={openPackageDetails}
+                />
+              )}
+              {activeTab === 'requirements' && (
+                <RequirementsTab details={details} />
+              )}
+              {activeTab === 'dependents' && (
+                <DependentsTab
+                  details={details}
+                  onOpenPackageDetails={openPackageDetails}
                 />
               )}
               {activeTab === 'security' && supportsSecurity && (
@@ -350,6 +415,7 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
 
           <PackageSidebar
             details={details}
+            detectedPackageManager={sourceInfo.detectedPackageManager}
             onOpenExternal={openExternal}
             formatBytes={formatBytes}
             formatRelativeTime={formatRelativeTime}
@@ -419,6 +485,10 @@ const styles = `
     background: var(--vscode-editor-background);
     border-bottom: 1px solid var(--vscode-widget-border);
     flex-shrink: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+    white-space: nowrap;
   }
 
   .tab {
@@ -434,6 +504,7 @@ const styles = `
     font-size: 13px;
     font-weight: 500;
     transition: all 0.15s;
+    flex-shrink: 0;
   }
 
   .tab:hover {
@@ -459,5 +530,31 @@ const styles = `
     flex: 1;
     overflow-y: auto;
     padding: 24px;
+  }
+
+  .security-only-view {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .security-only-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 24px;
+    background: var(--vscode-editor-background);
+    border-bottom: 1px solid var(--vscode-widget-border);
+    flex-shrink: 0;
+  }
+
+  .security-only-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--vscode-foreground);
+  }
+
+  .security-only-content {
+    flex: 1;
+    min-height: 0;
   }
 `;

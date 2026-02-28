@@ -2,6 +2,7 @@
 
 export interface ParsedQuery {
   baseQuery: string;
+  exactName?: string;
   // Common filters (npm sources)
   author?: string;
   maintainer?: string;
@@ -17,10 +18,14 @@ export interface ParsedQuery {
   licenses?: string;
   platforms?: string;
   // Package status filters
+  excludeDeprecated?: boolean;
+  includeDeprecated?: boolean;
   excludeUnstable?: boolean;
   excludeInsecure?: boolean;
   includeUnstable?: boolean;
   includeInsecure?: boolean;
+  // Search options
+  boostExact?: boolean;
   // sortBy is no longer part of query string, handled separately
 }
 
@@ -35,6 +40,14 @@ export function parseQuery(query: string): ParsedQuery {
 
   if (!query || !query.trim()) {
     return result;
+  }
+
+  const exactMatch = query.match(/"([^"]+)"/);
+  if (exactMatch) {
+    const exactName = exactMatch[1]?.trim();
+    if (exactName) {
+      result.exactName = exactName;
+    }
   }
 
   // Use regex to match qualifiers while preserving the rest as base query
@@ -71,16 +84,19 @@ export function parseQuery(query: string): ParsedQuery {
 
   // Handle boolean flags
   const booleanPatterns = [
+    { pattern: /\bnot:deprecated\b/g, key: 'excludeDeprecated' as const },
     { pattern: /\bnot:unstable\b/g, key: 'excludeUnstable' as const },
     { pattern: /\bnot:insecure\b/g, key: 'excludeInsecure' as const },
+    { pattern: /\bis:deprecated\b/g, key: 'includeDeprecated' as const },
     { pattern: /\bis:unstable\b/g, key: 'includeUnstable' as const },
     { pattern: /\bis:insecure\b/g, key: 'includeInsecure' as const },
+    { pattern: /\bboost-exact:false\b/g, key: 'boostExact' as const, value: false },
   ];
 
-  for (const { pattern, key } of booleanPatterns) {
+  for (const { pattern, key, value } of booleanPatterns) {
     const matches = [...query.matchAll(pattern)];
     if (matches.length > 0) {
-      (result as any)[key] = true;
+      (result as any)[key] = value !== undefined ? value : true;
       for (const match of matches) {
         matchesToRemove.push(match[0]);
       }
@@ -89,6 +105,9 @@ export function parseQuery(query: string): ParsedQuery {
 
   // Remove all matched qualifiers from the query
   let processedQuery = query;
+  if (exactMatch) {
+    processedQuery = processedQuery.replace(exactMatch[0], ' ');
+  }
   for (const match of matchesToRemove) {
     // Escape special regex characters in the match string
     const escapedMatch = match.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -122,10 +141,14 @@ export function buildQuery(params: {
   licenses?: string;
   platforms?: string;
   // Package status filters
+  excludeDeprecated?: boolean;
+  includeDeprecated?: boolean;
   excludeUnstable?: boolean;
   excludeInsecure?: boolean;
   includeUnstable?: boolean;
   includeInsecure?: boolean;
+  // Search options
+  boostExact?: boolean;
 }): string {
   const parts: string[] = [];
 
@@ -147,7 +170,6 @@ export function buildQuery(params: {
   if (params.keywords) {
     parts.push(`keywords:${params.keywords}`);
   }
-
   // Add Maven-specific filters (Sonatype source)
   if (params.groupId) {
     parts.push(`groupId:${params.groupId}`);
@@ -174,6 +196,12 @@ export function buildQuery(params: {
   }
 
   // Add package status filters
+  if (params.excludeDeprecated) {
+    parts.push('not:deprecated');
+  }
+  if (params.includeDeprecated) {
+    parts.push('is:deprecated');
+  }
   if (params.excludeUnstable) {
     parts.push('not:unstable');
   }
@@ -185,6 +213,11 @@ export function buildQuery(params: {
   }
   if (params.includeInsecure) {
     parts.push('is:insecure');
+  }
+
+  // Add boost-exact option (only add if false, default is true)
+  if (params.boostExact === false) {
+    parts.push('boost-exact:false');
   }
 
   return parts.join(' ');
@@ -202,6 +235,7 @@ export function extractBaseText(query: string): string {
 
   // Patterns for all qualifiers (sort is no longer included)
   const qualifierPatterns = [
+    /"([^"]+)"/g,
     /\bauthor:([^\s]+)/g,
     /\bmaintainer:([^\s]+)/g,
     /\bscope:([^\s]+)/g,
@@ -213,10 +247,14 @@ export function extractBaseText(query: string): string {
     /\blanguages:([^\s]+)/g,
     /\blicenses:([^\s]+)/g,
     /\bplatforms:([^\s]+)/g,
+    /\bsort:([^\s]+)/g,
+    /\bnot:deprecated\b/g,
     /\bnot:unstable\b/g,
     /\bnot:insecure\b/g,
+    /\bis:deprecated\b/g,
     /\bis:unstable\b/g,
     /\bis:insecure\b/g,
+    /\bboost-exact:false\b/g,
   ];
 
   let processedQuery = query;
@@ -246,10 +284,13 @@ export function parseQueryToFilters(query: string): {
   languages: string;
   licenses: string;
   platforms: string;
+  excludeDeprecated: boolean;
+  includeDeprecated: boolean;
   excludeUnstable: boolean;
   excludeInsecure: boolean;
   includeUnstable: boolean;
   includeInsecure: boolean;
+  boostExact: boolean;
 } {
   const parsed = parseQuery(query);
   return {
@@ -264,9 +305,12 @@ export function parseQueryToFilters(query: string): {
     languages: parsed.languages || '',
     licenses: parsed.licenses || '',
     platforms: parsed.platforms || '',
+    excludeDeprecated: parsed.excludeDeprecated || false,
+    includeDeprecated: parsed.includeDeprecated || false,
     excludeUnstable: parsed.excludeUnstable || false,
     excludeInsecure: parsed.excludeInsecure || false,
     includeUnstable: parsed.includeUnstable || false,
     includeInsecure: parsed.includeInsecure || false,
+    boostExact: parsed.boostExact !== undefined ? parsed.boostExact : true,
   };
 }

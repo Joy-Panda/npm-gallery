@@ -10,7 +10,10 @@ import type {
   CopyOptions,
   BundleSize,
   SecurityInfo,
+  DependentsInfo,
+  RequirementsInfo,
 } from '../../types/package';
+import type { DepsDevClient } from '../../api/deps-dev';
 import type { SourceType, ProjectType } from '../../types/project';
 import { SourceCapability, type CapabilitySupport, CapabilityNotSupportedError } from './capabilities';
 
@@ -25,6 +28,12 @@ export interface ISourceAdapter {
   readonly projectType: ProjectType;
   readonly supportedSortOptions: SearchSortBy[];
   readonly supportedFilters: SearchFilter[];
+
+  /**
+   * Optional ecosystem identifier (language/packaging ecosystem)
+   * e.g. npm, Maven, Go, PyPI
+   */
+  getEcosystem?(): string | undefined;
 
   /**
    * Get list of supported capabilities
@@ -58,7 +67,7 @@ export interface ISourceAdapter {
    * Get detailed package info
    * Note: Only returns data for supported capabilities, unsupported parts are undefined
    */
-  getPackageDetails(name: string): Promise<PackageDetails>;
+  getPackageDetails(name: string, version?: string): Promise<PackageDetails>;
 
   /**
    * Get version list
@@ -108,6 +117,24 @@ export interface ISourceAdapter {
   getSecurityInfo?(name: string, version: string): Promise<SecurityInfo | null>;
 
   /**
+   * Get security info for multiple packages (optional)
+   * Implementations can use OSV /v1/querybatch or similar batch APIs.
+   */
+  getSecurityInfoBulk?(
+    packages: Array<{ name: string; version: string }>
+  ): Promise<Record<string, SecurityInfo | null>>;
+
+  /**
+   * Get dependents info (optional)
+   */
+  getDependents?(name: string, version: string): Promise<DependentsInfo | null>;
+
+  /**
+   * Get requirements info (optional)
+   */
+  getRequirements?(name: string, version: string): Promise<RequirementsInfo | null>;
+
+  /**
    * Get bundle size (optional)
    * Should throw CapabilityNotSupportedError if not supported
    */
@@ -124,6 +151,12 @@ export abstract class BaseSourceAdapter implements ISourceAdapter {
   abstract readonly projectType: ProjectType;
   abstract readonly supportedSortOptions: SearchSortBy[];
   abstract readonly supportedFilters: SearchFilter[];
+
+  constructor(protected depsDevClient?: DepsDevClient) {}
+
+  getEcosystem?(): string | undefined {
+    return undefined;
+  }
 
   /**
    * Subclasses must declare supported capabilities
@@ -159,7 +192,7 @@ export abstract class BaseSourceAdapter implements ISourceAdapter {
   // Core capabilities (must implement)
   abstract search(options: SearchOptions): Promise<SearchResult>;
   abstract getPackageInfo(name: string): Promise<PackageInfo>;
-  abstract getPackageDetails(name: string): Promise<PackageDetails>;
+  abstract getPackageDetails(name: string, version?: string): Promise<PackageDetails>;
   abstract getVersions(name: string): Promise<VersionInfo[]>;
 
   // Optional capabilities (default implementations throw errors)
@@ -194,5 +227,45 @@ export abstract class BaseSourceAdapter implements ISourceAdapter {
 
   async getSecurityInfo?(_name: string, _version: string): Promise<SecurityInfo | null> {
     throw new CapabilityNotSupportedError(SourceCapability.SECURITY, this.sourceType);
+  }
+
+  async getSecurityInfoBulk?(
+    _packages: Array<{ name: string; version: string }>
+  ): Promise<Record<string, SecurityInfo | null>> {
+    throw new CapabilityNotSupportedError(SourceCapability.SECURITY, this.sourceType);
+  }
+
+  async getDependents?(_name: string, _version: string): Promise<DependentsInfo | null> {
+    if (!this.supportsCapability(SourceCapability.DEPENDENTS)) {
+      throw new CapabilityNotSupportedError(SourceCapability.DEPENDENTS, this.sourceType);
+    }
+
+    if (!this.depsDevClient || !this.getEcosystem) {
+      return null;
+    }
+
+    const ecosystem = this.getEcosystem();
+    if (!ecosystem || ecosystem === 'unknown') {
+      return null;
+    }
+
+    return this.depsDevClient.getDependents(ecosystem as 'npm' | 'maven' | 'go', _name, _version);
+  }
+
+  async getRequirements?(_name: string, _version: string): Promise<RequirementsInfo | null> {
+    if (!this.supportsCapability(SourceCapability.REQUIREMENTS)) {
+      throw new CapabilityNotSupportedError(SourceCapability.REQUIREMENTS, this.sourceType);
+    }
+
+    if (!this.depsDevClient || !this.getEcosystem) {
+      return null;
+    }
+
+    const ecosystem = this.getEcosystem();
+    if (!ecosystem || ecosystem === 'unknown') {
+      return null;
+    }
+
+    return this.depsDevClient.getRequirements(ecosystem as 'npm' | 'maven' | 'go', _name, _version);
   }
 }

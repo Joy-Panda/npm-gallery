@@ -3,6 +3,7 @@ import { getServices } from '../services';
 import type { WebviewToExtensionMessage, SourceInfoMessage } from '../types/messages';
 import type { SourceType } from '../types/project';
 import { PackageDetailsPanel } from './package-details-panel';
+import { getInstallTargetSummary, selectInstallTargetManifest } from '../utils/install-target';
 
 /**
  * Provides the search webview panel
@@ -11,6 +12,8 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'npmGallery.searchView';
 
   private _view?: vscode.WebviewView;
+  private searchRequestId = 0;
+  private searchAbortController?: AbortController;
 
   constructor(private readonly extensionUri: vscode.Uri) {}
 
@@ -42,44 +45,61 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
 
     switch (message.type) {
       case 'search': {
+        const requestId = ++this.searchRequestId;
+        this.searchAbortController?.abort();
+        const controller = new AbortController();
+        this.searchAbortController = controller;
         this.postMessage({ type: 'loading', isLoading: true });
         try {
           const results = await services.search.search({
             query: message.query,
+            exactName: message.exactName,
             from: message.from,
             size: message.size,
             sortBy: message.sortBy,
+            signal: controller.signal,
           });
-          this.postMessage({ type: 'searchResults', data: results });
+          if (requestId === this.searchRequestId && !controller.signal.aborted) {
+            this.postMessage({ type: 'searchResults', data: results });
+          }
         } catch (error) {
-          this.postMessage({
-            type: 'error',
-            message: error instanceof Error ? error.message : 'Search failed',
-          });
+          if (controller.signal.aborted) {
+            break;
+          }
+          if (requestId === this.searchRequestId) {
+            this.postMessage({
+              type: 'error',
+              message: error instanceof Error ? error.message : 'Search failed',
+            });
+          }
         } finally {
-          this.postMessage({ type: 'loading', isLoading: false });
-        }
-        break;
-      }
-
-      case 'getPackageDetails': {
-        this.postMessage({ type: 'loading', isLoading: true });
-        try {
-          const details = await services.package.getPackageDetails(message.packageName);
-          this.postMessage({ type: 'packageDetails', data: details });
-        } catch (error) {
-          this.postMessage({
-            type: 'error',
-            message: error instanceof Error ? error.message : 'Failed to get package details',
-          });
-        } finally {
-          this.postMessage({ type: 'loading', isLoading: false });
+          if (this.searchAbortController === controller) {
+            this.searchAbortController = undefined;
+          }
+          if (requestId === this.searchRequestId && !controller.signal.aborted) {
+            this.postMessage({ type: 'loading', isLoading: false });
+          }
         }
         break;
       }
 
       case 'install': {
-        const result = await services.install.install(message.packageName, message.options);
+        const targetManifestPath = await selectInstallTargetManifest(
+          message.packageName,
+          services.workspace,
+          services.install,
+          vscode.window.activeTextEditor?.document.uri.fsPath
+        );
+        if (!targetManifestPath && (await services.workspace.getPackageJsonFiles()).length > 1) {
+          break;
+        }
+
+        const result = await services.install.install(
+          message.packageName,
+          message.options,
+          targetManifestPath
+        );
+        await this.sendSourceInfo();
         if (result.success) {
           this.postMessage({
             type: 'installSuccess',
@@ -137,13 +157,13 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
       }
 
       case 'getSourceInfo': {
-        this.sendSourceInfo();
+        await this.sendSourceInfo();
         break;
       }
 
       case 'changeSource': {
         services.setSelectedSource(message.source as SourceType);
-        this.sendSourceInfo();
+        await this.sendSourceInfo();
         break;
       }
     }
@@ -152,9 +172,16 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
   /**
    * Send source information to webview
    */
-  private sendSourceInfo(): void {
+  private async sendSourceInfo(): Promise<void> {
     const services = getServices();
     const supportedCapabilities = services.package.getSupportedCapabilities();
+    const activePath = vscode.window.activeTextEditor?.document.uri.fsPath;
+    const detectedPackageManager = await services.install.detectPackageManager(activePath);
+    const installTarget = await getInstallTargetSummary(
+      services.workspace,
+      services.install,
+      activePath
+    );
     
     // Build capability support map
     const capabilitySupport: Record<string, { capability: string; supported: boolean; reason?: string }> = {};
@@ -175,6 +202,8 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
       type: 'sourceInfo',
       data: {
         currentProjectType: services.getCurrentProjectType(),
+        detectedPackageManager,
+        installTarget: installTarget || undefined,
         currentSource: services.getCurrentSourceType(),
         availableSources: services.getAvailableSources(),
         supportedSortOptions: services.getSupportedSortOptions(), // For backward compatibility

@@ -17,11 +17,12 @@ export class NpmsApiClient extends BaseApiClient {
    */
   async search(
     query: string,
-    options: { from?: number; size?: number } = {}
+    options: { from?: number; size?: number; signal?: AbortSignal } = {}
   ): Promise<NpmsSearchResponse> {
-    const { from = 0, size = 20 } = options;
+    const { from = 0, size = 20, signal } = options;
 
     return this.get<NpmsSearchResponse>('/search', {
+      signal,
       params: {
         q: query,
         from,

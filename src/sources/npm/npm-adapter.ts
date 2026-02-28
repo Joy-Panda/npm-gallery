@@ -8,6 +8,7 @@ import type {
 } from '../../api/libraries-io';
 import type { NpmRegistryClient } from '../../api/npm-registry';
 import type { BundlephobiaClient } from '../../api/bundlephobia';
+import type { DepsDevClient } from '../../api/deps-dev';
 import type { OSVClient } from '../../api/osv';
 import type {
   PackageInfo,
@@ -43,6 +44,10 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
     createFilterOption('maintainer', 'Maintainer', 'maintainer username'),
     createFilterOption('scope', 'Scope', 'scope (e.g., @foo/bar)'),
     createFilterOption('keywords', 'Keywords', 'keywords: Use + for AND, , for OR, - to exclude'),
+    createFilterOption('deprecated', 'Deprecated', 'filter deprecated packages (use not:deprecated or is:deprecated)'),
+    createFilterOption('unstable', 'Unstable', 'filter unstable packages < 1.0.0 (use not:unstable or is:unstable)'),
+    createFilterOption('insecure', 'Insecure', 'filter insecure packages (use not:insecure or is:insecure)'),
+    createFilterOption('boost-exact', 'Boost Exact', 'boost exact matches (use boost-exact:false to disable)'),
   ];
 
   private transformer: NpmTransformer;
@@ -50,10 +55,11 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
   constructor(
     private client: NpmRegistryClient,
     private bundlephobiaClient?: BundlephobiaClient,
-    private osvClient?: OSVClient,
-    private librariesIoClient?: LibrariesIoClient
+    osvClient?: OSVClient,
+    private librariesIoClient?: LibrariesIoClient,
+    depsDevClient?: DepsDevClient
   ) {
-    super();
+    super(osvClient, depsDevClient);
     this.transformer = new NpmTransformer();
   }
 
@@ -74,6 +80,8 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
       SourceCapability.BUNDLE_SIZE,
       SourceCapability.DOWNLOAD_STATS,
       SourceCapability.QUALITY_SCORE,
+      SourceCapability.DEPENDENTS,
+      SourceCapability.REQUIREMENTS,
     ];
   }
 
@@ -81,21 +89,23 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
    * Search for packages
    */
   async search(options: SearchOptions): Promise<SearchResult> {
-    const { query, from = 0, size = 20, sortBy = 'relevance' } = options;
+    const { query, exactName, from = 0, size = 20, sortBy = 'relevance', signal } = options;
 
-    if (!query.trim()) {
+    if (!query.trim() && !exactName) {
       return { packages: [], total: 0, hasMore: false };
     }
+    const searchQuery = query.trim() || exactName || '';
 
     const sortValue = getSortValue(sortBy);
     // Map sortBy to npm registry format
     const apiSortBy = sortValue === 'name' ? 'relevance' : sortValue;
 
     try {
-      const response = await this.client.search(query, {
+      const response = await this.client.search(searchQuery, {
         from,
         size,
         sortBy: apiSortBy as 'relevance' | 'popularity' | 'quality' | 'maintenance',
+        signal,
       });
 
       const result = this.transformer.transformSearchResult(response, from, size);
@@ -103,6 +113,14 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
       // Client-side name sorting if needed
       if (sortValue === 'name') {
         result.packages = this.sortPackagesByName(result.packages);
+      }
+
+      // Prioritize exact match if exactName is provided
+      if (exactName && result.packages.length > 0) {
+        const exactMatch = result.packages.find(pkg => pkg.name === exactName);
+        if (exactMatch) {
+          result.packages = [exactMatch, ...result.packages.filter(pkg => pkg.name !== exactName)];
+        }
       }
 
       return result;
@@ -190,11 +208,30 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
    * Get detailed package info
    * Only fetches data for supported capabilities
    */
-  async getPackageDetails(name: string): Promise<PackageDetails> {
+  async getPackageDetails(name: string, requestedVersion?: string): Promise<PackageDetails> {
     try {
       const pkg = await this.client.getPackage(name);
-      const details = this.transformer.transformPackageDetails(pkg);
       const latestVersion = pkg['dist-tags']?.latest;
+        const selectedVersion =
+        (requestedVersion && pkg.versions[requestedVersion] ? requestedVersion : undefined) ||
+        latestVersion ||
+        Object.keys(pkg.versions)[0] ||
+        '0.0.0';
+      const selectedData = pkg.versions[selectedVersion];
+      const details = this.transformer.transformPackageDetails(pkg);
+      details.version = selectedVersion;
+      details.license = selectedData?.license || pkg.license;
+      details.description = selectedData?.description || pkg.description;
+      details.repository = selectedData?.repository
+        ? {
+            ...selectedData.repository,
+            directory: selectedData.repository.directory || pkg.repository?.directory,
+          }
+        : pkg.repository;
+      details.dependencies = selectedData?.dependencies;
+      details.devDependencies = selectedData?.devDependencies;
+      details.peerDependencies = selectedData?.peerDependencies;
+      details.optionalDependencies = selectedData?.optionalDependencies;
 
       // Only fetch data for supported capabilities
       const promises: Promise<unknown>[] = [];
@@ -234,6 +271,29 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
 
       if (this.supportsCapability(SourceCapability.SECURITY)) {
         details.security = results[resultIndex++] as SecurityInfo | null || undefined;
+      }
+
+      // Fetch readme from unpkg if not available or if requesting a specific version
+      if (requestedVersion && selectedVersion !== latestVersion) {
+        // For specific versions, always try to fetch from unpkg
+        const readme = await this.fetchReadmeFromUnpkg(
+          name,
+          selectedVersion,
+          pkg.readmeFilename
+        );
+        if (readme) {
+          details.readme = readme;
+        }
+      } else if (!details.readme || details.readme.trim().length === 0) {
+        // For latest version, only fetch if readme is missing or empty
+        const readme = await this.fetchReadmeFromUnpkg(
+          name,
+          selectedVersion,
+          pkg.readmeFilename
+        );
+        if (readme) {
+          details.readme = readme;
+        }
       }
 
       return details;
@@ -363,28 +423,6 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
       return null;
     }
   }
-
-  /**
-   * Get security info
-   */
-  async getSecurityInfo(name: string, version: string): Promise<SecurityInfo | null> {
-    if (!this.supportsCapability(SourceCapability.SECURITY)) {
-      throw new CapabilityNotSupportedError(
-        SourceCapability.SECURITY,
-        this.sourceType
-      );
-    }
-
-    if (!this.osvClient) {
-      return null;
-    }
-    try {
-      return await this.osvClient.queryVulnerabilities(name, version);
-    } catch {
-      return null;
-    }
-  }
-
 
   /**
    * Sort packages by name

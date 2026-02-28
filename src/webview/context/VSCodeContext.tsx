@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../../types/messages';
-import type { SearchResult, PackageDetails } from '../../types/package';
+import type { DependencyType, PackageManager, SearchResult } from '../../types/package';
 import type { ProjectType, SourceType } from '../../types/project';
 import { SOURCE_DISPLAY_NAMES, PROJECT_DISPLAY_NAMES } from '../../types/project';
 
@@ -12,6 +12,13 @@ interface VSCodeAPI {
 
 export interface SourceInfo {
   currentProjectType: ProjectType;
+  detectedPackageManager: PackageManager;
+  installTarget?: {
+    manifestPath: string;
+    label: string;
+    description: string;
+    packageManager: string;
+  };
   currentSource: SourceType;
   availableSources: SourceType[];
   supportedSortOptions: string[]; // For backward compatibility
@@ -31,15 +38,20 @@ interface VSCodeContextValue {
   isLoading: boolean;
   error: string | null;
   searchResults: SearchResult | null;
-  packageDetails: PackageDetails | null;
   
   // Source information
   sourceInfo: SourceInfo;
 
   // Actions
-  search: (query: string, from?: number, size?: number, sortBy?: string | { value: string; label: string }) => void;
-  getPackageDetails: (packageName: string) => void;
-  installPackage: (packageName: string, options: { type: string; version?: string }) => void;
+  search: (
+    query: string,
+    from?: number,
+    size?: number,
+    sortBy?: string | { value: string; label: string } | 'relevance' | 'popularity' | 'quality' | 'maintenance' | 'name',
+    exactName?: string
+  ) => void;
+  getPackageDetails?: (packageName: string) => void;
+  installPackage: (packageName: string, options: { type: DependencyType | string; version?: string }) => void;
   openExternal: (url: string) => void;
   copyToClipboard: (text: string) => void;
   postMessage: (message: unknown) => void;
@@ -55,6 +67,8 @@ interface VSCodeContextValue {
 
 const defaultSourceInfo: SourceInfo = {
   currentProjectType: 'npm',
+  detectedPackageManager: 'npm',
+  installTarget: undefined,
   currentSource: 'npm-registry',
   availableSources: ['npm-registry'],
   supportedSortOptions: ['relevance', 'popularity', 'quality', 'maintenance', 'name'],
@@ -74,7 +88,6 @@ export const VSCodeProvider: React.FC<VSCodeProviderProps> = ({ vscode, children
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchResults, setSearchResults] = useState<SearchResult | null>(null);
-  const [packageDetails, setPackageDetails] = useState<PackageDetails | null>(null);
   const [sourceInfo, setSourceInfo] = useState<SourceInfo>(defaultSourceInfo);
 
   // Handle messages from extension
@@ -92,10 +105,6 @@ export const VSCodeProvider: React.FC<VSCodeProviderProps> = ({ vscode, children
           break;
         case 'searchResults':
           setSearchResults(message.data);
-          setError(null);
-          break;
-        case 'packageDetails':
-          setPackageDetails(message.data);
           setError(null);
           break;
         case 'installSuccess':
@@ -128,11 +137,17 @@ export const VSCodeProvider: React.FC<VSCodeProviderProps> = ({ vscode, children
 
   // Actions
   const search = useCallback(
-    (query: string, from = 0, size = 20, sortBy?: string | { value: string; label: string }) => {
+    (
+      query: string,
+      from = 0,
+      size = 20,
+      sortBy?: string | { value: string; label: string } | 'relevance' | 'popularity' | 'quality' | 'maintenance' | 'name',
+      exactName?: string
+    ) => {
       setError(null);
       // Extract sort value from SearchSortBy (can be string or SortOption)
-      const sortValue = typeof sortBy === 'string' ? sortBy : sortBy?.value;
-      postMessage({ type: 'search', query, from, size, sortBy: sortValue });
+      const sortValue = typeof sortBy === 'string' ? sortBy : (typeof sortBy === 'object' ? sortBy?.value : sortBy);
+      postMessage({ type: 'search', query, exactName, from, size, sortBy: sortValue });
     },
     [postMessage]
   );
@@ -140,19 +155,18 @@ export const VSCodeProvider: React.FC<VSCodeProviderProps> = ({ vscode, children
   const getPackageDetails = useCallback(
     (packageName: string) => {
       setError(null);
-      setPackageDetails(null);
-      postMessage({ type: 'getPackageDetails', packageName });
+      postMessage({ type: 'openPackageDetails', packageName });
     },
     [postMessage]
   );
 
   const installPackage = useCallback(
-    (packageName: string, options: { type: string; version?: string }) => {
+    (packageName: string, options: { type: DependencyType | string; version?: string }) => {
       postMessage({
         type: 'install',
         packageName,
         options: {
-          type: options.type as 'dependencies' | 'devDependencies' | 'peerDependencies',
+          type: options.type as DependencyType,
           version: options.version,
         },
       });
@@ -199,7 +213,6 @@ export const VSCodeProvider: React.FC<VSCodeProviderProps> = ({ vscode, children
     isLoading,
     error,
     searchResults,
-    packageDetails,
     sourceInfo,
     search,
     getPackageDetails,

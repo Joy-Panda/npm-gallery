@@ -1,10 +1,13 @@
 import React from 'react';
 import { ShieldCheck, ShieldAlert } from 'lucide-react';
-import type { PackageDetails } from '../../types/package';
+
 import type { SourceInfo } from '../context/VSCodeContext';
+import type { PackageDetails, PackageManager } from '../../types/package';
+
 
 interface PackageSidebarProps {
   details: PackageDetails;
+  detectedPackageManager?: PackageManager;
   onOpenExternal: (url: string) => void;
   formatBytes: (bytes: number) => string;
   formatRelativeTime: (dateString?: string) => string;
@@ -123,6 +126,7 @@ const sidebarStyles = `
 
 export const PackageSidebar: React.FC<PackageSidebarProps> = ({
   details,
+  detectedPackageManager,
   onOpenExternal,
   formatBytes,
   formatRelativeTime,
@@ -130,6 +134,9 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
   sourceInfo,
 }) => {
   const isSecure = !details.security || details.security.summary.total === 0;
+  const publishedAt = details.time?.[details.version] || details.versions?.find(
+    (version) => version.version === details.version
+  )?.publishedAt;
   const repoUrl = details.repository
     ? typeof details.repository === 'string'
       ? details.repository
@@ -194,10 +201,19 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
       </div>
 
       {/* Info */}
-      {(details.bundleSize || (details.maintainers && details.maintainers.length > 0) || (details.versions && details.versions.length > 0 && details.versions[0].publishedAt)) && (
+      {(details.bundleSize ||
+        (details.maintainers && details.maintainers.length > 0) ||
+        publishedAt ||
+        detectedPackageManager) && (
         <div className="sidebar-section">
           <span className="section-label">Info</span>
           <div className="info-inline">
+            {detectedPackageManager && (
+              <div className="info-row">
+                <span>Package Manager</span>
+                <span>{detectedPackageManager}</span>
+              </div>
+            )}
             {details.bundleSize?.dependencyCount !== undefined && (
               <div className="info-row">
                 <span>Dependencies</span>
@@ -216,11 +232,11 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
                 <span>{details.maintainers.length}</span>
               </div>
             )}
-            {details.versions && details.versions.length > 0 && details.versions[0].publishedAt && (
+            {publishedAt && (
               <div className="info-row">
                 <span>Published</span>
-                <span title={formatFullDate(details.versions[0].publishedAt)}>
-                  {formatRelativeTime(details.versions[0].publishedAt)}
+                <span title={formatFullDate(publishedAt)}>
+                  {formatRelativeTime(publishedAt)}
                 </span>
               </div>
             )}

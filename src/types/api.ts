@@ -52,6 +52,7 @@ export interface NpmPackageVersion {
   repository?: {
     type?: string;
     url?: string;
+    directory?: string;
   };
   dist: NpmDist;
 }

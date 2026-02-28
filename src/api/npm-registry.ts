@@ -47,9 +47,10 @@ export class NpmRegistryClient extends BaseApiClient {
       popularity?: number;
       maintenance?: number;
       sortBy?: 'relevance' | 'popularity' | 'quality' | 'maintenance';
+      signal?: AbortSignal;
     } = {}
   ): Promise<NpmSearchResponse> {
-    const { from = 0, size = 20, sortBy = 'relevance' } = options;
+    const { from = 0, size = 20, sortBy = 'relevance', signal } = options;
 
     // Map sortBy to weight values for npm registry API
     // npm registry uses weights (0-1) to control sorting
@@ -83,6 +84,7 @@ export class NpmRegistryClient extends BaseApiClient {
     }
 
     return this.get<NpmSearchResponse>('/-/v1/search', {
+      signal,
       params: {
         text: query,
         from,

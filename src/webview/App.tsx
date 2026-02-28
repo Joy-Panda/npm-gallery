@@ -5,7 +5,8 @@ import { AdvancedSearch } from './components/AdvancedSearch';
 import { useSearch } from './hooks/useSearch';
 import { useVSCode } from './context/VSCodeContext';
 import { buildQuery, extractBaseText, parseQueryToFilters } from './utils/queryParser';
-import type { PackageInfo, SearchOptions, SearchSortBy } from '../types/package';
+import type { DependencyType, PackageInfo, SearchOptions, SearchSortBy } from '../types/package';
+import { getSortValue } from '../types/package';
 
 interface FilterState {
   // Common filters (for npm sources)
@@ -23,10 +24,14 @@ interface FilterState {
   licenses: string;
   platforms: string;
   // Package status filters
+  excludeDeprecated: boolean;
+  includeDeprecated: boolean;
   excludeUnstable: boolean;
   excludeInsecure: boolean;
   includeUnstable: boolean;
   includeInsecure: boolean;
+  // Search options
+  boostExact: boolean;
 }
 
 const defaultFilters: FilterState = {
@@ -41,10 +46,13 @@ const defaultFilters: FilterState = {
   languages: '',
   licenses: '',
   platforms: '',
+  excludeDeprecated: false,
+  includeDeprecated: false,
   excludeUnstable: false,
   excludeInsecure: false,
   includeUnstable: false,
   includeInsecure: false,
+  boostExact: true, // Default to true (boost exact matches)
 };
 
 export const App: React.FC = () => {
@@ -54,7 +62,17 @@ export const App: React.FC = () => {
   const [filters, setFilters] = useState<FilterState>(defaultFilters);
   
   // Get searchQuery from useSearch hook (this is used for actual searching)
-  const { searchQuery, setSearchQuery, triggerSearch, searchResults, isLoading, error, sourceInfo, supportedSortOptions, supportedFilters } = useSearch();
+  const {
+    searchQuery,
+    setSearchQuery,
+    triggerSearch,
+    searchResults,
+    isLoading,
+    error,
+    sourceInfo,
+    supportedSortOptions,
+    supportedFilters,
+  } = useSearch();
   const { installPackage, postMessage } = useVSCode();
   
   // Track previous source to detect source changes
@@ -91,12 +109,23 @@ export const App: React.FC = () => {
     previousSourceRef.current = currentSource;
   }, [sourceInfo.currentSource, searchQuery, setSearchQuery, triggerSearch]);
 
+  const availableSortOptions = supportedSortOptions as SearchSortBy[];
+  const sourceHint = buildSourceHint(
+    sourceInfo.detectedPackageManager,
+    sourceInfo.installTarget
+  );
+  const canInstall = sourceInfo.supportedCapabilities.includes('installation');
+  const supportedInstallTypes: DependencyType[] =
+    sourceInfo.currentProjectType === 'npm'
+      ? ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']
+      : ['dependencies'];
+
   const handlePackageSelect = (pkg: PackageInfo) => {
     // Send message to extension to open package details in editor panel
     postMessage({ type: 'openPackageDetails', packageName: pkg.name });
   };
 
-  const handleInstall = (pkg: PackageInfo, type: 'dependencies' | 'devDependencies') => {
+  const handleInstall = (pkg: PackageInfo, type: DependencyType) => {
     installPackage(pkg.name, { type, version: pkg.version });
   };
 
@@ -116,7 +145,8 @@ export const App: React.FC = () => {
     // Update search query immediately for responsive input
     setSearchQuery(newQuery);
     
-    // Parse the query string and update filters (sort is handled separately)
+    // Parse the query string and update filters
+    // Note: sort is handled separately, not parsed from query string
     setFilters(parseQueryToFilters(newQuery));
   };
 
@@ -145,6 +175,7 @@ export const App: React.FC = () => {
       excludeInsecure: newFilters.excludeInsecure,
       includeUnstable: newFilters.includeUnstable,
       includeInsecure: newFilters.includeInsecure,
+      boostExact: newFilters.boostExact,
     });
     
     setSearchQuery(newQuery);
@@ -152,6 +183,9 @@ export const App: React.FC = () => {
 
   // 3. When user changes sort in SearchResults
   const handleSortChange = (newSortBy: SearchSortBy) => {
+    if (!availableSortOptions.includes(newSortBy)) {
+      return;
+    }
     setSortBy(newSortBy);
     // Sort is handled separately, no need to modify query string
     // Trigger search with new sort if there's an active query
@@ -164,12 +198,32 @@ export const App: React.FC = () => {
   const handleAdvancedSearch = (options: SearchOptions) => {
     setSearchOptions(options);
     // Parse query and update filters (sort is handled separately via options.sortBy)
-    setSortBy(options.sortBy || 'relevance');
+    const nextSort: SearchSortBy = options.sortBy || 'relevance';
+    const availableSortOptions = supportedSortOptions.map(opt => typeof opt === 'string' ? opt : opt.value);
+    setSortBy(
+      availableSortOptions.includes(getSortValue(nextSort))
+        ? nextSort
+        : (availableSortOptions[0] || 'relevance') as SearchSortBy
+    );
     setFilters(parseQueryToFilters(options.query));
     setSearchQuery(options.query);
     // Trigger search immediately when applying advanced search with the sort from options
-    setTimeout(() => triggerSearch(options.sortBy || 'relevance'), 0);
+    setTimeout(() => triggerSearch(nextSort), 0);
   };
+
+  // Reset sort when available options change
+  useEffect(() => {
+    if (!availableSortOptions.includes(sortBy)) {
+      setSortBy(availableSortOptions[0] || 'relevance');
+    }
+  }, [availableSortOptions, sortBy]);
+
+  // Close advanced search if no filters are supported
+  useEffect(() => {
+    if (supportedFilters.length === 0 && isAdvancedSearchOpen) {
+      setIsAdvancedSearchOpen(false);
+    }
+  }, [supportedFilters.length, isAdvancedSearchOpen]);
 
   return (
     <div className="app">
@@ -178,9 +232,12 @@ export const App: React.FC = () => {
         onChange={handleSearchBarChange}
         onSearch={() => triggerSearch(sortBy)}
         isLoading={isLoading}
-        onAdvancedSearchToggle={() => setIsAdvancedSearchOpen(!isAdvancedSearchOpen)}
+        onAdvancedSearchToggle={
+          supportedFilters.length > 0 ? () => setIsAdvancedSearchOpen(!isAdvancedSearchOpen) : undefined
+        }
         isAdvancedSearchOpen={isAdvancedSearchOpen}
         sourceInfo={sourceInfo}
+        sourceHint={sourceHint}
       />
       <AdvancedSearch
         isOpen={isAdvancedSearchOpen}
@@ -189,7 +246,6 @@ export const App: React.FC = () => {
         filters={filters}
         onFilterChange={handleFilterChange}
         supportedFilters={supportedFilters}
-        currentSource={sourceInfo.currentSource}
         onReset={() => {
           setFilters(defaultFilters);
           // Also clear filters from search query
@@ -199,25 +255,6 @@ export const App: React.FC = () => {
         onApplyFilters={() => {
           // Build query with current filters and trigger search
           const baseText = extractBaseText(searchQuery);
-          
-          // Check if there are any filters
-          const hasFilters = !!(
-            filters.author ||
-            filters.maintainer ||
-            filters.scope ||
-            filters.keywords ||
-            filters.groupId ||
-            filters.artifactId ||
-            filters.tags ||
-            filters.languages ||
-            filters.licenses ||
-            filters.platforms ||
-            filters.excludeUnstable ||
-            filters.excludeInsecure ||
-            filters.includeUnstable ||
-            filters.includeInsecure
-          );
-          
           const newQuery = buildQuery({
             baseQuery: baseText,
             author: filters.author,
@@ -234,10 +271,11 @@ export const App: React.FC = () => {
             excludeInsecure: filters.excludeInsecure,
             includeUnstable: filters.includeUnstable,
             includeInsecure: filters.includeInsecure,
+            boostExact: filters.boostExact,
           });
           setSearchQuery(newQuery);
-          // Trigger search if there's base query or filters
-          if (baseText.trim() || hasFilters) {
+          // Trigger search if there's base query
+          if (baseText.trim()) {
             triggerSearch(sortBy);
           }
         }}
@@ -251,10 +289,11 @@ export const App: React.FC = () => {
         onPackageSelect={handlePackageSelect}
         onInstall={handleInstall}
         sortBy={sortBy}
-        onSortChange={handleSortChange}
-        supportedSortOptions={supportedSortOptions}
-        currentProjectType={sourceInfo.currentProjectType}
+        onSortChange={availableSortOptions.length > 1 ? handleSortChange : undefined}
+        supportedSortOptions={availableSortOptions}
         onCopy={handleCopy}
+        supportedInstallTypes={supportedInstallTypes}
+        showInstall={canInstall}
       />
 
       <style>{`
@@ -277,3 +316,14 @@ export const App: React.FC = () => {
     </div>
   );
 };
+
+function buildSourceHint(
+  packageManager?: string,
+  installTarget?: { label: string; description: string; packageManager: string }
+): string {
+  const managerText = packageManager ? ` Detected package manager: ${packageManager}.` : '';
+  const installText = installTarget
+    ? ` Install target: ${installTarget.label} (${installTarget.packageManager})${installTarget.description ? ` - ${installTarget.description}` : ''}.`
+    : '';
+  return `${managerText}${installText}`;
+}

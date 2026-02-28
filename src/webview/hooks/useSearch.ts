@@ -56,27 +56,36 @@ export function useSearch(): {
       return;
     }
 
+    const supportsFilter = (filter: string) => sourceInfo.supportedFilters.includes(filter);
     const searchText = buildQuery({
       baseQuery: parsed.baseQuery,
-      author: parsed.author,
-      maintainer: parsed.maintainer,
-      scope: parsed.scope,
-      keywords: parsed.keywords,
+      author: supportsFilter('author') ? parsed.author : undefined,
+      maintainer: supportsFilter('maintainer') ? parsed.maintainer : undefined,
+      scope: supportsFilter('scope') ? parsed.scope : undefined,
+      keywords: supportsFilter('keywords') ? parsed.keywords : undefined,
       groupId: parsed.groupId,
       artifactId: parsed.artifactId,
       tags: parsed.tags,
       languages: parsed.languages,
       licenses: parsed.licenses,
       platforms: parsed.platforms,
-      excludeUnstable: parsed.excludeUnstable,
-      excludeInsecure: parsed.excludeInsecure,
-      includeUnstable: parsed.includeUnstable,
-      includeInsecure: parsed.includeInsecure,
+      excludeDeprecated: supportsFilter('deprecated') ? parsed.excludeDeprecated : undefined,
+      includeDeprecated: supportsFilter('deprecated') ? parsed.includeDeprecated : undefined,
+      excludeUnstable: supportsFilter('unstable') ? parsed.excludeUnstable : undefined,
+      excludeInsecure: supportsFilter('insecure') ? parsed.excludeInsecure : undefined,
+      includeUnstable: supportsFilter('unstable') ? parsed.includeUnstable : undefined,
+      includeInsecure: supportsFilter('insecure') ? parsed.includeInsecure : undefined,
+      boostExact: parsed.boostExact,
     });
 
-    // Sort is passed separately, not from query string
-    search(searchText, 0, 20, sortBy || 'relevance');
-  }, [searchQuery, search]);
+    // Use sortBy parameter if provided, otherwise use default
+    const selectedSort = sortBy || 'relevance';
+    const effectiveSort = sourceInfo.supportedSortOptions.includes(typeof selectedSort === 'string' ? selectedSort : selectedSort.value)
+      ? (typeof selectedSort === 'string' ? selectedSort : selectedSort.value)
+      : (sourceInfo.supportedSortOptions[0] || 'relevance');
+
+    search(searchText, 0, 20, effectiveSort, parsed.exactName);
+  }, [searchQuery, search, sourceInfo.supportedSortOptions, sourceInfo.supportedFilters]);
 
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query);
@@ -84,8 +93,11 @@ export function useSearch(): {
 
   const loadMore = useCallback((sortBy?: SearchSortBy) => {
     if (searchResults && searchResults.hasMore) {
-      // Load more with same query and sort
-      search(searchQuery, searchResults.packages.length, 20, sortBy || 'relevance');
+      const parsed = parseQuery(searchQuery);
+      const effectiveSort = sortBy 
+        ? (typeof sortBy === 'string' ? sortBy : sortBy.value)
+        : undefined;
+      search(searchQuery, searchResults.packages.length, 20, effectiveSort, parsed.exactName);
     }
   }, [search, searchQuery, searchResults]);
 

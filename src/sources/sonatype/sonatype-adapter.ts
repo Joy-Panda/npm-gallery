@@ -4,6 +4,7 @@ import { SonatypeTransformer } from './sonatype-transformer';
 import { LibrariesIoClient } from '../../api/libraries-io';
 import type { SonatypeApiClient, MavenPOM, SonatypeArtifact } from '../../api/sonatype-api';
 import type { OSVClient } from '../../api/osv';
+import type { DepsDevClient } from '../../api/deps-dev';
 import type { LibrariesIoDependenciesResponse } from '../../api/libraries-io';
 import type {
   PackageInfo,
@@ -45,10 +46,15 @@ export class SonatypeSourceAdapter extends BaseSourceAdapter {
   constructor(
     private client: SonatypeApiClient,
     private osvClient?: OSVClient,
-    private librariesIoClient?: LibrariesIoClient
+    private librariesIoClient?: LibrariesIoClient,
+    depsDevClient?: DepsDevClient
   ) {
-    super();
+    super(depsDevClient);
     this.transformer = new SonatypeTransformer();
+  }
+
+  getEcosystem(): string {
+    return 'maven';
   }
 
   /**
@@ -63,6 +69,8 @@ export class SonatypeSourceAdapter extends BaseSourceAdapter {
       SourceCapability.COPY, // Maven/Gradle use copy snippets
       SourceCapability.SUGGESTIONS,
       SourceCapability.DEPENDENCIES,
+      SourceCapability.DEPENDENTS,
+      SourceCapability.REQUIREMENTS,
     ];
     
     // Add security capability if OSV client is available
@@ -77,14 +85,21 @@ export class SonatypeSourceAdapter extends BaseSourceAdapter {
    * Search for packages
    */
   async search(options: SearchOptions): Promise<SearchResult> {
-    const { query, from = 0, size = 20, sortBy = 'relevance' } = options;
+    const { query = '', exactName, from = 0, size = 20, sortBy = 'relevance', signal } = options;
+
+    // Use exactName if provided, otherwise use query
+    const searchInput = exactName || query;
+
+    if (!searchInput.trim()) {
+      return { packages: [], total: 0, hasMore: false };
+    }
 
     // Parse query to extract filters and base query
     // Sonatype API format: "baseQuery g:groupId a:artifactId v:version"
     // Example: "com.google.guava groupId:com.google.guava artifactId:guava" -> "com.google.guava g:com.google.guava a:guava"
-    const groupIdMatch = query.match(/\bgroupId:([^\s]+)/);
-    const artifactIdMatch = query.match(/\bartifactId:([^\s]+)/);
-    const tagsMatch = query.match(/\btags:([^\s]+)/);
+    const groupIdMatch = searchInput.match(/\bgroupId:([^\s]+)/);
+    const artifactIdMatch = searchInput.match(/\bartifactId:([^\s]+)/);
+    const tagsMatch = searchInput.match(/\btags:([^\s]+)/);
     
     const groupId = groupIdMatch ? groupIdMatch[1] : undefined;
     const artifactId = artifactIdMatch ? artifactIdMatch[1] : undefined;
@@ -92,7 +107,7 @@ export class SonatypeSourceAdapter extends BaseSourceAdapter {
     
     // Remove filter qualifiers from query to get base query
     // Use global replace to remove all occurrences
-    let baseQuery = query
+    let baseQuery = searchInput
       .replace(/\bgroupId:[^\s]+/g, '')
       .replace(/\bartifactId:[^\s]+/g, '')
       .replace(/\btags:[^\s]+/g, '')
@@ -200,7 +215,7 @@ export class SonatypeSourceAdapter extends BaseSourceAdapter {
     // Try primary search (Sonatype Central), fallback to Libraries.io if fails
     let result: SearchResult;
     try {
-      const response = await this.client.search(searchQuery, { from, size, sort: apiSort });
+      const response = await this.client.search(searchQuery, { from, size, sort: apiSort, signal });
       result = this.transformer.transformSearchResult(response, from, size);
     } catch (error) {
       // Fallback to Libraries.io if primary search fails
@@ -208,7 +223,7 @@ export class SonatypeSourceAdapter extends BaseSourceAdapter {
         try {
           const page = Math.floor(from / size) + 1;
           const platform = LibrariesIoClient.getPlatformForProjectType(this.projectType);
-          const librariesIoResponse = await this.librariesIoClient.search(query, platform, {
+          const librariesIoResponse = await this.librariesIoClient.search(searchQuery, platform, {
             page,
             per_page: size,
           });
@@ -302,7 +317,7 @@ export class SonatypeSourceAdapter extends BaseSourceAdapter {
       result.packages = this.sortPackagesByName(result.packages);
     }
 
-    return result;
+    return this.prioritizeExactMatch(result, exactName);
   }
 
   /**
@@ -597,5 +612,40 @@ export class SonatypeSourceAdapter extends BaseSourceAdapter {
    */
   private sortPackagesByName(packages: PackageInfo[]): PackageInfo[] {
     return [...packages].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  private async prioritizeExactMatch(
+    result: SearchResult,
+    exactName?: string
+  ): Promise<SearchResult> {
+    if (!exactName) {
+      return result;
+    }
+
+    const normalizedExactName = exactName.toLowerCase();
+    const matchingResult = result.packages.find(
+      (pkg) => pkg.name.toLowerCase() === normalizedExactName
+    );
+
+    if (matchingResult) {
+      return {
+        ...result,
+        packages: [
+          { ...matchingResult, exactMatch: true },
+          ...result.packages.filter((pkg) => pkg.name.toLowerCase() !== normalizedExactName),
+        ],
+      };
+    }
+
+    try {
+      const exact = await this.getPackageInfo(exactName);
+      return {
+        ...result,
+        packages: [{ ...exact, exactMatch: true }, ...result.packages],
+        total: Math.max(result.total, result.packages.length + 1),
+      };
+    } catch {
+      return result;
+    }
   }
 }

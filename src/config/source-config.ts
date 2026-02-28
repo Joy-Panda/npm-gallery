@@ -17,7 +17,7 @@ export interface SourceConfig {
 export const DEFAULT_SOURCE_CONFIG: Record<ProjectType, SourceConfig> = {
   npm: {
     primary: 'npm-registry',
-    fallbacks: [], // libraries-io is used as internal fallback, not in fallbacks list
+    fallbacks: ['npms-io'], // libraries-io is used as internal fallback, not in fallbacks list
     sortOptions: ['relevance', 'popularity', 'quality', 'maintenance', 'name'],
     filters: ['author', 'maintainer', 'scope', 'keywords'],
   },
@@ -35,7 +35,7 @@ export const DEFAULT_SOURCE_CONFIG: Record<ProjectType, SourceConfig> = {
   },
   unknown: {
     primary: 'npm-registry',
-    fallbacks: [], // libraries-io is used as internal fallback, not in fallbacks list
+    fallbacks: ['npms-io'], // libraries-io is used as internal fallback, not in fallbacks list
     sortOptions: ['relevance', 'popularity', 'quality', 'maintenance', 'name'],
     filters: ['author', 'maintainer', 'scope', 'keywords'],
   },

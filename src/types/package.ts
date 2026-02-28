@@ -5,6 +5,7 @@ export interface PackageInfo {
   name: string;
   version: string;
   description?: string;
+  exactMatch?: boolean;
   keywords?: string[];
   license?: string;
   author?: PackageAuthor;
@@ -27,6 +28,8 @@ export interface PackageDetails extends PackageInfo {
   devDependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
+  dependents?: DependentsInfo;
+  requirements?: RequirementsInfo;
   maintainers?: PackageMaintainer[];
   time?: Record<string, string>;
   distTags?: Record<string, string>;
@@ -156,8 +159,14 @@ export interface VulnerabilitySummary {
  * Installed package in workspace
  */
 export interface InstalledPackage {
+  workspaceFolderPath?: string;
+  manifestName?: string;
   name: string;
   currentVersion: string;
+  resolvedVersion?: string;
+  versionSpecifier?: string;
+  specKind?: DependencySpecKind;
+  isRegistryResolvable?: boolean;
   latestVersion?: string;
   wantedVersion?: string;
   type: DependencyType;
@@ -165,6 +174,20 @@ export interface InstalledPackage {
   updateType?: UpdateType;
   packageJsonPath: string;
 }
+
+export interface WorkspacePackageScope {
+  workspaceFolderPath?: string;
+  manifestPath?: string;
+}
+
+export type DependencySpecKind =
+  | 'semver'
+  | 'workspace'
+  | 'file'
+  | 'path'
+  | 'git'
+  | 'tag'
+  | 'unknown';
 
 /**
  * Dependency type in package.json
@@ -220,7 +243,7 @@ export interface CopyOptions {
 /**
  * Package manager type
  */
-export type PackageManager = 'npm' | 'yarn' | 'pnpm';
+export type PackageManager = 'npm' | 'yarn' | 'pnpm' | 'bun';
 
 /**
  * Search result from APIs
@@ -236,10 +259,12 @@ export interface SearchResult {
  */
 export interface SearchOptions {
   query: string;
+  exactName?: string;
   from?: number;
   size?: number;
   sortBy?: SearchSortBy;
   filters?: SearchFilters;
+  signal?: AbortSignal;
 }
 
 /**
@@ -395,4 +420,52 @@ export interface SearchFilters {
   maxBundleSize?: number;
   excludeDeprecated?: boolean;
   license?: string[];
+}
+
+export type EcosystemName = 'npm' | 'maven' | 'go' | 'unknown';
+
+export interface DependentPackageRef {
+  system: string;
+  name: string;
+}
+
+export interface DependentSampleItem {
+  package: DependentPackageRef;
+  version: string;
+}
+
+export interface DependentsInfo {
+  package: DependentPackageRef;
+  version: string;
+  totalCount: number;
+  directCount: number;
+  indirectCount: number;
+  directSample: DependentSampleItem[];
+  indirectSample: DependentSampleItem[];
+  webUrl?: string;
+}
+
+export interface RequirementItem {
+  name: string;
+  requirement?: string;
+  version?: string;
+  scope?: string;
+  optional?: boolean;
+  classifier?: string;
+  type?: string;
+  exclusions?: string[];
+}
+
+export interface RequirementSection {
+  id: string;
+  title: string;
+  items: RequirementItem[];
+}
+
+export interface RequirementsInfo {
+  system: string;
+  package: string;
+  version: string;
+  sections: RequirementSection[];
+  webUrl?: string;
 }

@@ -4,6 +4,7 @@ import { NpmsTransformer } from './npms-transformer';
 import type { NpmsApiClient } from '../../api/npms-api';
 import type { NpmRegistryClient } from '../../api/npm-registry';
 import type { BundlephobiaClient } from '../../api/bundlephobia';
+import type { DepsDevClient } from '../../api/deps-dev';
 import type { OSVClient } from '../../api/osv';
 import type {
   PackageInfo,
@@ -14,7 +15,6 @@ import type {
   SearchSortBy,
   SearchFilter,
   BundleSize,
-  SecurityInfo,
 } from '../../types/package';
 import { createSortOption, getSortValue, createFilterOption } from '../../types/package';
 import type { SourceType, ProjectType } from '../../types/project';
@@ -40,6 +40,10 @@ export class NpmsSourceAdapter extends NpmBaseAdapter {
     createFilterOption('maintainer', 'Maintainer', 'maintainer username'),
     createFilterOption('scope', 'Scope', 'scope (e.g., @foo/bar)'),
     createFilterOption('keywords', 'Keywords', 'keywords: Use + for AND, , for OR, - to exclude'),
+    createFilterOption('deprecated', 'Deprecated', 'filter deprecated packages (use not:deprecated or is:deprecated)'),
+    createFilterOption('unstable', 'Unstable', 'filter unstable packages < 1.0.0 (use not:unstable or is:unstable)'),
+    createFilterOption('insecure', 'Insecure', 'filter insecure packages (use not:insecure or is:insecure)'),
+    createFilterOption('boost-exact', 'Boost Exact', 'boost exact matches (use boost-exact:false to disable)'),
   ];
 
   private transformer: NpmsTransformer;
@@ -48,9 +52,10 @@ export class NpmsSourceAdapter extends NpmBaseAdapter {
     private client: NpmsApiClient,
     private npmRegistryClient?: NpmRegistryClient,
     private bundlephobiaClient?: BundlephobiaClient,
-    private osvClient?: OSVClient
+    osvClient?: OSVClient,
+    depsDevClient?: DepsDevClient
   ) {
-    super();
+    super(osvClient, depsDevClient);
     this.transformer = new NpmsTransformer();
   }
 
@@ -72,6 +77,8 @@ export class NpmsSourceAdapter extends NpmBaseAdapter {
       SourceCapability.BUNDLE_SIZE, // Via bundlephobia client
       SourceCapability.DOWNLOAD_STATS,
       SourceCapability.QUALITY_SCORE,
+      SourceCapability.DEPENDENTS,
+      SourceCapability.REQUIREMENTS,
     ];
   }
 
@@ -79,13 +86,14 @@ export class NpmsSourceAdapter extends NpmBaseAdapter {
    * Search for packages
    */
   async search(options: SearchOptions): Promise<SearchResult> {
-    const { query, from = 0, size = 20, sortBy = 'relevance' } = options;
+    const { query, exactName, from = 0, size = 20, sortBy = 'relevance', signal } = options;
 
-    if (!query.trim()) {
+    if (!query.trim() && !exactName) {
       return { packages: [], total: 0, hasMore: false };
     }
+    const searchQuery = query.trim() || exactName || '';
 
-    const response = await this.client.search(query, { from, size });
+    const response = await this.client.search(searchQuery, { from, size, signal });
     const result = this.transformer.transformSearchResult(response, from, size);
 
     // Fetch download stats for better sorting
@@ -109,7 +117,7 @@ export class NpmsSourceAdapter extends NpmBaseAdapter {
       result.packages = this.sortPackages(result.packages, sortBy);
     }
 
-    return result;
+    return this.prioritizeExactMatch(result, exactName);
   }
 
   /**
@@ -133,13 +141,18 @@ export class NpmsSourceAdapter extends NpmBaseAdapter {
    * Get detailed package info
    * Falls back to npm registry for full details (readme, versions)
    */
-  async getPackageDetails(name: string): Promise<PackageDetails> {
+  async getPackageDetails(name: string, requestedVersion?: string): Promise<PackageDetails> {
     // npms.io doesn't provide full package details
     // If npm registry client is available, use it for details
     if (this.npmRegistryClient) {
       const pkg = await this.npmRegistryClient.getPackage(name);
       const latestVersion = pkg['dist-tags']?.latest;
-      const latestData = latestVersion ? pkg.versions[latestVersion] : undefined;
+      const selectedVersion =
+        (requestedVersion && pkg.versions[requestedVersion] ? requestedVersion : undefined) ||
+        latestVersion ||
+        Object.keys(pkg.versions)[0] ||
+        '0.0.0';
+      const selectedData = pkg.versions[selectedVersion];
 
       // Get npms.io analysis for score
       let score;
@@ -153,35 +166,64 @@ export class NpmsSourceAdapter extends NpmBaseAdapter {
       // Get additional data
       const [downloads, bundleSize, security] = await Promise.all([
         this.npmRegistryClient.getDownloads(name).catch(() => ({ downloads: 0 })),
-        this.bundlephobiaClient?.getSize(name, latestVersion).catch(() => null) ?? null,
-        latestVersion && this.osvClient
-          ? this.osvClient.queryVulnerabilities(name, latestVersion).catch(() => null)
+        this.bundlephobiaClient?.getSize(name, selectedVersion).catch(() => null) ?? null,
+        selectedVersion && this.osvClient
+          ? this.osvClient
+              .queryVulnerabilities(name, selectedVersion, this.getEcosystem())
+              .catch(() => null)
           : null,
       ]);
 
-      return {
+      const details: PackageDetails = {
         name: pkg.name,
-        version: latestVersion || Object.keys(pkg.versions)[0] || '0.0.0',
-        description: pkg.description,
+        version: selectedVersion,
+        description: selectedData?.description || pkg.description,
         keywords: pkg.keywords,
-        license: latestData?.license || pkg.license,
+        license: selectedData?.license || pkg.license,
         author: pkg.author,
-        repository: pkg.repository,
+        repository: selectedData?.repository
+          ? {
+              ...selectedData.repository,
+              directory: selectedData.repository.directory || pkg.repository?.directory,
+            }
+          : pkg.repository,
         homepage: pkg.homepage,
         downloads: downloads.downloads,
         score,
         bundleSize: bundleSize || undefined,
         readme: pkg.readme,
         versions: this.extractVersions(pkg),
-        dependencies: latestData?.dependencies,
-        devDependencies: latestData?.devDependencies,
-        peerDependencies: latestData?.peerDependencies,
+        dependencies: selectedData?.dependencies,
+        devDependencies: selectedData?.devDependencies,
+        peerDependencies: selectedData?.peerDependencies,
+        optionalDependencies: selectedData?.optionalDependencies,
         maintainers: pkg.maintainers?.map(m => ({ name: m.name, email: m.email })),
         time: pkg.time,
         distTags: pkg['dist-tags'],
         bugs: pkg.bugs,
         security: security || undefined,
       };
+
+      // Always try to fetch readme from unpkg if:
+      // 1. Requesting a specific version (different from latest)
+      // 2. Readme is missing or empty
+      const shouldFetchReadme = 
+        (requestedVersion && selectedVersion !== latestVersion) ||
+        !details.readme ||
+        details.readme.trim().length === 0;
+      
+      if (shouldFetchReadme) {
+        const readme = await this.fetchReadmeFromUnpkg(
+          name,
+          selectedVersion,
+          pkg.readmeFilename
+        );
+        if (readme) {
+          details.readme = readme;
+        }
+      }
+
+      return details;
     }
 
     // Fallback to npms.io only (limited details)
@@ -219,25 +261,6 @@ export class NpmsSourceAdapter extends NpmBaseAdapter {
       return null;
     }
   }
-
-  /**
-   * Get security info
-   */
-  async getSecurityInfo(name: string, version: string): Promise<SecurityInfo | null> {
-    if (!this.supportsCapability(SourceCapability.SECURITY)) {
-      throw new CapabilityNotSupportedError(SourceCapability.SECURITY, this.sourceType);
-    }
-
-    if (!this.osvClient) {
-      return null;
-    }
-    try {
-      return await this.osvClient.queryVulnerabilities(name, version);
-    } catch {
-      return null;
-    }
-  }
-
 
   /**
    * Extract versions from npm registry package
@@ -284,6 +307,41 @@ export class NpmsSourceAdapter extends NpmBaseAdapter {
           return 0;
       }
     });
+  }
+
+  private async prioritizeExactMatch(
+    result: SearchResult,
+    exactName?: string
+  ): Promise<SearchResult> {
+    if (!exactName) {
+      return result;
+    }
+
+    const normalizedExactName = exactName.toLowerCase();
+    const matchingResult = result.packages.find(
+      (pkg) => pkg.name.toLowerCase() === normalizedExactName
+    );
+
+    if (matchingResult) {
+      return {
+        ...result,
+        packages: [
+          { ...matchingResult, exactMatch: true },
+          ...result.packages.filter((pkg) => pkg.name.toLowerCase() !== normalizedExactName),
+        ],
+      };
+    }
+
+    try {
+      const exact = await this.getPackageInfo(exactName);
+      return {
+        ...result,
+        packages: [{ ...exact, exactMatch: true }, ...result.packages],
+        total: Math.max(result.total, result.packages.length + 1),
+      };
+    } catch {
+      return result;
+    }
   }
 
 }

@@ -4,6 +4,7 @@ import { BundlephobiaClient } from './bundlephobia';
 import { OSVClient } from './osv';
 import { SonatypeApiClient } from './sonatype-api';
 import { LibrariesIoClient } from './libraries-io';
+import { DepsDevClient } from './deps-dev';
 
 /**
  * All API clients
@@ -15,6 +16,7 @@ export interface ApiClients {
   audit: OSVClient;
   sonatype: SonatypeApiClient;
   librariesIo: LibrariesIoClient;
+  depsDev: DepsDevClient;
 }
 
 // Singleton instances
@@ -36,6 +38,7 @@ export function createApiClients(): ApiClients {
       audit: new OSVClient(),
       sonatype: new SonatypeApiClient(),
       librariesIo: librariesIoClient,
+      depsDev: new DepsDevClient(),
     };
   }
   return apiClients;

@@ -20,10 +20,14 @@ interface FilterState {
   licenses: string;
   platforms: string;
   // Package status filters
+  excludeDeprecated: boolean;
+  includeDeprecated: boolean;
   excludeUnstable: boolean;
   excludeInsecure: boolean;
   includeUnstable: boolean;
   includeInsecure: boolean;
+  // Search options
+  boostExact: boolean;
 }
 
 interface AdvancedSearchProps {
@@ -32,8 +36,7 @@ interface AdvancedSearchProps {
   currentOptions?: SearchOptions;
   filters: FilterState; // Controlled from parent
   onFilterChange: (filters: FilterState) => void; // Callback to parent
-  supportedFilters?: SearchFilter[]; // Supported filters from source
-  currentSource?: string; // Current source type to determine if Package Status should be shown
+  supportedFilters?: SearchFilter[] | string[]; // Supported filters from source
   onReset?: () => void; // Callback to reset filters
   onApplyFilters?: () => void; // Callback to apply filters and close panel
   onClose?: () => void; // Callback to close the panel
@@ -44,19 +47,20 @@ export const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
   filters,
   onFilterChange,
   supportedFilters = [],
-  currentSource,
   onReset,
   onApplyFilters,
   onClose,
 }) => {
   if (!isOpen) return null;
 
-  // Check if current source is npm (npm-registry or npms-io)
-  const isNpmSource = currentSource === 'npm-registry';
-
   // Helper function: update a single field in filters
   const updateField = (field: keyof FilterState, value: any) => {
     onFilterChange({ ...filters, [field]: value });
+  };
+
+  // Helper function: update multiple fields at once
+  const updateFields = (updates: Partial<FilterState>) => {
+    onFilterChange({ ...filters, ...updates });
   };
 
   // Get filter field value from FilterState
@@ -80,148 +84,179 @@ export const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
     }
   };
 
+  // Helper to check if a filter is supported (works with both string[] and SearchFilter[])
+  const supportsFilter = (filter: string): boolean => {
+    if (supportedFilters.length === 0) return false;
+    // Check if it's an array of strings or SearchFilter objects
+    return supportedFilters.some(f =>
+      typeof f === 'string' ? f === filter : getFilterValue(f) === filter
+    );
+  };
+
   return (
     <div className="advanced-search-panel">
       <div className="advanced-search-content">
-        {/* Dynamic Filters based on source */}
+        {/* Dynamic Filters based on source - only show if source supports filters */}
         {supportedFilters.length > 0 && (
           <div className="search-section">
             <h4>Filters</h4>
-            
-            {supportedFilters.map((filter) => {
-              const filterValue = getFilterValue(filter);
-              const label = getFilterLabel(filter);
-              const placeholder = getFilterPlaceholder(filter);
-              const fieldValue = getFilterFieldValue(filterValue);
 
-              return (
-                <div key={filterValue} className="search-field">
-                  <label className="field-label">{label}</label>
-                  <Input
-                    placeholder={placeholder}
-                    value={fieldValue}
-                    onChange={(e) => setFilterFieldValue(filterValue, e.target.value)}
-                    className="advanced-input"
-                  />
-                </div>
-              );
-            })}
+            {supportedFilters
+              .filter((filter) => {
+                // Exclude boolean filters (deprecated, unstable, insecure, boost-exact) - they are shown as checkboxes in separate sections
+                const filterValue = getFilterValue(filter);
+                return !['deprecated', 'unstable', 'insecure', 'boost-exact'].includes(filterValue);
+              })
+              .map((filter) => {
+                const filterValue = getFilterValue(filter);
+                const label = getFilterLabel(filter);
+                const placeholder = getFilterPlaceholder(filter);
+                const fieldValue = getFilterFieldValue(filterValue);
+
+                return (
+                  <div key={filterValue} className="search-field">
+                    <label className="field-label">{label}</label>
+                    <Input
+                      placeholder={placeholder}
+                      value={fieldValue}
+                      onChange={(e) => setFilterFieldValue(filterValue, e.target.value)}
+                      className="advanced-input"
+                    />
+                  </div>
+                );
+              })}
           </div>
         )}
 
-        {/* Fallback: Show default filters if no supportedFilters provided */}
-        {supportedFilters.length === 0 && (
-          <div className="search-section">
-            <h4>Filters</h4>
-            
-            <div className="search-field">
-              <label className="field-label">Author</label>
-              <Input
-                placeholder="author username"
-                value={filters.author}
-                onChange={(e) => updateField('author', e.target.value)}
-                className="advanced-input"
-              />
-            </div>
-
-            <div className="search-field">
-              <label className="field-label">Maintainer</label>
-              <Input
-                placeholder="maintainer username"
-                value={filters.maintainer}
-                onChange={(e) => updateField('maintainer', e.target.value)}
-                className="advanced-input"
-              />
-            </div>
-
-            <div className="search-field">
-              <label className="field-label">Scope</label>
-              <Input
-                placeholder="scope (e.g., @foo/bar)"
-                value={filters.scope}
-                onChange={(e) => updateField('scope', e.target.value)}
-                className="advanced-input"
-              />
-            </div>
-
-            <div className="search-field">
-              <label className="field-label">Keywords</label>
-              <Input
-                placeholder="keywords: Use + for AND, , for OR, - to exclude"
-                value={filters.keywords}
-                onChange={(e) => updateField('keywords', e.target.value)}
-                className="advanced-input"
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Package Status - Only show for npm sources */}
-        {isNpmSource && (
+        {/* Package Status */}
+        {(supportsFilter('deprecated') || supportsFilter('unstable')) && (
           <div className="search-section">
             <h4>Package Status</h4>
-          
-          <div className="checkbox-group">
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={filters.excludeUnstable}
-                onChange={(e) => {
-                  const checked = e.target.checked;
-                  updateField('excludeUnstable', checked);
-                  if (checked) {
-                    updateField('includeUnstable', false);
-                  }
-                }}
-              />
-              <span>Exclude unstable (&lt; 1.0.0)</span>
-            </label>
+            {supportsFilter('deprecated') && (
+              <div className="filter-row">
+                <span className="filter-label">Deprecated:</span>
+                <div className="radio-group-horizontal">
+                  <label className="radio-label">
+                    <input
+                      type="radio"
+                      name="deprecated-filter"
+                      checked={!filters.excludeDeprecated && !filters.includeDeprecated}
+                      onChange={() => {
+                        updateFields({ excludeDeprecated: false, includeDeprecated: false });
+                      }}
+                    />
+                    <span>No filter</span>
+                  </label>
+                  <label className="radio-label">
+                    <input
+                      type="radio"
+                      name="deprecated-filter"
+                      checked={filters.excludeDeprecated && !filters.includeDeprecated}
+                      onChange={() => {
+                        updateFields({ excludeDeprecated: true, includeDeprecated: false });
+                      }}
+                    />
+                    <span>Exclude</span>
+                  </label>
+                  <label className="radio-label">
+                    <input
+                      type="radio"
+                      name="deprecated-filter"
+                      checked={filters.includeDeprecated && !filters.excludeDeprecated}
+                      onChange={() => {
+                        updateFields({ excludeDeprecated: false, includeDeprecated: true });
+                      }}
+                    />
+                    <span>Show only</span>
+                  </label>
+                </div>
+              </div>
+            )}
 
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={filters.excludeInsecure}
-                onChange={(e) => {
-                  const checked = e.target.checked;
-                  updateField('excludeInsecure', checked);
-                  if (checked) {
-                    updateField('includeInsecure', false);
-                  }
-                }}
-              />
-              <span>Exclude insecure packages</span>
-            </label>
+            {supportsFilter('unstable') && (
+              <div className="filter-row">
+                <span className="filter-label">Unstable:</span>
+                <div className="radio-group-horizontal">
+                  <label className="radio-label">
+                    <input
+                      type="radio"
+                      name="unstable-filter"
+                      checked={!filters.excludeUnstable && !filters.includeUnstable}
+                      onChange={() => {
+                        updateFields({ excludeUnstable: false, includeUnstable: false });
+                      }}
+                    />
+                    <span>No filter</span>
+                  </label>
+                  <label className="radio-label">
+                    <input
+                      type="radio"
+                      name="unstable-filter"
+                      checked={filters.excludeUnstable && !filters.includeUnstable}
+                      onChange={() => {
+                        updateFields({ excludeUnstable: true, includeUnstable: false });
+                      }}
+                    />
+                    <span>Exclude</span>
+                  </label>
+                  <label className="radio-label">
+                    <input
+                      type="radio"
+                      name="unstable-filter"
+                      checked={filters.includeUnstable && !filters.excludeUnstable}
+                      onChange={() => {
+                        updateFields({ excludeUnstable: false, includeUnstable: true });
+                      }}
+                    />
+                    <span>Show only</span>
+                  </label>
+                </div>
+              </div>
+            )}
 
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={filters.includeUnstable}
-                onChange={(e) => {
-                  const checked = e.target.checked;
-                  updateField('includeUnstable', checked);
-                  if (checked) {
-                    updateField('excludeUnstable', false);
-                  }
-                }}
-              />
-              <span>Show only unstable (&lt; 1.0.0)</span>
-            </label>
+            {supportsFilter('insecure') && (
+              <div className="filter-row">
+                <span className="filter-label">Security:</span>
+                <div className="radio-group-horizontal">
+                  <label className="radio-label">
+                    <input
+                      type="radio"
+                      name="insecure-filter"
+                      checked={!filters.excludeInsecure && !filters.includeInsecure}
+                      onChange={() => {
+                        updateFields({ excludeInsecure: false, includeInsecure: false });
+                      }}
+                    />
+                    <span>No filter</span>
+                  </label>
+                  <label className="radio-label">
+                    <input
+                      type="radio"
+                      name="insecure-filter"
+                      checked={filters.excludeInsecure && !filters.includeInsecure}
+                      onChange={() => {
+                        updateFields({ excludeInsecure: true, includeInsecure: false });
+                      }}
+                    />
+                    <span>Exclude</span>
+                  </label>
+                  <label className="radio-label">
+                    <input
+                      type="radio"
+                      name="insecure-filter"
+                      checked={filters.includeInsecure && !filters.excludeInsecure}
+                      onChange={() => {
+                        updateFields({ excludeInsecure: false, includeInsecure: true });
+                      }}
+                    />
+                    <span>Show only</span>
+                  </label>
+                </div>
 
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={filters.includeInsecure}
-                onChange={(e) => {
-                  const checked = e.target.checked;
-                  updateField('includeInsecure', checked);
-                  if (checked) {
-                    updateField('excludeInsecure', false);
-                  }
-                }}
-              />
-              <span>Show only insecure packages</span>
-            </label>
-          </div>
+              </div>
+            )}
+
+
           </div>
         )}
 
@@ -252,6 +287,23 @@ export const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
           >
             Apply
           </button>
+        </div>
+
+        {/* Search Options */}
+        <div className="search-section">
+          <h4>Search Options</h4>
+          <div className="checkbox-group">
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={!filters.boostExact}
+                onChange={(e) => {
+                  updateField('boostExact', !e.target.checked);
+                }}
+              />
+              <span>Disable exact match boost</span>
+            </label>
+          </div>
         </div>
       </div>
 
@@ -346,6 +398,26 @@ export const AdvancedSearch: React.FC<AdvancedSearchProps> = ({
           display: flex;
           flex-direction: column;
           gap: 8px;
+        }
+
+        .radio-group-horizontal {
+          display: flex;
+          flex-direction: row;
+          gap: 16px;
+          align-items: center;
+        }
+
+        .filter-row {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+
+        .filter-label {
+          font-size: 12px;
+          font-weight: 500;
+          color: var(--vscode-foreground);
+          min-width: 80px;
         }
 
         .checkbox-label, .radio-label {

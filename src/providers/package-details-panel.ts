@@ -1,6 +1,8 @@
 import * as vscode from 'vscode';
 import { getServices } from '../services';
-import type { WebviewToExtensionMessage, SourceInfoMessage } from '../types/messages';
+import type { WebviewToExtensionMessage } from '../types/messages';
+import type { SourceInfoMessage } from '../types/messages';
+import { getInstallTargetSummary, selectInstallTargetManifest } from '../utils/install-target';
 
 /**
  * Manages package details webview panels that open in the editor area
@@ -13,14 +15,30 @@ export class PackageDetailsPanel {
   private readonly _panel: vscode.WebviewPanel;
   private readonly _extensionUri: vscode.Uri;
   private _packageName: string;
+  private _securityOnly: boolean;
+  private _panelKey: string;
+  private _installedVersion?: string;
   private _disposables: vscode.Disposable[] = [];
 
-  public static async createOrShow(extensionUri: vscode.Uri, packageName: string): Promise<void> {
-    const column = vscode.ViewColumn.One;
+  private static getPanelKey(packageName: string, securityOnly: boolean): string {
+    return `${packageName}:${securityOnly ? 'security' : 'details'}`;
+  }
 
-    // Check if we already have a panel for this package
-    const existingPanel = PackageDetailsPanel.currentPanels.get(packageName);
+  public static async createOrShow(
+    extensionUri: vscode.Uri,
+    packageName: string,
+    options?: { installedVersion?: string; securityOnly?: boolean }
+  ): Promise<void> {
+    const column = vscode.ViewColumn.One;
+    const securityOnly = !!options?.securityOnly;
+    const installedVersion = options?.installedVersion;
+    const key = PackageDetailsPanel.getPanelKey(packageName, securityOnly);
+
+    // Check if we already have a panel for this package + mode
+    const existingPanel = PackageDetailsPanel.currentPanels.get(key);
     if (existingPanel) {
+      existingPanel.setInstalledVersion(installedVersion);
+      await existingPanel.loadPackageDetails();
       existingPanel._panel.reveal(column);
       return;
     }
@@ -28,7 +46,7 @@ export class PackageDetailsPanel {
     // Create a new panel
     const panel = vscode.window.createWebviewPanel(
       PackageDetailsPanel.viewType,
-      `${packageName}`,
+      securityOnly ? `Security: ${packageName}` : `${packageName}`,
       column,
       {
         enableScripts: true,
@@ -37,15 +55,32 @@ export class PackageDetailsPanel {
       }
     );
 
-    const detailsPanel = new PackageDetailsPanel(panel, extensionUri, packageName);
-    PackageDetailsPanel.currentPanels.set(packageName, detailsPanel);
+    const detailsPanel = new PackageDetailsPanel(
+      panel,
+      extensionUri,
+      packageName,
+      securityOnly,
+      key,
+      installedVersion
+    );
+    PackageDetailsPanel.currentPanels.set(key, detailsPanel);
     // Panel will load data when React app sends 'ready' message
   }
 
-  private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri, packageName: string) {
+  private constructor(
+    panel: vscode.WebviewPanel,
+    extensionUri: vscode.Uri,
+    packageName: string,
+    securityOnly: boolean,
+    panelKey: string,
+    installedVersion?: string
+  ) {
     this._panel = panel;
     this._extensionUri = extensionUri;
     this._packageName = packageName;
+    this._securityOnly = securityOnly;
+    this._panelKey = panelKey;
+    this._installedVersion = installedVersion;
 
     // Set initial HTML with React app
     this._panel.webview.html = this.getHtmlContent();
@@ -61,12 +96,24 @@ export class PackageDetailsPanel {
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
   }
 
+  public setInstalledVersion(version?: string): void {
+    this._installedVersion = version;
+  }
+
   private async loadPackageDetails(): Promise<void> {
     try {
       const services = getServices();
-      const details = await services.package.getPackageDetails(this._packageName);
-      // Send package details to React app
-      this._panel.webview.postMessage({ type: 'packageDetails', data: details });
+      const details = await services.package.getEnrichedPackageDetails(this._packageName, {
+        installedVersion: this._installedVersion,
+      });
+
+      // When opened in security-only mode, tell webview to render only Security tab
+      const securityOnlyView = this._securityOnly;
+      this._panel.webview.postMessage({
+        type: 'packageDetails',
+        data: details,
+        securityOnlyView,
+      });
     } catch (error) {
       this._panel.webview.postMessage({
         type: 'error',
@@ -75,71 +122,40 @@ export class PackageDetailsPanel {
     }
   }
 
-  private sendSourceInfo(): void {
-    const services = getServices();
-    const supportedCapabilities = services.package.getSupportedCapabilities();
-    
-    // Build capability support map
-    const capabilitySupport: Record<string, { capability: string; supported: boolean; reason?: string }> = {};
-    for (const cap of supportedCapabilities) {
-      const support = services.package.getCapabilitySupport(cap);
-      if (support) {
-        capabilitySupport[cap] = {
-          capability: cap,
-          supported: support.supported,
-          reason: support.reason,
-        };
-      }
-    }
-    
-    const sortOptionsWithLabels = services.search.getSupportedSortOptionsWithLabels();
-    const filterOptionsWithLabels = services.search.getSupportedFiltersWithLabels();
-    const sourceInfo: SourceInfoMessage = {
-      type: 'sourceInfo',
-      data: {
-        currentProjectType: services.getCurrentProjectType(),
-        currentSource: services.getCurrentSourceType(),
-        availableSources: services.getAvailableSources(),
-        supportedSortOptions: services.getSupportedSortOptions(), // For backward compatibility
-        supportedSortOptionsWithLabels: sortOptionsWithLabels.map(opt => {
-          if (typeof opt === 'string') {
-            return { value: opt, label: opt.charAt(0).toUpperCase() + opt.slice(1) };
-          }
-          return { value: opt.value, label: opt.label };
-        }),
-        supportedFilters: services.getSupportedFilters(), // For backward compatibility
-        supportedFiltersWithLabels: filterOptionsWithLabels.map(filter => {
-          if (typeof filter === 'string') {
-            return { value: filter, label: filter.charAt(0).toUpperCase() + filter.slice(1) };
-          }
-          return { value: filter.value, label: filter.label, placeholder: filter.placeholder };
-        }),
-        supportedCapabilities: supportedCapabilities.map(c => c.toString()),
-        capabilitySupport,
-      },
-    };
-    
-    this._panel.webview.postMessage(sourceInfo);
-  }
 
   private async handleMessage(message: WebviewToExtensionMessage): Promise<void> {
     const services = getServices();
 
     switch (message.type) {
       case 'ready': {
-        // React app is ready, send source info and load package details
-        this.sendSourceInfo();
+        // React app is ready, load and send package details
+        await this.sendSourceInfo();
         await this.loadPackageDetails();
         break;
       }
 
       case 'getSourceInfo': {
-        this.sendSourceInfo();
+        await this.sendSourceInfo();
         break;
       }
 
       case 'install': {
-        const result = await services.install.install(message.packageName, message.options);
+        const targetManifestPath = await selectInstallTargetManifest(
+          message.packageName,
+          services.workspace,
+          services.install,
+          vscode.window.activeTextEditor?.document.uri.fsPath
+        );
+        if (!targetManifestPath && (await services.workspace.getPackageJsonFiles()).length > 1) {
+          break;
+        }
+
+        const result = await services.install.install(
+          message.packageName,
+          message.options,
+          targetManifestPath
+        );
+        await this.sendSourceInfo();
         if (result.success) {
           this._panel.webview.postMessage({
             type: 'installSuccess',
@@ -159,6 +175,11 @@ export class PackageDetailsPanel {
 
       case 'openExternal': {
         vscode.env.openExternal(vscode.Uri.parse(message.url));
+        break;
+      }
+
+      case 'openPackageDetails': {
+        await PackageDetailsPanel.createOrShow(this._extensionUri, message.packageName);
         break;
       }
 
@@ -244,6 +265,47 @@ export class PackageDetailsPanel {
 </html>`;
   }
 
+  private async sendSourceInfo(): Promise<void> {
+    const services = getServices();
+    const supportedCapabilities = services.package.getSupportedCapabilities();
+    const activePath = vscode.window.activeTextEditor?.document.uri.fsPath;
+    const detectedPackageManager = await services.install.detectPackageManager(activePath);
+    const installTarget = await getInstallTargetSummary(
+      services.workspace,
+      services.install,
+      activePath
+    );
+
+    const capabilitySupport: Record<string, { capability: string; supported: boolean; reason?: string }> = {};
+    for (const cap of supportedCapabilities) {
+      const support = services.package.getCapabilitySupport(cap);
+      if (support) {
+        capabilitySupport[cap] = {
+          capability: cap,
+          supported: support.supported,
+          reason: support.reason,
+        };
+      }
+    }
+
+    const sourceInfo: SourceInfoMessage = {
+      type: 'sourceInfo',
+      data: {
+        currentProjectType: services.getCurrentProjectType(),
+        detectedPackageManager,
+        installTarget: installTarget || undefined,
+        currentSource: services.getCurrentSourceType(),
+        availableSources: services.getAvailableSources(),
+        supportedSortOptions: services.getSupportedSortOptions(),
+        supportedFilters: services.getSupportedFilters(),
+        supportedCapabilities: supportedCapabilities.map((c) => c.toString()),
+        capabilitySupport,
+      },
+    };
+
+    this._panel.webview.postMessage(sourceInfo);
+  }
+
   private escapeHtml(text: string): string {
     return text
       .replace(/&/g, '&amp;')
@@ -263,7 +325,7 @@ export class PackageDetailsPanel {
   }
 
   public dispose(): void {
-    PackageDetailsPanel.currentPanels.delete(this._packageName);
+    PackageDetailsPanel.currentPanels.delete(this._panelKey);
     this._panel.dispose();
     while (this._disposables.length) {
       const disposable = this._disposables.pop();

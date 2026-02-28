@@ -24,9 +24,11 @@ export class InstallService {
    */
   async install(
     packageName: string,
-    options: InstallOptions
+    options: InstallOptions,
+    targetPath?: string
   ): Promise<{ success: boolean; message: string }> {
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    const workspaceFolder = this.resolveWorkspaceFolder(targetPath);
+    const executionUri = this.getExecutionUri(targetPath, workspaceFolder);
 
     if (!workspaceFolder) {
       return { success: false, message: 'No workspace folder open' };
@@ -51,13 +53,13 @@ export class InstallService {
       const command = adapter.getInstallCommand(packageName, options);
       const projectType = adapter.projectType;
 
-      const terminal = this.getOrCreateTerminal(projectType);
+      const terminal = this.getOrCreateTerminal(projectType, workspaceFolder, executionUri, targetPath);
       terminal.show();
       terminal.sendText(command);
 
       return {
         success: true,
-        message: `Installing ${packageName}...`,
+        message: `Installing ${packageName}${targetPath ? ` into ${vscode.workspace.asRelativePath(targetPath) || targetPath}` : ''}...`,
       };
     } catch (error) {
       return {
@@ -73,7 +75,8 @@ export class InstallService {
    */
   async update(
     packageName: string,
-    version?: string
+    version?: string,
+    targetPath?: string
   ): Promise<{ success: boolean; message: string }> {
     if (!this.sourceSelector) {
       return { success: false, message: 'InstallService not initialized: SourceSelector is required' };
@@ -93,8 +96,10 @@ export class InstallService {
       
       const command = adapter.getUpdateCommand(packageName, version);
       const projectType = adapter.projectType;
+      const workspaceFolder = this.resolveWorkspaceFolder(targetPath);
+      const executionUri = this.getExecutionUri(targetPath, workspaceFolder);
 
-      const terminal = this.getOrCreateTerminal(projectType);
+      const terminal = this.getOrCreateTerminal(projectType, workspaceFolder, executionUri, targetPath);
       terminal.show();
       terminal.sendText(command);
 
@@ -116,7 +121,7 @@ export class InstallService {
    * Remove a package
    * Command generation is delegated to the source adapter
    */
-  async remove(packageName: string): Promise<{ success: boolean; message: string }> {
+  async remove(packageName: string, targetPath?: string): Promise<{ success: boolean; message: string }> {
     if (!this.sourceSelector) {
       return { success: false, message: 'InstallService not initialized: SourceSelector is required' };
     }
@@ -135,8 +140,10 @@ export class InstallService {
       
       const command = adapter.getRemoveCommand(packageName);
       const projectType = adapter.projectType;
+      const workspaceFolder = this.resolveWorkspaceFolder(targetPath);
+      const executionUri = this.getExecutionUri(targetPath, workspaceFolder);
 
-      const terminal = this.getOrCreateTerminal(projectType);
+      const terminal = this.getOrCreateTerminal(projectType, workspaceFolder, executionUri, targetPath);
       terminal.show();
       terminal.sendText(command);
 
@@ -328,13 +335,78 @@ export class InstallService {
       return null;
     }
   }
+ 
+  /**
+   * Detect package manager for the current workspace.
+   * This is used by commands that need to run update/audit directly.
+   */
+  async detectPackageManager(targetPath?: string): Promise<PackageManager> {
+    const workspaceFolder = this.resolveWorkspaceFolder(targetPath);
+    if (!workspaceFolder) {
+      return this.getConfiguredPackageManager();
+    }
 
+    const fs = require('fs') as typeof import('fs');
+    const path = require('path') as typeof import('path');
+    const rootPath = workspaceFolder.uri.fsPath;
+    const startPath = targetPath
+      ? path.dirname(targetPath)
+      : vscode.window.activeTextEditor
+        ? path.dirname(vscode.window.activeTextEditor.document.uri.fsPath)
+        : rootPath;
+
+    try {
+      const lockFiles: Array<{ file: string; manager: PackageManager }> = [
+        { file: 'bun.lock', manager: 'bun' },
+        { file: 'bun.lockb', manager: 'bun' },
+        { file: 'pnpm-lock.yaml', manager: 'pnpm' },
+        { file: 'yarn.lock', manager: 'yarn' },
+        { file: 'package-lock.json', manager: 'npm' },
+      ];
+
+      let currentPath = startPath;
+      while (currentPath.startsWith(rootPath)) {
+        for (const { file, manager } of lockFiles) {
+          const lockFilePath = path.join(currentPath, file);
+          try {
+            if (fs.existsSync(lockFilePath)) {
+              return manager;
+            }
+          } catch {
+            // Ignore and continue checking other lock files
+          }
+        }
+
+        if (currentPath === rootPath) {
+          break;
+        }
+
+        const parentPath = path.dirname(currentPath);
+        if (parentPath === currentPath) {
+          break;
+        }
+        currentPath = parentPath;
+      }
+    } catch {
+      // Ignore FS errors and fall back to config
+    }
+
+    return this.getConfiguredPackageManager();
+  }
 
   /**
-   * Detect package manager from workspace
+   * Get configured package manager from settings
+   */
+  private getConfiguredPackageManager(): PackageManager {
+    const config = vscode.workspace.getConfiguration('npmGallery');
+    return config.get<PackageManager>('packageManager', 'npm');
+  }
+
+  /**
+   * Detect package manager from workspace (simplified version without targetPath)
    * Checks for lock files to determine which package manager is being used
    */
-  async detectPackageManager(): Promise<PackageManager> {
+  async detectPackageManagerSimple(): Promise<PackageManager> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
       return this.getConfiguredPackageManager();
@@ -372,23 +444,24 @@ export class InstallService {
   }
 
   /**
-   * Get configured package manager from settings
-   */
-  private getConfiguredPackageManager(): PackageManager {
-    const config = vscode.workspace.getConfiguration('npmGallery');
-    const packageManager = config.get<PackageManager>('packageManager', 'npm');
-    return packageManager;
-  }
-
-  /**
    * Get or create terminal for commands
    */
-  private getOrCreateTerminal(projectType: ProjectType): vscode.Terminal {
+  private getOrCreateTerminal(
+    projectType: ProjectType,
+    workspaceFolder?: vscode.WorkspaceFolder,
+    cwdUri?: vscode.Uri,
+    targetPath?: string
+  ): vscode.Terminal {
+    const workspaceSuffix =
+      workspaceFolder && vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 1
+        ? ` (${workspaceFolder.name})`
+        : '';
+    const targetSuffix = this.getTargetTerminalSuffix(workspaceFolder, targetPath);
     const terminalNames: Record<ProjectType, string> = {
-      npm: 'NPM Gallery',
-      maven: 'Maven Gallery',
-      go: 'Go Gallery',
-      unknown: 'Package Gallery',
+      npm: `NPM Gallery${workspaceSuffix}${targetSuffix}`,
+      maven: `Maven Gallery${workspaceSuffix}${targetSuffix}`,
+      go: `Go Gallery${workspaceSuffix}${targetSuffix}`,
+      unknown: `Package Gallery${workspaceSuffix}${targetSuffix}`,
     };
 
     const terminalName = terminalNames[projectType];
@@ -400,6 +473,47 @@ export class InstallService {
       return existingTerminal;
     }
 
-    return vscode.window.createTerminal(terminalName);
+    return vscode.window.createTerminal({
+      name: terminalName,
+      cwd: cwdUri || workspaceFolder?.uri,
+    });
+  }
+
+  private getExecutionUri(targetPath?: string, workspaceFolder?: vscode.WorkspaceFolder): vscode.Uri | undefined {
+    if (targetPath) {
+      const path = require('path') as typeof import('path');
+      return vscode.Uri.file(path.dirname(targetPath));
+    }
+
+    return workspaceFolder?.uri;
+  }
+
+  private resolveWorkspaceFolder(targetPath?: string): vscode.WorkspaceFolder | undefined {
+    if (targetPath) {
+      return vscode.workspace.getWorkspaceFolder(vscode.Uri.file(targetPath));
+    }
+
+    return vscode.window.activeTextEditor
+      ? vscode.workspace.getWorkspaceFolder(vscode.window.activeTextEditor.document.uri)
+      : vscode.workspace.workspaceFolders?.[0];
+  }
+
+  private getTargetTerminalSuffix(
+    workspaceFolder?: vscode.WorkspaceFolder,
+    targetPath?: string
+  ): string {
+    if (!workspaceFolder || !targetPath) {
+      return '';
+    }
+
+    const relativePath = vscode.workspace.asRelativePath(targetPath);
+    const normalized = relativePath.replace(/\\/g, '/');
+    const segments = normalized.split('/').filter(Boolean);
+    if (segments.length <= 1) {
+      return '';
+    }
+
+    const projectSegment = segments[segments.length - 2];
+    return ` - ${projectSegment}`;
   }
 }

@@ -7,6 +7,7 @@ import { ProjectDetector, getProjectDetector } from '../registry/project-detecto
 import { SourceSelector, initSourceSelector } from '../registry/source-selector';
 import { SourceConfigManager, initSourceConfigManager } from '../config/source-config';
 import { NpmRegistrySourceAdapter } from '../sources/npm/npm-adapter';
+import { NpmsSourceAdapter } from '../sources/npm/npms-adapter';
 import { SonatypeSourceAdapter } from '../sources/sonatype/sonatype-adapter';
 import { LibrariesIoSourceAdapter } from '../sources/libraries-io';
 import { getApiClients } from '../api/clients';
@@ -78,12 +79,23 @@ export class ServiceContainer {
       clients.npmRegistry,
       clients.bundlephobia,
       clients.audit,
-      clients.librariesIo // Pass libraries-io client for fallback
+      clients.librariesIo, // Pass libraries-io client for fallback
+      clients.depsDev // Pass deps.dev client for requirements and dependents
     );
     this.sourceRegistry.register('npm-registry', npmAdapter);
 
+    // Register npms.io adapter as fallback
+    const npmsAdapter = new NpmsSourceAdapter(
+      clients.npms,
+      clients.npmRegistry,
+      clients.bundlephobia,
+      clients.audit,
+      clients.depsDev
+    );
+    this.sourceRegistry.register('npms-io', npmsAdapter);
+
     // Register Sonatype Central adapter for Maven/Gradle (with libraries-io as internal fallback)
-    const sonatypeAdapter = new SonatypeSourceAdapter(clients.sonatype, clients.audit, clients.librariesIo);
+    const sonatypeAdapter = new SonatypeSourceAdapter(clients.sonatype, clients.audit, clients.librariesIo, clients.depsDev);
     this.sourceRegistry.register('sonatype', sonatypeAdapter);
 
     // Register Libraries.io as a standalone source adapter

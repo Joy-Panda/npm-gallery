@@ -2,6 +2,133 @@
  * Version comparison utilities
  * Supports both npm semantic versions and Maven version formats
  */
+import type { DependencySpecKind, UpdateType } from '../types/package';
+
+export interface ParsedDependencySpec {
+  raw: string;
+  kind: DependencySpecKind;
+  normalizedVersion?: string;
+  displayText: string;
+  isRegistryResolvable: boolean;
+}
+
+export function formatDependencySpecDisplay(
+  spec: ParsedDependencySpec,
+  options?: {
+    workspaceLocal?: boolean;
+    workspaceSelf?: boolean;
+  }
+): string {
+  if (options?.workspaceSelf) {
+    return `workspace self (${spec.raw})`;
+  }
+
+  if (options?.workspaceLocal) {
+    return `workspace local (${spec.raw})`;
+  }
+
+  switch (spec.kind) {
+    case 'workspace':
+      return `workspace local (${spec.raw})`;
+    case 'file':
+    case 'path':
+      return `local path (${spec.raw})`;
+    case 'git':
+      return `git (${spec.raw})`;
+    case 'tag':
+      return spec.displayText;
+    case 'semver':
+      return spec.displayText;
+    default:
+      return spec.displayText;
+  }
+}
+
+const TAG_SPECS = new Set(['latest', 'next', 'beta', 'alpha', 'rc', 'canary', 'nightly', 'dev', 'lts']);
+
+export function parseDependencySpec(rawSpec: string): ParsedDependencySpec {
+  const raw = rawSpec.trim();
+
+  if (!raw) {
+    return {
+      raw,
+      kind: 'unknown',
+      displayText: raw,
+      isRegistryResolvable: false,
+    };
+  }
+
+  if (raw.startsWith('workspace:')) {
+    return {
+      raw,
+      kind: 'workspace',
+      displayText: raw,
+      isRegistryResolvable: false,
+    };
+  }
+
+  if (raw.startsWith('file:') || raw.startsWith('link:')) {
+    return {
+      raw,
+      kind: 'file',
+      displayText: raw,
+      isRegistryResolvable: false,
+    };
+  }
+
+  if (raw.startsWith('../') || raw.startsWith('./') || raw.startsWith('/') || raw.startsWith('..\\') || raw.startsWith('.\\')) {
+    return {
+      raw,
+      kind: 'path',
+      displayText: raw,
+      isRegistryResolvable: false,
+    };
+  }
+
+  if (
+    raw.startsWith('git+') ||
+    raw.startsWith('git@') ||
+    raw.startsWith('github:') ||
+    raw.startsWith('gitlab:') ||
+    raw.startsWith('bitbucket:') ||
+    /^https?:\/\/.+\.git(?:#.+)?$/i.test(raw)
+  ) {
+    return {
+      raw,
+      kind: 'git',
+      displayText: raw,
+      isRegistryResolvable: false,
+    };
+  }
+
+  if (TAG_SPECS.has(raw.toLowerCase())) {
+    return {
+      raw,
+      kind: 'tag',
+      normalizedVersion: raw,
+      displayText: raw,
+      isRegistryResolvable: true,
+    };
+  }
+
+  const normalizedVersion = raw.replace(/^[\^~<>=\s]+/, '');
+  if (/^\d+(\.\d+){0,2}([.-][0-9A-Za-z.-]+)?$/.test(normalizedVersion)) {
+    return {
+      raw,
+      kind: 'semver',
+      normalizedVersion,
+      displayText: normalizedVersion,
+      isRegistryResolvable: true,
+    };
+  }
+
+  return {
+    raw,
+    kind: 'unknown',
+    displayText: raw,
+    isRegistryResolvable: false,
+  };
+}
 
 /**
  * Parse version string into components
@@ -138,4 +265,48 @@ export function compareVersions(v1: string, v2: string): number {
  */
 export function isNewerVersion(a: string, b: string): boolean {
   return compareVersions(a, b) < 0;
+}
+
+/**
+ * Determine update type between versions
+ * Handles semver-like npm versions and Maven-style qualifiers.
+ */
+export function getUpdateType(current: string, latest: string): UpdateType | null {
+  const comparison = compareVersions(current, latest);
+
+  if (comparison >= 0) {
+    return null;
+  }
+
+  const currentParts = parseVersionComponents(current);
+  const latestParts = parseVersionComponents(latest);
+
+  if (latestParts.major > currentParts.major) {
+    return 'major';
+  }
+  if (latestParts.minor > currentParts.minor) {
+    return 'minor';
+  }
+  if (latestParts.patch > currentParts.patch) {
+    return 'patch';
+  }
+
+  if (latestParts.build !== undefined && currentParts.build !== undefined) {
+    if (latestParts.build > currentParts.build) {
+      return 'patch';
+    }
+  }
+
+  if (currentParts.prerelease && !latestParts.prerelease) {
+    if (latestParts.major > currentParts.major) return 'major';
+    if (latestParts.minor > currentParts.minor) return 'minor';
+    if (latestParts.patch > currentParts.patch) return 'patch';
+    return 'prerelease';
+  }
+
+  if (currentParts.prerelease || latestParts.prerelease) {
+    return 'prerelease';
+  }
+
+  return null;
 }

@@ -167,9 +167,10 @@ export class SonatypeApiClient extends BaseApiClient {
       size?: number;
       core?: 'ga' | 'gav'; // ga = groupId/artifactId, gav = groupId/artifactId/version
       sort?: string; // Sort parameter (e.g., 'score desc', 'timestamp desc', 'g asc', 'a asc')
+      signal?: AbortSignal;
     } = {}
   ): Promise<SonatypeSearchResponse> {
-    const { from = 0, size = 20, core = 'ga', sort } = options;
+    const { from = 0, size = 20, core = 'ga', sort, signal } = options;
 
     const params: Record<string, string | number> = {
       q: query,
@@ -187,6 +188,7 @@ export class SonatypeApiClient extends BaseApiClient {
     }
 
     return this.get<SonatypeSearchResponse>('/solrsearch/select', {
+      signal,
       params,
     });
   }
@@ -229,6 +231,21 @@ export class SonatypeApiClient extends BaseApiClient {
    */
   async getArtifact(groupId: string, artifactId: string): Promise<SonatypeArtifact | null> {
     const response = await this.searchByCoordinates(groupId, artifactId, { size: 1 });
+    if (response.response.docs.length === 0) {
+      return null;
+    }
+    return response.response.docs[0];
+  }
+
+  async getArtifactVersion(
+    groupId: string,
+    artifactId: string,
+    version: string
+  ): Promise<SonatypeArtifact | null> {
+    const response = await this.search(`g:${groupId} AND a:${artifactId} AND v:${version}`, {
+      size: 1,
+      core: 'gav',
+    });
     if (response.response.docs.length === 0) {
       return null;
     }

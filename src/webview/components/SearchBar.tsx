@@ -14,6 +14,7 @@ interface SearchBarProps {
   isAdvancedSearchOpen?: boolean;
   showSourceSelector?: boolean;
   sourceInfo?: SourceInfo;
+  sourceHint?: string;
 }
 
 export const SearchBar: React.FC<SearchBarProps> = ({ 
@@ -24,7 +25,8 @@ export const SearchBar: React.FC<SearchBarProps> = ({
   onAdvancedSearchToggle,
   isAdvancedSearchOpen = false,
   showSourceSelector = true,
-  sourceInfo
+  sourceInfo,
+  sourceHint,
 }) => {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && onSearch) {
@@ -58,7 +60,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
         </div>
         <Input
           type="text"
-          placeholder={getPlaceholder()}
+          placeholder={sourceInfo ? getPlaceholder() : "Search packages... (Press Enter to search)"}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -89,6 +91,7 @@ export const SearchBar: React.FC<SearchBarProps> = ({
           )}
         </div>
       </div>
+      {sourceHint && <div className="source-hint">{sourceHint}</div>}
 
       <style>{`
         .search-container {
@@ -110,6 +113,13 @@ export const SearchBar: React.FC<SearchBarProps> = ({
           position: relative;
           display: flex;
           align-items: center;
+        }
+
+        .source-hint {
+          margin-top: 8px;
+          font-size: 11px;
+          color: var(--vscode-descriptionForeground);
+          line-height: 1.4;
         }
 
         .search-icon {

@@ -29,13 +29,33 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({ compact = false 
     setIsOpen(false);
   };
 
+  // Filter available sources based on project type
+  const getFilteredSources = (): SourceType[] => {
+    const projectType = sourceInfo.currentProjectType;
+    
+    if (projectType === 'npm') {
+      // For npm projects (package.json), only show npm-registry and npms-io
+      return sourceInfo.availableSources.filter(
+        source => source === 'npm-registry' || source === 'npms-io'
+      );
+    } else if (projectType === 'maven') {
+      // For maven projects (pom.xml/gradle), only show sonatype
+      return sourceInfo.availableSources.filter(source => source === 'sonatype');
+    }
+    
+    // For other project types, return all available sources
+    return sourceInfo.availableSources;
+  };
+
+  const filteredSources = getFilteredSources();
+
   // Always show the selector if there are any sources available
   // This allows users to see and switch between different source types
-  if (sourceInfo.availableSources.length === 0) {
+  if (filteredSources.length === 0) {
     return null; // Only hide if no sources available
   }
 
-  const hasMultipleSources = sourceInfo.availableSources.length > 1;
+  const hasMultipleSources = filteredSources.length > 1;
 
   return (
     <div className="source-selector" ref={dropdownRef}>
@@ -63,7 +83,7 @@ export const SourceSelector: React.FC<SourceSelectorProps> = ({ compact = false 
               {getProjectTypeDisplayName(sourceInfo.currentProjectType)}
             </span>
           </div>
-          {sourceInfo.availableSources.map((source) => (
+          {filteredSources.map((source) => (
             <button
               key={source}
               className={`source-selector-option ${source === sourceInfo.currentSource ? 'active' : ''}`}

@@ -11,7 +11,7 @@ interface DependenciesTabProps {
     optional?: boolean;
   };
   onToggleSection: (section: 'runtime' | 'dev' | 'peer' | 'optional') => void;
-  onOpenExternal: (url: string) => void;
+  onOpenPackageDetails: (packageName: string) => void;
 }
 
 const dependenciesStyles = `
@@ -136,8 +136,22 @@ export const DependenciesTab: React.FC<DependenciesTabProps> = ({
   details,
   expandedSections,
   onToggleSection,
-  onOpenExternal,
+  onOpenPackageDetails,
 }) => {
+  const renderDependencyList = (dependencies: Record<string, string>) => (
+    <div className="deps-list">
+      {Object.entries(dependencies).map(([name, version]) => (
+        <div key={name} className="dep-item" onClick={() => onOpenPackageDetails(name)}>
+          <span className="dep-name">{name}</span>
+          <div className="dep-right">
+            <span className="dep-version">{version}</span>
+            <ChevronRight size={14} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
   return (
     <>
       <style>{dependenciesStyles}</style>
@@ -159,25 +173,7 @@ export const DependenciesTab: React.FC<DependenciesTabProps> = ({
               <span className="deps-count">({Object.keys(details.dependencies).length})</span>
             </div>
           </h3>
-          {expandedSections.runtime && (
-            <div className="deps-list">
-              {Object.entries(details.dependencies).map(([name, version]) => {
-                const isMaven = name.includes(':');
-                const url = isMaven 
-                  ? `https://search.maven.org/artifact/${name.replace(':', '/')}`
-                  : `https://www.npmjs.com/package/${name}`;
-                return (
-                  <div key={name} className="dep-item" onClick={() => onOpenExternal(url)}>
-                    <span className="dep-name">{name}</span>
-                    <div className="dep-right">
-                      <span className="dep-version">{version}</span>
-                      <ChevronRight size={14} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          {expandedSections.runtime && renderDependencyList(details.dependencies)}
         </div>
       )}
 
@@ -198,25 +194,7 @@ export const DependenciesTab: React.FC<DependenciesTabProps> = ({
               <span className="deps-count">({Object.keys(details.devDependencies).length})</span>
             </div>
           </h3>
-          {expandedSections.dev && (
-            <div className="deps-list">
-              {Object.entries(details.devDependencies).map(([name, version]) => {
-                const isMaven = name.includes(':');
-                const url = isMaven 
-                  ? `https://search.maven.org/artifact/${name.replace(':', '/')}`
-                  : `https://www.npmjs.com/package/${name}`;
-                return (
-                  <div key={name} className="dep-item" onClick={() => onOpenExternal(url)}>
-                    <span className="dep-name">{name}</span>
-                    <div className="dep-right">
-                      <span className="dep-version">{version}</span>
-                      <ChevronRight size={14} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          {expandedSections.dev && renderDependencyList(details.devDependencies)}
         </div>
       )}
 
@@ -237,25 +215,7 @@ export const DependenciesTab: React.FC<DependenciesTabProps> = ({
               <span className="deps-count">({Object.keys(details.peerDependencies).length})</span>
             </div>
           </h3>
-          {expandedSections.peer && (
-            <div className="deps-list">
-              {Object.entries(details.peerDependencies).map(([name, version]) => {
-                const isMaven = name.includes(':');
-                const url = isMaven 
-                  ? `https://search.maven.org/artifact/${name.replace(':', '/')}`
-                  : `https://www.npmjs.com/package/${name}`;
-                return (
-                  <div key={name} className="dep-item" onClick={() => onOpenExternal(url)}>
-                    <span className="dep-name">{name}</span>
-                    <div className="dep-right">
-                      <span className="dep-version">{version}</span>
-                      <ChevronRight size={14} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          {expandedSections.peer && renderDependencyList(details.peerDependencies)}
         </div>
       )}
 
@@ -276,25 +236,7 @@ export const DependenciesTab: React.FC<DependenciesTabProps> = ({
               <span className="deps-count">({Object.keys(details.optionalDependencies).length})</span>
             </div>
           </h3>
-          {expandedSections.optional && (
-            <div className="deps-list">
-              {Object.entries(details.optionalDependencies).map(([name, version]) => {
-                const isMaven = name.includes(':');
-                const url = isMaven 
-                  ? `https://search.maven.org/artifact/${name.replace(':', '/')}`
-                  : `https://www.npmjs.com/package/${name}`;
-                return (
-                  <div key={name} className="dep-item" onClick={() => onOpenExternal(url)}>
-                    <span className="dep-name">{name}</span>
-                    <div className="dep-right">
-                      <span className="dep-version">{version}</span>
-                      <ChevronRight size={14} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+          {expandedSections.optional && renderDependencyList(details.optionalDependencies)}
         </div>
       )}
 
@@ -303,7 +245,7 @@ export const DependenciesTab: React.FC<DependenciesTabProps> = ({
        (!details.devDependencies || Object.keys(details.devDependencies).length === 0) &&
        (!details.peerDependencies || Object.keys(details.peerDependencies).length === 0) &&
        (!details.optionalDependencies || Object.keys(details.optionalDependencies).length === 0) && (
-        <div className="empty-tab">No dependencies</div>
+        <div className="empty-tab">{details.name} {details.version} has no dependencies.</div>
       )}
     </div>
     </>

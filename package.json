@@ -25,7 +25,10 @@
     "registry"
   ],
   "activationEvents": [
-    "workspaceContains:**/package.json"
+    "workspaceContains:**/package.json",
+    "workspaceContains:**/pom.xml",
+    "workspaceContains:**/build.gradle",
+    "workspaceContains:**/build.gradle.kts"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -72,8 +75,35 @@
         "category": "NPM Gallery"
       },
       {
+        "command": "npmGallery.showWorkspaceGraph",
+        "title": "Show Workspace Graph",
+        "category": "NPM Gallery"
+      },
+      {
+        "command": "npmGallery.alignWorkspaceDependencyVersions",
+        "title": "Align Workspace Dependency Versions",
+        "category": "NPM Gallery"
+      },
+      {
+        "command": "npmGallery.openDependencyAnalyzer",
+        "title": "Open with NPM Gallery (Text + Dependency Analyzer)",
+        "category": "NPM Gallery",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "npmGallery.setPackageJsonEditorDefault",
+        "title": "Reset package.json Editor to Default",
+        "category": "NPM Gallery"
+      },
+      {
         "command": "npmGallery.refreshView",
         "title": "Refresh",
+        "category": "NPM Gallery",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "npmGallery.refreshGroup",
+        "title": "Refresh Group",
         "category": "NPM Gallery",
         "icon": "$(refresh)"
       }
@@ -112,6 +142,18 @@
           "group": "navigation"
         }
       ],
+      "editor/title": [
+        {
+          "command": "npmGallery.openDependencyAnalyzer",
+          "when": "resourceFilename == package.json",
+          "group": "navigation"
+        },
+        {
+          "command": "npmGallery.setPackageJsonEditorDefault",
+          "when": "resourceFilename == package.json",
+          "group": "navigation"
+        }
+      ],
       "view/item/context": [
         {
           "command": "npmGallery.updatePackage",
@@ -125,6 +167,16 @@
         {
           "command": "npmGallery.showPackageDetails",
           "when": "(view == npmGallery.installedView && viewItem == installedPackage) || view == npmGallery.updatesView"
+        },
+        {
+          "command": "npmGallery.refreshGroup",
+          "when": "view == npmGallery.installedView && (viewItem == workspaceGroup || viewItem == manifestGroup)",
+          "group": "inline"
+        },
+        {
+          "command": "npmGallery.refreshGroup",
+          "when": "view == npmGallery.updatesView && (viewItem == updateWorkspaceGroup || viewItem == updateManifestGroup)",
+          "group": "inline"
         }
       ]
     },
@@ -141,7 +193,8 @@
           "enum": [
             "npm",
             "yarn",
-            "pnpm"
+            "pnpm",
+            "bun"
           ],
           "default": "npm",
           "description": "Preferred package manager"
@@ -225,6 +278,7 @@
     "typescript-eslint": "^8.46.3"
   },
   "dependencies": {
+    "jsonc-parser": "^3.3.1",
     "@pandatix/js-cvss": "^0.4.4",
     "@radix-ui/react-separator": "^1.1.8",
     "@radix-ui/react-tabs": "^1.1.13",

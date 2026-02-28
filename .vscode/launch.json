@@ -1,21 +1,33 @@
-// A launch configuration that compiles the extension and then opens it inside a new window
-// Use IntelliSense to learn about possible attributes.
-// Hover to view descriptions of existing attributes.
-// For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
 {
-	"version": "0.2.0",
-	"configurations": [
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Run NPM",
+            "type": "extensionHost",
+            "request": "launch",
+            "args": [
+                "--extensionDevelopmentPath=${workspaceFolder}",
+                // 直接指向 WSL 挂载的 Windows 工作区文件路径
+                "c:/develop/workspace/scmp-workspace/scmp-ui"
+            ],
+            "outFiles": [
+                "${workspaceFolder}/dist/**/*.js"
+            ],
+            "preLaunchTask": "${defaultBuildTask}"
+        },
 		{
-			"name": "Run Extension",
-			"type": "extensionHost",
-			"request": "launch",
-			"args": [
-				"--extensionDevelopmentPath=${workspaceFolder}"
-			],
-			"outFiles": [
-				"${workspaceFolder}/dist/**/*.js"
-			],
-			"preLaunchTask": "${defaultBuildTask}"
-		}
-	]
+            "name": "Run Maven",
+            "type": "extensionHost",
+            "request": "launch",
+            "args": [
+                "--extensionDevelopmentPath=${workspaceFolder}",
+                // 直接指向 WSL 挂载的 Windows 工作区文件路径
+                "c:/develop/workspace/metis-workspace/collector"
+            ],
+            "outFiles": [
+                "${workspaceFolder}/dist/**/*.js"
+            ],
+            "preLaunchTask": "${defaultBuildTask}"
+        }
+    ]
 }

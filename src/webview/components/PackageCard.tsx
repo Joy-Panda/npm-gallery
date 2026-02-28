@@ -5,7 +5,6 @@ import {
   Star,
   Scale,
   AlertTriangle,
-  Plus,
   Copy,
 } from "lucide-react";
 import { Badge } from "./ui/badge";
@@ -17,30 +16,31 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "./ui/tooltip";
-import type { PackageInfo } from "../../types/package";
-import type { ProjectType } from "../../types/project";
+import type { DependencyType, PackageInfo } from "../../types/package";
+import { InstallMenuButton } from "./InstallMenuButton";
 
 interface PackageCardProps {
   package: PackageInfo;
   onClick: () => void;
-  onInstall: (type: "dependencies" | "devDependencies") => void;
-  currentProjectType?: ProjectType;
+  onInstall: (type: DependencyType) => void;
   onCopy?: (packageName: string, version: string) => void;
+  supportedInstallTypes?: DependencyType[];
+  showInstall?: boolean;
 }
 
 export const PackageCard: React.FC<PackageCardProps> = ({
   package: pkg,
   onClick,
   onInstall,
-  currentProjectType,
   onCopy,
+  supportedInstallTypes = ['dependencies'],
+  showInstall = true,
 }) => {
   const [isHovered, setIsHovered] = useState(false);
   
-  // Check if current project type requires copy
-  // All Java/Scala build tools (maven, gradle, sbt, mill, ivy, grape, leiningen, buildr) require copy
-  // ProjectType 'maven' represents all Java/Scala projects regardless of the specific build tool
-  const requiresCopy = currentProjectType === 'maven';
+  // Determine if we should show copy or install based on source capabilities
+  // If source supports installation, show install button; otherwise show copy button
+  const requiresCopy = !showInstall;
 
   const formatDownloads = (count?: number) => {
     if (!count) return null;
@@ -54,11 +54,6 @@ export const PackageCard: React.FC<PackageCardProps> = ({
     if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
     if (bytes >= 1024) return `${(bytes / 1024).toFixed(1)}KB`;
     return `${bytes}B`;
-  };
-
-  const handleInstallClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    onInstall("dependencies");
   };
 
   const handleCopyClick = (e: React.MouseEvent) => {
@@ -175,10 +170,16 @@ export const PackageCard: React.FC<PackageCardProps> = ({
             )}
 
             {/* Stats */}
-            <div style={statsStyles}>
-              <Badge variant="secondary" style={{ fontFamily: "monospace" }}>
-                {pkg.version}
-              </Badge>
+	            <div style={statsStyles}>
+	              {pkg.exactMatch && (
+	                <Badge variant="default">
+	                  exact match
+	                </Badge>
+	              )}
+
+	              <Badge variant="secondary" style={{ fontFamily: "monospace" }}>
+	                {pkg.version}
+	              </Badge>
 
               {downloads && (
                 <Tooltip>
@@ -238,7 +239,15 @@ export const PackageCard: React.FC<PackageCardProps> = ({
           </div>
 
           {/* Install/Copy Button */}
-          {requiresCopy ? (
+          {showInstall ? (
+            <div style={buttonStyles} onClick={(event) => event.stopPropagation()}>
+              <InstallMenuButton
+                size="icon"
+                onInstall={onInstall}
+                supportedTypes={supportedInstallTypes}
+              />
+            </div>
+          ) : requiresCopy && onCopy ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button size="icon" style={buttonStyles} onClick={handleCopyClick}>
@@ -249,11 +258,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({
                 Copy dependency snippet
               </TooltipContent>
             </Tooltip>
-          ) : (
-            <Button size="icon" style={buttonStyles} onClick={handleInstallClick}>
-              <Plus style={{ width: "16px", height: "16px" }} />
-            </Button>
-          )}
+          ) : null}
         </div>
       </Card>
     </TooltipProvider>

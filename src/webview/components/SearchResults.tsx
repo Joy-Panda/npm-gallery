@@ -4,8 +4,7 @@ import { Search, Loader2, Package, SortAsc } from 'lucide-react';
 import { Badge } from './ui/badge';
 import { Card } from './ui/card';
 import { Separator } from './ui/separator';
-import type { PackageInfo, SearchSortBy } from '../../types/package';
-import type { ProjectType } from '../../types/project';
+import type { DependencyType, PackageInfo, SearchSortBy } from '../../types/package';
 import { getSortValue, getSortLabel } from '../../types/package';
 
 interface SearchResultsProps {
@@ -13,12 +12,13 @@ interface SearchResultsProps {
   total: number;
   isLoading: boolean;
   onPackageSelect: (pkg: PackageInfo) => void;
-  onInstall: (pkg: PackageInfo, type: 'dependencies' | 'devDependencies') => void;
+  onInstall: (pkg: PackageInfo, type: DependencyType) => void;
   sortBy?: SearchSortBy;
   onSortChange?: (sortBy: SearchSortBy) => void;
   supportedSortOptions?: SearchSortBy[];
-  currentProjectType?: ProjectType;
   onCopy?: (packageName: string, version: string) => void;
+  supportedInstallTypes?: DependencyType[];
+  showInstall?: boolean;
 }
 
 export const SearchResults: React.FC<SearchResultsProps> = ({
@@ -35,8 +35,9 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
     'quality',
     'maintenance',
   ] as SearchSortBy[],
-  currentProjectType,
   onCopy,
+  supportedInstallTypes = ['dependencies'],
+  showInstall = true,
 }) => {
   // Loading state
   if (isLoading && packages.length === 0) {
@@ -62,7 +63,7 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
           <Card className="empty-icon">
             <Search size={28} />
           </Card>
-          <h3 className="empty-title">Search npm packages</h3>
+          <h3 className="empty-title">Search packages</h3>
           <p className="empty-description">
             Find packages by name, keywords, or description
           </p>
@@ -134,8 +135,9 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
             package={pkg}
             onClick={() => onPackageSelect(pkg)}
             onInstall={(type) => onInstall(pkg, type)}
-            currentProjectType={currentProjectType}
             onCopy={onCopy}
+            supportedInstallTypes={supportedInstallTypes}
+            showInstall={showInstall}
           />
         ))}
       </div>

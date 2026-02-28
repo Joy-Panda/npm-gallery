@@ -19,6 +19,8 @@ export enum SourceCapability {
   BUNDLE_SIZE = 'bundleSize',
   DOWNLOAD_STATS = 'downloadStats',
   QUALITY_SCORE = 'qualityScore',
+  DEPENDENTS = 'dependents',
+  REQUIREMENTS = 'requirements',
 }
 
 /**
