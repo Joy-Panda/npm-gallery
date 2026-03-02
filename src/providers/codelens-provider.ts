@@ -16,8 +16,8 @@ interface CodeLensCacheEntry {
 }
 
 /**
- * Provides CodeLens for package updates in package.json, pom.xml, Gradle,
- * Directory.Packages.props (CPM), paket.dependencies (Paket), and Cake (.cake) scripts.
+ * Provides CodeLens for package updates in package.json, composer.json, Gemfile,
+ * pom.xml, Gradle, Directory.Packages.props (CPM), paket.dependencies (Paket), and Cake (.cake) scripts.
  */
 export class PackageCodeLensProvider implements vscode.CodeLensProvider {
   private _onDidChangeCodeLenses = new vscode.EventEmitter<void>();
@@ -91,6 +91,12 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
     // Handle composer.json
     if (fileName.endsWith('composer.json')) {
       const lenses = await this.provideCodeLensesForComposerJson(document, text);
+      this.codeLensCache.set(cacheKey, { version: document.version, lenses });
+      return lenses;
+    }
+
+    if (fileName.endsWith('gemfile')) {
+      const lenses = await this.provideCodeLensesForGemfile(document, text);
       this.codeLensCache.set(cacheKey, { version: document.version, lenses });
       return lenses;
     }
@@ -275,6 +281,126 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
 
     await Promise.all(updatePromises);
     return codeLenses;
+  }
+
+  private async provideCodeLensesForGemfile(
+    document: vscode.TextDocument,
+    text: string
+  ): Promise<vscode.CodeLens[]> {
+    const codeLenses: vscode.CodeLens[] = [];
+    const services = getServices();
+    const config = vscode.workspace.getConfiguration('npmGallery');
+    const showSecurityInfo = config.get<boolean>('showSecurityInfo', true);
+    const rubygemsAdapter = services.sourceRegistry.getAdapter('rubygems');
+    if (!rubygemsAdapter) {
+      return [];
+    }
+
+    let lockedVersions = new Map<string, string>();
+    try {
+      const lockUri = vscode.Uri.joinPath(document.uri, '..', 'Gemfile.lock');
+      const lockContent = await vscode.workspace.fs.readFile(lockUri);
+      lockedVersions = this.parseGemfileLockVersions(lockContent.toString());
+    } catch {
+      lockedVersions = new Map<string, string>();
+    }
+
+    const updatePromises: Promise<void>[] = [];
+
+    for (const match of text.matchAll(/^\s*gem\s+['"]([^'"]+)['"]\s*(?:,\s*['"]([^'"]+)['"])?/gm)) {
+      const name = match[1];
+      const versionRange = match[2];
+      if (!name) {
+        continue;
+      }
+
+      const lineText = document.lineAt(document.positionAt(match.index ?? 0).line).text;
+      if (/^\s*#/.test(lineText)) {
+        continue;
+      }
+
+      const currentVersion = lockedVersions.get(name) || (versionRange || '').replace(/^[~><=\s]+/, '') || undefined;
+      const range = new vscode.Range(
+        document.positionAt(match.index ?? 0),
+        document.positionAt((match.index ?? 0) + match[0].length)
+      );
+
+      updatePromises.push(
+        (async () => {
+          try {
+            if (showSecurityInfo && currentVersion && rubygemsAdapter.getSecurityInfo) {
+              try {
+                const security = await rubygemsAdapter.getSecurityInfo(name, currentVersion);
+                if (security?.summary) {
+                  codeLenses.push(
+                    new vscode.CodeLens(range, {
+                      title: this.formatSecurityTitle(security.summary),
+                      command: 'npmGallery.showPackageDetails',
+                      arguments: [name, { installedVersion: currentVersion, securityOnly: true }],
+                    })
+                  );
+                }
+              } catch {
+                // Continue without security lens.
+              }
+            }
+
+            const info = await rubygemsAdapter.getPackageInfo(name);
+            const latestVersion = info?.version ?? null;
+            if (currentVersion && latestVersion && isNewerVersion(currentVersion, latestVersion)) {
+              const updateType = getUpdateType(currentVersion, latestVersion);
+              codeLenses.push(
+                new vscode.CodeLens(range, {
+                  title: this.formatUpdateTitle(latestVersion, updateType),
+                  command: 'npmGallery.updatePackage',
+                  arguments: [{
+                    pkg: {
+                      name,
+                      latestVersion,
+                      packageJsonPath: document.uri.fsPath,
+                    },
+                  }],
+                })
+              );
+            }
+          } catch {
+            // Skip packages that fail.
+          }
+        })()
+      );
+    }
+
+    await Promise.all(updatePromises);
+    return codeLenses;
+  }
+
+  private parseGemfileLockVersions(content: string): Map<string, string> {
+    const versions = new Map<string, string>();
+    let inSpecs = false;
+
+    for (const rawLine of content.split(/\r?\n/)) {
+      const line = rawLine.replace(/\r$/, '');
+      if (/^\s{2}specs:\s*$/.test(line)) {
+        inSpecs = true;
+        continue;
+      }
+
+      if (inSpecs && /^[A-Z][A-Z\s_-]*$/.test(line.trim())) {
+        inSpecs = false;
+        continue;
+      }
+
+      if (!inSpecs) {
+        continue;
+      }
+
+      const match = line.match(/^\s{4}([^\s(]+)\s+\(([^)]+)\)/);
+      if (match) {
+        versions.set(match[1], match[2]);
+      }
+    }
+
+    return versions;
   }
 
   /**

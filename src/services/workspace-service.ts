@@ -35,7 +35,7 @@ export class WorkspaceService {
 
     // Watch for package manifests and monorepo config changes
     this.fileWatcher = vscode.workspace.createFileSystemWatcher(
-      '**/{package.json,composer.json,composer.lock,pom.xml,lerna.json,nx.json,workspace.json,pnpm-workspace.yaml,Directory.Packages.props,paket.dependencies,*.cake}'
+      '**/{package.json,composer.json,composer.lock,Gemfile,Gemfile.lock,pom.xml,lerna.json,nx.json,workspace.json,pnpm-workspace.yaml,Directory.Packages.props,paket.dependencies,*.cake}'
     );
 
     const invalidateAndNotify = (uri?: vscode.Uri) => {
@@ -96,6 +96,10 @@ export class WorkspaceService {
 
   async getComposerManifestFiles(): Promise<vscode.Uri[]> {
     return vscode.workspace.findFiles('**/composer.json', '**/{vendor,node_modules}/**');
+  }
+
+  async getRubyManifestFiles(): Promise<vscode.Uri[]> {
+    return vscode.workspace.findFiles('**/Gemfile', '**/{vendor,node_modules}/**');
   }
 
   /**
@@ -491,22 +495,37 @@ export class WorkspaceService {
   private async loadInstalledPackages(): Promise<InstalledPackage[]> {
     const packageJsonFiles = await this.getPackageJsonFiles();
     const composerManifestFiles = await this.getComposerManifestFiles();
+    const rubyManifestFiles = await this.getRubyManifestFiles();
     const pomXmlFiles = await this.getPomXmlFiles();
     const dotnetManifestFiles = await this.getDotNetInstalledManifestFiles();
-    return this.loadInstalledPackagesForUris(packageJsonFiles, composerManifestFiles, pomXmlFiles, dotnetManifestFiles);
+    return this.loadInstalledPackagesForUris(
+      packageJsonFiles,
+      composerManifestFiles,
+      rubyManifestFiles,
+      pomXmlFiles,
+      dotnetManifestFiles
+    );
   }
 
   private async loadInstalledPackagesForScope(scope: WorkspacePackageScope): Promise<InstalledPackage[]> {
     const packageJsonFiles = await this.getPackageJsonFilesForScope(scope);
     const composerManifestFiles = await this.getComposerManifestFilesForScope(scope);
+    const rubyManifestFiles = await this.getRubyManifestFilesForScope(scope);
     const pomXmlFiles = await this.getPomXmlFilesForScope(scope);
     const dotnetManifestFiles = await this.getDotNetManifestFilesForScope(scope);
-    return this.loadInstalledPackagesForUris(packageJsonFiles, composerManifestFiles, pomXmlFiles, dotnetManifestFiles);
+    return this.loadInstalledPackagesForUris(
+      packageJsonFiles,
+      composerManifestFiles,
+      rubyManifestFiles,
+      pomXmlFiles,
+      dotnetManifestFiles
+    );
   }
 
   private async loadInstalledPackagesForUris(
     packageJsonFiles: vscode.Uri[],
     composerManifestFiles: vscode.Uri[],
+    rubyManifestFiles: vscode.Uri[],
     pomXmlFiles: vscode.Uri[],
     dotnetManifestFiles: vscode.Uri[] = []
   ): Promise<InstalledPackage[]> {
@@ -601,6 +620,24 @@ export class WorkspaceService {
       }
     }
 
+    for (const uri of rubyManifestFiles) {
+      try {
+        const [gemfileContent, gemfileLockContent] = await Promise.all([
+          vscode.workspace.fs.readFile(uri),
+          this.readOptionalFile(vscode.Uri.joinPath(uri, '..', 'Gemfile.lock')),
+        ]);
+        installedPackages.push(
+          ...this.parseGemfileManifest(
+            gemfileContent.toString(),
+            gemfileLockContent ? gemfileLockContent.toString() : null,
+            uri.fsPath
+          )
+        );
+      } catch {
+        // Skip invalid Gemfile manifests
+      }
+    }
+
     // Get Maven packages
     for (const uri of pomXmlFiles) {
       try {
@@ -690,6 +727,28 @@ export class WorkspaceService {
     }
 
     return composerManifestFiles.filter(
+      (uri) => vscode.workspace.getWorkspaceFolder(uri)?.uri.fsPath === scope.workspaceFolderPath
+    );
+  }
+
+  private async getRubyManifestFilesForScope(scope: WorkspacePackageScope): Promise<vscode.Uri[]> {
+    if (scope.manifestPath) {
+      const lower = scope.manifestPath.toLowerCase();
+      if (lower.endsWith('gemfile')) {
+        return [vscode.Uri.file(scope.manifestPath)];
+      }
+      if (lower.endsWith('gemfile.lock')) {
+        return [vscode.Uri.file(scope.manifestPath.replace(/gemfile\.lock$/i, 'Gemfile'))];
+      }
+      return [];
+    }
+
+    const rubyManifestFiles = await this.getRubyManifestFiles();
+    if (!scope.workspaceFolderPath) {
+      return rubyManifestFiles;
+    }
+
+    return rubyManifestFiles.filter(
       (uri) => vscode.workspace.getWorkspaceFolder(uri)?.uri.fsPath === scope.workspaceFolderPath
     );
   }
@@ -982,6 +1041,38 @@ export class WorkspaceService {
     return packages;
   }
 
+  private parseGemfileManifest(
+    gemfileContent: string,
+    gemfileLockContent: string | null,
+    manifestPath: string
+  ): InstalledPackage[] {
+    const workspaceFolderPath = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(manifestPath))?.uri.fsPath;
+    const manifestName = this.getFallbackManifestName(manifestPath);
+    const declaredDependencies = this.parseGemfileDeclarations(gemfileContent);
+    const lockedVersions = gemfileLockContent ? this.parseGemfileLockVersions(gemfileLockContent) : new Map<string, string>();
+    const packages: InstalledPackage[] = [];
+
+    for (const dependency of declaredDependencies) {
+      const resolvedVersion = lockedVersions.get(dependency.name);
+      const parsedSpec = parseDependencySpec(dependency.versionSpecifier || resolvedVersion || '');
+      packages.push({
+        workspaceFolderPath,
+        manifestName,
+        name: dependency.name,
+        currentVersion: resolvedVersion || parsedSpec.displayText || dependency.versionSpecifier || 'latest',
+        resolvedVersion,
+        versionSpecifier: dependency.versionSpecifier,
+        specKind: dependency.versionSpecifier ? parsedSpec.kind : undefined,
+        isRegistryResolvable: !!resolvedVersion || !!dependency.versionSpecifier,
+        type: dependency.type,
+        hasUpdate: false,
+        packageJsonPath: manifestPath,
+      });
+    }
+
+    return packages;
+  }
+
   /**
    * Get packages with available updates
    */
@@ -1203,6 +1294,7 @@ export class WorkspaceService {
     if (
       fileName === 'package.json' ||
       fileName === 'composer.json' ||
+      fileName === 'gemfile' ||
       fileName === 'pom.xml' ||
       fileName === 'directory.packages.props' ||
       fileName === 'paket.dependencies' ||
@@ -1212,6 +1304,9 @@ export class WorkspaceService {
     }
     if (fileName === 'composer.lock') {
       return { manifestPath: uri.fsPath.replace(/composer\.lock$/i, 'composer.json') };
+    }
+    if (fileName === 'gemfile.lock') {
+      return { manifestPath: uri.fsPath.replace(/gemfile\.lock$/i, 'Gemfile') };
     }
     return undefined;
   }
@@ -1635,6 +1730,97 @@ export class WorkspaceService {
     } catch {
       return null;
     }
+  }
+
+  private parseGemfileDeclarations(
+    content: string
+  ): Array<{ name: string; versionSpecifier?: string; type: DependencyType }> {
+    const declarations: Array<{ name: string; versionSpecifier?: string; type: DependencyType }> = [];
+    const groupStack: DependencyType[] = ['dependencies'];
+
+    for (const rawLine of content.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#')) {
+        continue;
+      }
+
+      const groupMatch = line.match(/^group\s+(.+?)\s+do\s*$/);
+      if (groupMatch) {
+        groupStack.push(this.mapRubyGroupsToDependencyType(groupMatch[1]));
+        continue;
+      }
+
+      if (line === 'end' && groupStack.length > 1) {
+        groupStack.pop();
+        continue;
+      }
+
+      const gemMatch = rawLine.match(/^\s*gem\s+['"]([^'"]+)['"]\s*(?:,\s*(['"][^'"]+['"]|%q\{[^}]+\}|%Q\{[^}]+\}|[~><=\s\d.,-]+))?(.*)$/);
+      if (!gemMatch) {
+        continue;
+      }
+
+      const name = gemMatch[1]?.trim();
+      if (!name) {
+        continue;
+      }
+
+      const explicitGroupType = this.extractRubyDependencyType(gemMatch[3] || '');
+      const versionSpecifier = gemMatch[2]?.trim().replace(/^['"]|['"]$/g, '');
+
+      declarations.push({
+        name,
+        versionSpecifier,
+        type: explicitGroupType || groupStack[groupStack.length - 1] || 'dependencies',
+      });
+    }
+
+    return declarations;
+  }
+
+  private parseGemfileLockVersions(content: string): Map<string, string> {
+    const versions = new Map<string, string>();
+    let inSpecs = false;
+
+    for (const rawLine of content.split(/\r?\n/)) {
+      const line = rawLine.replace(/\r$/, '');
+      if (/^\s{2}specs:\s*$/.test(line)) {
+        inSpecs = true;
+        continue;
+      }
+
+      if (inSpecs && /^[A-Z][A-Z\s_-]*$/.test(line.trim())) {
+        inSpecs = false;
+        continue;
+      }
+
+      if (!inSpecs) {
+        continue;
+      }
+
+      const match = line.match(/^\s{4}([^\s(]+)\s+\(([^)]+)\)/);
+      if (match) {
+        versions.set(match[1], match[2]);
+      }
+    }
+
+    return versions;
+  }
+
+  private extractRubyDependencyType(optionsText: string): DependencyType | null {
+    const normalized = optionsText.toLowerCase();
+    if (
+      /group:\s*:development\b/.test(normalized) ||
+      /group:\s*:test\b/.test(normalized) ||
+      /groups:\s*\[[^\]]*:(development|test)/.test(normalized)
+    ) {
+      return 'devDependencies';
+    }
+    return null;
+  }
+
+  private mapRubyGroupsToDependencyType(groupsText: string): DependencyType {
+    return /:(development|test)\b/.test(groupsText.toLowerCase()) ? 'devDependencies' : 'dependencies';
   }
 
   private readComposerDependencyMap(value: unknown): Map<string, string> {

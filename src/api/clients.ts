@@ -7,6 +7,7 @@ import { LibrariesIoClient } from './libraries-io';
 import { DepsDevClient } from './deps-dev';
 import { NuGetApiClient } from './nuget-api';
 import { PackagistApiClient } from './packagist-api';
+import { RubyGemsApiClient } from './rubygems-api';
 
 /**
  * All API clients
@@ -21,6 +22,7 @@ export interface ApiClients {
   depsDev: DepsDevClient;
   nuget: NuGetApiClient;
   packagist: PackagistApiClient;
+  rubygems: RubyGemsApiClient;
 }
 
 // Singleton instances
@@ -45,6 +47,7 @@ export function createApiClients(): ApiClients {
       depsDev: new DepsDevClient(),
       nuget: new NuGetApiClient(),
       packagist: new PackagistApiClient(),
+      rubygems: new RubyGemsApiClient(),
     };
   }
   return apiClients;

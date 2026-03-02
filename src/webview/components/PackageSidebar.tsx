@@ -170,6 +170,10 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
       registryLink = `https://packagist.org/packages/${details.name}`;
       registryLabel = 'Packagist';
       break;
+    case 'ruby':
+      registryLink = `https://rubygems.org/gems/${details.name}`;
+      registryLabel = 'RubyGems';
+      break;
     case 'npm':
     case 'unknown':
     default:

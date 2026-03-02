@@ -1,7 +1,7 @@
 /**
  * Project types supported by the extension
  */
-export type ProjectType = 'npm' | 'maven' | 'go' | 'dotnet' | 'php' | 'unknown';
+export type ProjectType = 'npm' | 'maven' | 'go' | 'dotnet' | 'php' | 'ruby' | 'unknown';
 
 /**
  * Source types available for package management
@@ -13,7 +13,8 @@ export type SourceType =
   | 'libraries-io'
   | 'pkg-go-dev'
   | 'nuget'
-  | 'packagist';
+  | 'packagist'
+  | 'rubygems';
 
 /**
  * Information about a detected project
@@ -45,6 +46,7 @@ export const PROJECT_SOURCE_MAP: Record<ProjectType, SourceType[]> = {
   go: ['pkg-go-dev'],
   dotnet: ['nuget'],
   php: ['packagist'],
+  ruby: ['rubygems'],
   unknown: ['npm-registry'], // Default to npm
 };
 
@@ -58,6 +60,7 @@ export const PROJECT_CONFIG_FILES: Record<ProjectType, string[]> = {
   go: ['go.mod'],
   dotnet: ['.csproj', '.vbproj', '.fsproj', 'packages.config', 'Directory.Packages.props', 'paket.dependencies'],
   php: ['composer.json'],
+  ruby: ['Gemfile'],
   unknown: [],
 };
 
@@ -70,6 +73,7 @@ export const PROJECT_DISPLAY_NAMES: Record<ProjectType, string> = {
   go: 'Go',
   dotnet: '.NET',
   php: 'PHP',
+  ruby: 'Ruby',
   unknown: 'Unknown',
 };
 
@@ -84,6 +88,7 @@ export const SOURCE_DISPLAY_NAMES: Record<SourceType, string> = {
   'pkg-go-dev': 'pkg.go.dev',
   'nuget': 'NuGet',
   'packagist': 'Packagist',
+  'rubygems': 'RubyGems',
 };
 
 /**

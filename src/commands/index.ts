@@ -108,6 +108,10 @@ export function registerCommands(
       );
       const manifestFiles = projectType === 'dotnet' || currentSource === 'nuget'
         ? await services.workspace.getDotNetManifestFiles()
+        : projectType === 'php' || currentSource === 'packagist'
+          ? await services.workspace.getComposerManifestFiles()
+          : projectType === 'ruby' || currentSource === 'rubygems'
+            ? await services.workspace.getRubyManifestFiles()
         : await services.workspace.getPackageJsonFiles();
       if (!targetManifestPath && manifestFiles.length > 1) {
         return;

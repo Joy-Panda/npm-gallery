@@ -12,6 +12,7 @@ import { SonatypeSourceAdapter } from '../sources/sonatype/sonatype-adapter';
 import { LibrariesIoSourceAdapter } from '../sources/libraries-io';
 import { NuGetSourceAdapter } from '../sources/nuget';
 import { PackagistSourceAdapter } from '../sources/packagist';
+import { RubyGemsSourceAdapter } from '../sources/rubygems';
 import { getApiClients } from '../api/clients';
 import type { ProjectType, SourceType } from '../types/project';
 
@@ -113,6 +114,10 @@ export class ServiceContainer {
     // Register Packagist adapter for PHP/Composer packages
     const packagistAdapter = new PackagistSourceAdapter(clients.packagist);
     this.sourceRegistry.register('packagist', packagistAdapter);
+
+    // Register RubyGems adapter for Ruby/Bundler packages
+    const rubygemsAdapter = new RubyGemsSourceAdapter(clients.rubygems, clients.audit);
+    this.sourceRegistry.register('rubygems', rubygemsAdapter);
   }
 
   /**

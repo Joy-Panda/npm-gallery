@@ -371,7 +371,7 @@ export interface CopyOptions {
 /**
  * Package manager type
  */
-export type PackageManager = 'npm' | 'yarn' | 'pnpm' | 'bun' | 'dotnet' | 'paket' | 'composer';
+export type PackageManager = 'npm' | 'yarn' | 'pnpm' | 'bun' | 'dotnet' | 'paket' | 'composer' | 'bundler';
 
 /**
  * Search result from APIs

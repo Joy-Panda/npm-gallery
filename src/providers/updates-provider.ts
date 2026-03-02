@@ -139,24 +139,14 @@ export class UpdatesProvider implements vscode.TreeDataProvider<TreeItem> {
       if (this.shouldGroupByWorkspace()) {
         return this.getWorkspaceItems();
       }
-
-      if (this.shouldGroupByManifest()) {
-        return this.getManifestItems();
-      }
-
-      return this.getCategoryItems(this.packages);
+      return this.getManifestItems();
     }
 
     if (element instanceof UpdateWorkspaceTreeItem) {
       const workspacePackages = this.packages.filter(
         (pkg) => pkg.workspaceFolderPath === element.workspaceFolderPath
       );
-
-      if (this.shouldGroupByManifestForPackages(workspacePackages)) {
-        return this.getManifestItems(workspacePackages);
-      }
-
-      return this.getCategoryItems(workspacePackages);
+      return this.getManifestItems(workspacePackages);
     }
 
     if (element instanceof UpdateManifestTreeItem) {
@@ -205,16 +195,8 @@ export class UpdatesProvider implements vscode.TreeDataProvider<TreeItem> {
     });
   }
 
-  private shouldGroupByManifest(): boolean {
-    return this.shouldGroupByManifestForPackages(this.packages);
-  }
-
   private shouldGroupByWorkspace(): boolean {
     return new Set(this.packages.map((pkg) => pkg.workspaceFolderPath).filter(Boolean)).size > 1;
-  }
-
-  private shouldGroupByManifestForPackages(packages: InstalledPackage[]): boolean {
-    return new Set(packages.map((pkg) => pkg.packageJsonPath)).size > 1;
   }
 
   private getWorkspaceItems(): UpdateWorkspaceTreeItem[] {
@@ -261,48 +243,21 @@ export class UpdatesProvider implements vscode.TreeDataProvider<TreeItem> {
 
   private getManifestItems(packages: InstalledPackage[] = this.packages): UpdateManifestTreeItem[] {
     const counts = new Map<string, number>();
-    const preferredLabels = new Map<string, string>();
     for (const pkg of packages) {
       counts.set(pkg.packageJsonPath, (counts.get(pkg.packageJsonPath) || 0) + 1);
-      if (!preferredLabels.has(pkg.packageJsonPath)) {
-        preferredLabels.set(pkg.packageJsonPath, this.getPreferredManifestLabel(pkg));
-      }
-    }
-
-    const duplicateLabels = new Set<string>();
-    const labelCounts = new Map<string, number>();
-    for (const label of preferredLabels.values()) {
-      labelCounts.set(label, (labelCounts.get(label) || 0) + 1);
-    }
-    for (const [label, count] of labelCounts.entries()) {
-      if (count > 1) {
-        duplicateLabels.add(label);
-      }
     }
 
     return [...counts.entries()]
       .sort(([a], [b]) => (vscode.workspace.asRelativePath(a) || a).localeCompare(vscode.workspace.asRelativePath(b) || b))
       .map(([manifestPath, count]) => {
-        const preferredLabel = preferredLabels.get(manifestPath) || (vscode.workspace.asRelativePath(manifestPath) || manifestPath);
-        const label = duplicateLabels.has(preferredLabel)
-          ? (vscode.workspace.asRelativePath(manifestPath) || manifestPath)
-          : preferredLabel;
-        return new UpdateManifestTreeItem(manifestPath, label, count);
+        return new UpdateManifestTreeItem(manifestPath, this.getManifestLabel(manifestPath), count);
       });
   }
 
-  private getPreferredManifestLabel(pkg: InstalledPackage): string {
-    if (pkg.manifestName?.trim()) {
-      return pkg.manifestName.trim();
-    }
-
-    const relativePath = vscode.workspace.asRelativePath(pkg.packageJsonPath) || pkg.packageJsonPath;
+  private getManifestLabel(manifestPath: string): string {
+    const relativePath = vscode.workspace.asRelativePath(manifestPath) || manifestPath;
     const normalized = relativePath.replace(/\\/g, '/');
-    const segments = normalized.split('/').filter(Boolean);
-    if (segments.length >= 2) {
-      return segments[segments.length - 2];
-    }
-    return relativePath;
+    return normalized || manifestPath;
   }
 
   private getCategoryItems(packages: InstalledPackage[], manifestPath?: string): UpdateCategoryTreeItem[] {

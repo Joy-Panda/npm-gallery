@@ -198,6 +198,13 @@ export abstract class NpmBaseAdapter extends BaseSourceAdapter {
         flags: {},
         exactFlag: '--save-exact',
       },
+      bundler: {
+        command: 'bundle add',
+        flags: {
+          devDependencies: '--group development',
+        },
+        exactFlag: '',
+      },
     };
 
     const managerConfig = config[packageManager] || config.npm;

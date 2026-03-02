@@ -393,6 +393,8 @@ export class InstallService {
 
     try {
       const lockFiles: Array<{ file: string; manager: PackageManager }> = [
+        { file: 'Gemfile.lock', manager: 'bundler' },
+        { file: 'Gemfile', manager: 'bundler' },
         { file: 'composer.lock', manager: 'composer' },
         { file: 'composer.json', manager: 'composer' },
         { file: 'bun.lock', manager: 'bun' },
@@ -432,6 +434,9 @@ export class InstallService {
     if (this.sourceSelector?.getCurrentProjectType() === 'php') {
       return 'composer';
     }
+    if (this.sourceSelector?.getCurrentProjectType() === 'ruby') {
+      return 'bundler';
+    }
 
     return this.getConfiguredPackageManager();
   }
@@ -463,6 +468,8 @@ export class InstallService {
 
       // Check for lock files (priority order: pnpm > yarn > npm)
       const lockFiles: Array<{ file: string; manager: PackageManager }> = [
+        { file: 'Gemfile.lock', manager: 'bundler' },
+        { file: 'Gemfile', manager: 'bundler' },
         { file: 'composer.lock', manager: 'composer' },
         { file: 'composer.json', manager: 'composer' },
         { file: 'pnpm-lock.yaml', manager: 'pnpm' },
@@ -486,6 +493,9 @@ export class InstallService {
 
     if (this.sourceSelector?.getCurrentProjectType() === 'php') {
       return 'composer';
+    }
+    if (this.sourceSelector?.getCurrentProjectType() === 'ruby') {
+      return 'bundler';
     }
 
     return this.getConfiguredPackageManager();
@@ -511,6 +521,7 @@ export class InstallService {
       go: `Go Gallery${workspaceSuffix}${targetSuffix}`,
       dotnet: `NuGet Gallery${workspaceSuffix}${targetSuffix}`,
       php: `Packagist Gallery${workspaceSuffix}${targetSuffix}`,
+      ruby: `RubyGems Gallery${workspaceSuffix}${targetSuffix}`,
       unknown: `Package Gallery${workspaceSuffix}${targetSuffix}`,
     };
 

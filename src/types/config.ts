@@ -40,6 +40,7 @@ export const API_ENDPOINTS = {
   OSV_API: 'https://api.osv.dev',
   LIBRARIES_IO: 'https://libraries.io/api',
   PACKAGIST: 'https://packagist.org',
+  RUBYGEMS: 'https://rubygems.org',
 } as const;
 
 /**

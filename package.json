@@ -33,7 +33,8 @@
     "workspaceContains:**/packages.config",
     "workspaceContains:**/Directory.Packages.props",
     "workspaceContains:**/paket.dependencies",
-    "workspaceContains:**/composer.json"
+    "workspaceContains:**/composer.json",
+    "workspaceContains:**/Gemfile"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -199,7 +200,11 @@
             "npm",
             "yarn",
             "pnpm",
-            "bun"
+            "bun",
+            "dotnet",
+            "paket",
+            "composer",
+            "bundler"
           ],
           "default": "npm",
           "description": "Preferred package manager"

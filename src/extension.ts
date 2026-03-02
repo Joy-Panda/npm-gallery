@@ -54,6 +54,20 @@ export async function activate(context: vscode.ExtensionContext) {
     )
   );
 
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider(
+      { scheme: 'file', pattern: '**/Gemfile' },
+      hoverProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider(
+      { scheme: 'file', pattern: '**/Gemfile.lock' },
+      hoverProvider
+    )
+  );
+
   // Register CodeLens provider for package.json, pom.xml, and Gradle files
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider(
@@ -107,6 +121,13 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider(
       { scheme: 'file', pattern: '**/*.cake' },
+      codeLensProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider(
+      { scheme: 'file', pattern: '**/Gemfile' },
       codeLensProvider
     )
   );

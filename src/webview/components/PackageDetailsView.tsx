@@ -45,7 +45,7 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
   const supportedInstallTypes: DependencyType[] =
     sourceInfo.currentProjectType === 'npm'
       ? ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']
-      : sourceInfo.currentProjectType === 'php'
+      : sourceInfo.currentProjectType === 'php' || sourceInfo.currentProjectType === 'ruby'
         ? ['dependencies', 'devDependencies']
       : ['dependencies'];
   const [isLoading, setIsLoading] = useState(!initialData);
@@ -385,7 +385,7 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
           supportedInstallTypes={supportedInstallTypes}
           showInstall={supportsInstallation}
           downloadsLabel={
-            sourceInfo.currentSource === 'nuget'
+            sourceInfo.currentSource === 'nuget' || sourceInfo.currentSource === 'rubygems'
               ? 'total downloads'
               : sourceInfo.currentSource === 'packagist' || sourceInfo.currentSource === 'npm-registry'
                 ? 'monthly downloads'

@@ -26,7 +26,7 @@ export class ProjectDetector {
     }
 
     // All detected project types in stable order (workspace-style: show multiple)
-    const order: ProjectType[] = ['npm', 'maven', 'dotnet', 'go', 'php'];
+    const order: ProjectType[] = ['npm', 'maven', 'dotnet', 'go', 'php', 'ruby'];
     const unique = [...new Set(projects.map(p => p.type))].filter(
       (t): t is ProjectType => t !== 'unknown'
     );
@@ -109,6 +109,9 @@ export class ProjectDetector {
     }
     if (lowerPath.endsWith('composer.json')) {
       return 'php';
+    }
+    if (lowerPath.endsWith('gemfile') || lowerPath.endsWith('gemfile.lock')) {
+      return 'ruby';
     }
 
     return 'unknown';

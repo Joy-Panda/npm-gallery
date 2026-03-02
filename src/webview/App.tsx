@@ -175,7 +175,7 @@ export const App: React.FC = () => {
   const supportedInstallTypes: DependencyType[] =
     sourceInfo.currentProjectType === 'npm'
       ? ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']
-      : sourceInfo.currentProjectType === 'php'
+      : sourceInfo.currentProjectType === 'php' || sourceInfo.currentProjectType === 'ruby'
         ? ['dependencies', 'devDependencies']
       : ['dependencies'];
 
@@ -354,11 +354,11 @@ export const App: React.FC = () => {
             ? getNuGetActionLabel(adaptiveNuGet.format)
             : 'Copy';
         const downloadsTooltipLabel =
-          sourceInfo.currentSource === 'nuget'
-            ? 'total'
+          sourceInfo.currentSource === 'nuget' || sourceInfo.currentSource === 'rubygems'
+            ? 'total downloads'
             : sourceInfo.currentSource === 'packagist' || sourceInfo.currentSource === 'npm-registry'
-              ? 'monthly'
-              : 'weekly';
+              ? 'monthly downloads'
+              : 'weekly downloads';
         return (
       <SearchResults
         packages={searchResults?.packages || []}

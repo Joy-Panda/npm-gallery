@@ -31,7 +31,7 @@ export class PackageHoverProvider implements vscode.HoverProvider {
       if (!packageInfo) {
         return null;
       }
-      return this.createHover(packageInfo, 'npm', getServices().package.getCurrentSourceType());
+      return this.createHover(packageInfo, 'npm', getServices().getCurrentSourceType());
     }
 
     if (fileName.endsWith('composer.json')) {
@@ -40,6 +40,16 @@ export class PackageHoverProvider implements vscode.HoverProvider {
         return null;
       }
       return this.createHover(packageInfo, 'packagist');
+    }
+
+    if (fileName.endsWith('gemfile') || fileName.endsWith('gemfile.lock')) {
+      const packageInfo = fileName.endsWith('gemfile.lock')
+        ? this.extractGemfileLockPackageInfo(line, position)
+        : this.extractGemfilePackageInfo(line, position);
+      if (!packageInfo) {
+        return null;
+      }
+      return this.createHover(packageInfo, 'rubygems');
     }
 
     if (fileName.endsWith('directory.packages.props')) {
@@ -178,6 +188,71 @@ export class PackageHoverProvider implements vscode.HoverProvider {
     };
   }
 
+  private extractGemfilePackageInfo(
+    line: string,
+    position: vscode.Position
+  ): {
+    name: string;
+    version: string;
+    rawVersion: string;
+    displayVersion: string;
+    isRegistryResolvable: boolean;
+  } | null {
+    const regex = /^\s*gem\s+['"]([^'"]+)['"]\s*(?:,\s*['"]([^'"]+)['"])?/;
+    const match = line.match(regex);
+    if (!match) {
+      return null;
+    }
+
+    const [fullMatch, name, versionRange] = match;
+    const startIndex = line.indexOf(fullMatch);
+    const endIndex = startIndex + fullMatch.length;
+    if (position.character < startIndex || position.character > endIndex) {
+      return null;
+    }
+
+    const parsedSpec = parseDependencySpec(versionRange || '');
+    return {
+      name,
+      version: parsedSpec.normalizedVersion || versionRange || 'latest',
+      rawVersion: versionRange || '',
+      displayVersion: versionRange || 'latest',
+      isRegistryResolvable: true,
+    };
+  }
+
+  private extractGemfileLockPackageInfo(
+    line: string,
+    position: vscode.Position
+  ): {
+    name: string;
+    version: string;
+    rawVersion: string;
+    displayVersion: string;
+    isRegistryResolvable: boolean;
+  } | null {
+    const regex = /^\s{4}([^\s(]+)\s+\(([^)]+)\)/;
+    const match = line.match(regex);
+    if (!match) {
+      return null;
+    }
+
+    const [fullMatch, name, version] = match;
+    const startIndex = line.indexOf(fullMatch);
+    const endIndex = startIndex + fullMatch.length;
+    if (position.character < startIndex || position.character > endIndex) {
+      return null;
+    }
+
+    return {
+      name,
+      version,
+      rawVersion: version,
+      displayVersion: version,
+      isRegistryResolvable: true,
+    };
+  }
+
   private async createHover(
     packageInfo: {
       name: string;
@@ -186,7 +261,7 @@ export class PackageHoverProvider implements vscode.HoverProvider {
       displayVersion: string;
       isRegistryResolvable: boolean;
     },
-    ecosystem: 'npm' | 'nuget' | 'packagist',
+    ecosystem: 'npm' | 'nuget' | 'packagist' | 'rubygems',
     sourceType?: SourceType | null
   ): Promise<vscode.Hover> {
     const { name, version, isRegistryResolvable, displayVersion } = packageInfo;
@@ -196,6 +271,8 @@ export class PackageHoverProvider implements vscode.HoverProvider {
         ? services.sourceRegistry.getAdapter('nuget')
         : ecosystem === 'packagist'
           ? services.sourceRegistry.getAdapter('packagist')
+          : ecosystem === 'rubygems'
+            ? services.sourceRegistry.getAdapter('rubygems')
           : null;
 
     try {
@@ -237,7 +314,7 @@ export class PackageHoverProvider implements vscode.HoverProvider {
     details: { description?: string; license?: string; downloads?: number; score?: { final: number } },
     bundleSize: { size: number; gzip: number } | null,
     security: { summary: { total: number; critical: number; high: number } } | null,
-    ecosystem: 'npm' | 'nuget' | 'packagist',
+    ecosystem: 'npm' | 'nuget' | 'packagist' | 'rubygems',
     sourceType?: SourceType | null
   ): vscode.MarkdownString {
     const md = new vscode.MarkdownString();
@@ -262,7 +339,9 @@ export class PackageHoverProvider implements vscode.HoverProvider {
       stats.push(
         ecosystem === 'nuget'
           ? `⬇️ ${this.formatDownloads(details.downloads)} total`
-          : ecosystem === 'packagist' || sourceType === 'npm-registry'
+          : ecosystem === 'rubygems'
+            ? `⬇️ ${this.formatDownloads(details.downloads)} total`
+            : ecosystem === 'packagist' || sourceType === 'npm-registry'
             ? `⬇️ ${this.formatDownloads(details.downloads)}/month`
             : `⬇️ ${this.formatDownloads(details.downloads)}/week`
       );
@@ -307,9 +386,11 @@ export class PackageHoverProvider implements vscode.HoverProvider {
         ? `https://www.nuget.org/packages/${name}`
         : ecosystem === 'packagist'
           ? `https://packagist.org/packages/${name}`
+          : ecosystem === 'rubygems'
+            ? `https://rubygems.org/gems/${name}`
           : `https://www.npmjs.com/package/${name}`;
     const externalLabel =
-      ecosystem === 'nuget' ? 'NuGet' : ecosystem === 'packagist' ? 'Packagist' : 'npm';
+      ecosystem === 'nuget' ? 'NuGet' : ecosystem === 'packagist' ? 'Packagist' : ecosystem === 'rubygems' ? 'RubyGems' : 'npm';
     md.appendMarkdown(
       `[View Details](command:npmGallery.showPackageDetails?${encodeURIComponent(
         JSON.stringify([name, { installedVersion: currentVersion }])
