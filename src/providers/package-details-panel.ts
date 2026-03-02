@@ -164,7 +164,9 @@ export class PackageDetailsPanel {
         );
         const manifestFiles = projectType === 'dotnet' || currentSource === 'nuget'
           ? await services.workspace.getDotNetManifestFiles()
-          : await services.workspace.getPackageJsonFiles();
+          : projectType === 'php' || currentSource === 'packagist'
+            ? await services.workspace.getComposerManifestFiles()
+            : await services.workspace.getPackageJsonFiles();
         if (!targetManifestPath && manifestFiles.length > 1) {
           break;
         }
@@ -236,6 +238,28 @@ export class PackageDetailsPanel {
           vscode.window.showErrorMessage(
             `Failed to copy snippet: ${errorMessage}`
           );
+        }
+        break;
+      }
+
+      case 'loadMoreDependents': {
+        try {
+          const dependents = await services.package.getDependents(
+            message.packageName,
+            message.version,
+            { pageUrl: message.nextPageUrl }
+          );
+          if (dependents) {
+            this._panel.webview.postMessage({
+              type: 'dependentsLoaded',
+              data: dependents,
+            });
+          }
+        } catch (error) {
+          this._panel.webview.postMessage({
+            type: 'error',
+            message: error instanceof Error ? error.message : 'Failed to load more dependents',
+          });
         }
         break;
       }

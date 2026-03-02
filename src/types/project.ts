@@ -1,7 +1,7 @@
 /**
  * Project types supported by the extension
  */
-export type ProjectType = 'npm' | 'maven' | 'go' | 'dotnet' | 'unknown';
+export type ProjectType = 'npm' | 'maven' | 'go' | 'dotnet' | 'php' | 'unknown';
 
 /**
  * Source types available for package management
@@ -12,7 +12,8 @@ export type SourceType =
   | 'sonatype'
   | 'libraries-io'
   | 'pkg-go-dev'
-  | 'nuget';
+  | 'nuget'
+  | 'packagist';
 
 /**
  * Information about a detected project
@@ -43,6 +44,7 @@ export const PROJECT_SOURCE_MAP: Record<ProjectType, SourceType[]> = {
   maven: ['sonatype', 'libraries-io'],
   go: ['pkg-go-dev'],
   dotnet: ['nuget'],
+  php: ['packagist'],
   unknown: ['npm-registry'], // Default to npm
 };
 
@@ -55,6 +57,7 @@ export const PROJECT_CONFIG_FILES: Record<ProjectType, string[]> = {
   maven: ['pom.xml'],
   go: ['go.mod'],
   dotnet: ['.csproj', '.vbproj', '.fsproj', 'packages.config', 'Directory.Packages.props', 'paket.dependencies'],
+  php: ['composer.json'],
   unknown: [],
 };
 
@@ -66,6 +69,7 @@ export const PROJECT_DISPLAY_NAMES: Record<ProjectType, string> = {
   maven: 'Maven',
   go: 'Go',
   dotnet: '.NET',
+  php: 'PHP',
   unknown: 'Unknown',
 };
 
@@ -79,6 +83,7 @@ export const SOURCE_DISPLAY_NAMES: Record<SourceType, string> = {
   'libraries-io': 'Libraries.io',
   'pkg-go-dev': 'pkg.go.dev',
   'nuget': 'NuGet',
+  'packagist': 'Packagist',
 };
 
 /**

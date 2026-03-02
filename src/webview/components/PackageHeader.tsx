@@ -1,7 +1,8 @@
 import React from 'react';
-import { Download, Package, Star, Scale, User } from 'lucide-react';
-import type { DependencyType, PackageDetails } from '../../types/package';
+import { Copy, Download, Package, Star, Scale, User } from 'lucide-react';
+import type { DependencyType, NuGetCopyFormat, PackageDetails } from '../../types/package';
 import { InstallMenuButton } from './InstallMenuButton';
+import { Button } from './ui/button';
 
 interface PackageHeaderProps {
   details: PackageDetails;
@@ -12,6 +13,12 @@ interface PackageHeaderProps {
   supportedInstallTypes: DependencyType[];
   showInstall: boolean;
   installTargetLabel?: string;
+  onCopyNuGet?: () => void;
+  nugetActionLabel?: string;
+  nugetFormatOptions?: Array<{ value: string; label: string }>;
+  selectedNuGetFormat?: NuGetCopyFormat | '';
+  onNuGetFormatChange?: (value: string) => void;
+  downloadsLabel?: string;
 }
 
 const headerStyles = `
@@ -85,6 +92,23 @@ const headerStyles = `
     color: var(--vscode-descriptionForeground);
   }
 
+  .nuget-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .nuget-select {
+    height: 32px;
+    padding: 0 10px;
+    border-radius: 6px;
+    border: 1px solid var(--vscode-dropdown-border);
+    background: var(--vscode-dropdown-background, var(--vscode-editor-background));
+    color: var(--vscode-foreground);
+    font-size: 12px;
+  }
+
 `;
 
 export const PackageHeader: React.FC<PackageHeaderProps> = ({
@@ -96,6 +120,12 @@ export const PackageHeader: React.FC<PackageHeaderProps> = ({
   supportedInstallTypes,
   showInstall,
   installTargetLabel,
+  onCopyNuGet,
+  nugetActionLabel,
+  nugetFormatOptions,
+  selectedNuGetFormat,
+  onNuGetFormatChange,
+  downloadsLabel,
 }) => {
   const authorName = details.author
     ? typeof details.author === 'string'
@@ -122,7 +152,10 @@ export const PackageHeader: React.FC<PackageHeaderProps> = ({
         {details.downloads !== undefined && (
           <div className="stat-item highlight">
             <Download size={14} />
-            <span>{formatDownloads(details.downloads)}</span>
+            <span>
+              {formatDownloads(details.downloads)}
+              {downloadsLabel ? ` ${downloadsLabel}` : ''}
+            </span>
           </div>
         )}
         {details.bundleSize && (
@@ -149,15 +182,42 @@ export const PackageHeader: React.FC<PackageHeaderProps> = ({
       <p className="description">{details.description || 'No description available'}</p>
 
       {/* Actions */}
-      {showInstall && (
+      {(showInstall || onCopyNuGet) && (
         <div className="actions">
-          <InstallMenuButton
-            variant="primary"
-            onInstall={onInstall}
-            disabled={installing}
-            loading={installing}
-            supportedTypes={supportedInstallTypes}
-          />
+          {showInstall ? (
+            <InstallMenuButton
+              variant="primary"
+              onInstall={onInstall}
+              disabled={installing}
+              loading={installing}
+              supportedTypes={supportedInstallTypes}
+            />
+          ) : onCopyNuGet ? (
+            <div className="nuget-actions">
+              {nugetFormatOptions && onNuGetFormatChange && (
+                <select
+                  className="nuget-select"
+                  value={selectedNuGetFormat || ''}
+                  onChange={(event) => onNuGetFormatChange(event.target.value)}
+                >
+                  <option value="">Select format</option>
+                  {nugetFormatOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <Button
+                variant="default"
+                onClick={onCopyNuGet}
+                disabled={installing || (nugetFormatOptions ? !selectedNuGetFormat : false)}
+              >
+                <Copy size={14} />
+                <span>{installing ? 'Copying...' : nugetActionLabel || 'Copy snippet'}</span>
+              </Button>
+            </div>
+          ) : null}
           {installTargetLabel && <div className="install-target">Install target: {installTargetLabel}</div>}
         </div>
       )}

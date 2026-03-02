@@ -195,7 +195,7 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
 
     // Add download stats
     try {
-      const downloads = await this.client.getDownloads(name);
+      const downloads = await this.client.getDownloads(name, 'last-month');
       info.downloads = downloads.downloads;
     } catch {
       // Continue without download stats
@@ -239,7 +239,7 @@ export class NpmRegistrySourceAdapter extends NpmBaseAdapter {
       // Download stats (if supported)
       if (this.supportsCapability(SourceCapability.DOWNLOAD_STATS)) {
         promises.push(
-          this.client.getDownloads(name).catch(() => ({ downloads: 0 }))
+          this.client.getDownloads(name, 'last-month').catch(() => ({ downloads: 0 }))
         );
       }
 

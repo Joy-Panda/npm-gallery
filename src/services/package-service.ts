@@ -19,6 +19,7 @@ import type {
   DependencyConflict,
 } from '../types/analyzer';
 import type { SourceSelector } from '../registry/source-selector';
+import type { SourceType } from '../types/project';
 import { SourceCapability, CapabilityNotSupportedError, type CapabilitySupport } from '../sources/base/capabilities';
 import { parseDependencySpec } from '../utils/version-utils';
 
@@ -57,6 +58,10 @@ export class PackageService {
    */
   setSourceSelector(selector: SourceSelector): void {
     this.sourceSelector = selector;
+  }
+
+  getCurrentSourceType(): SourceType | null {
+    return this.sourceSelector?.getCurrentSourceType() ?? null;
   }
 
   invalidateLocalDependencyTreeCache(scope?: WorkspacePackageScope | string): void {
@@ -507,7 +512,11 @@ export class PackageService {
     return null;
   }
 
-  async getDependents(name: string, version: string): Promise<DependentsInfo | null> {
+  async getDependents(
+    name: string,
+    version: string,
+    options?: { pageUrl?: string }
+  ): Promise<DependentsInfo | null> {
     if (!this.sourceSelector) {
       throw new Error('PackageService not initialized: SourceSelector is required');
     }
@@ -518,7 +527,7 @@ export class PackageService {
     }
 
     try {
-      return await adapter.getDependents(name, version);
+      return await adapter.getDependents(name, version, options);
     } catch (error) {
       if (error instanceof CapabilityNotSupportedError) {
         return null;

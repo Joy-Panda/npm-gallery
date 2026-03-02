@@ -5,6 +5,7 @@ import { AdvancedSearch } from './components/AdvancedSearch';
 import { useSearch } from './hooks/useSearch';
 import { useVSCode } from './context/VSCodeContext';
 import { buildQuery, extractBaseText, parseQueryToFilters } from './utils/queryParser';
+import { getNuGetActionLabel, resolveAdaptiveNuGetFormat } from './utils/nuget';
 import type { DependencyType, PackageInfo, SearchOptions, SearchSortBy } from '../types/package';
 import { getSortValue } from '../types/package';
 
@@ -19,6 +20,7 @@ interface FilterState {
   artifactId: string;
   version: string;
   tags: string;
+  type: string;
   // Libraries.io specific filters
   languages: string;
   licenses: string;
@@ -43,6 +45,7 @@ const defaultFilters: FilterState = {
   artifactId: '',
   version: '',
   tags: '',
+  type: '',
   languages: '',
   licenses: '',
   platforms: '',
@@ -168,9 +171,12 @@ export const App: React.FC = () => {
     sourceInfo.installTarget
   );
   const canInstall = sourceInfo.supportedCapabilities.includes('installation');
+  const canCopy = sourceInfo.supportedCapabilities.includes('copy');
   const supportedInstallTypes: DependencyType[] =
     sourceInfo.currentProjectType === 'npm'
       ? ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']
+      : sourceInfo.currentProjectType === 'php'
+        ? ['dependencies', 'devDependencies']
       : ['dependencies'];
 
   const handlePackageSelect = (pkg: PackageInfo) => {
@@ -183,12 +189,17 @@ export const App: React.FC = () => {
   };
 
   const handleCopy = (packageName: string, version: string) => {
+    const adaptiveNuGet = resolveAdaptiveNuGetFormat(sourceInfo);
     // For Maven/Gradle/SBT packages, send message to extension to get copy snippet
     // The extension will auto-detect build tool and generate appropriate snippet
     postMessage({ 
       type: 'copySnippet', 
       packageName, 
-      options: { version, scope: 'compile' } 
+      options: {
+        version,
+        scope: 'compile',
+        format: adaptiveNuGet.uncertain ? undefined : adaptiveNuGet.format,
+      }
       // format will be auto-detected by installService based on build tool
     });
   };
@@ -221,6 +232,7 @@ export const App: React.FC = () => {
       artifactId: newFilters.artifactId,
       version: newFilters.version,
       tags: newFilters.tags,
+      type: newFilters.type,
       languages: newFilters.languages,
       licenses: newFilters.licenses,
       platforms: newFilters.platforms,
@@ -335,6 +347,19 @@ export const App: React.FC = () => {
         onClose={() => setIsAdvancedSearchOpen(false)}
       />
       {error && <div className="error-message">{error}</div>}
+      {(() => {
+        const adaptiveNuGet = resolveAdaptiveNuGetFormat(sourceInfo);
+        const copyLabel =
+          sourceInfo.currentProjectType === 'dotnet' || sourceInfo.currentSource === 'nuget'
+            ? getNuGetActionLabel(adaptiveNuGet.format)
+            : 'Copy';
+        const downloadsTooltipLabel =
+          sourceInfo.currentSource === 'nuget'
+            ? 'total'
+            : sourceInfo.currentSource === 'packagist' || sourceInfo.currentSource === 'npm-registry'
+              ? 'monthly'
+              : 'weekly';
+        return (
       <SearchResults
         packages={searchResults?.packages || []}
         total={searchResults?.total || 0}
@@ -344,10 +369,14 @@ export const App: React.FC = () => {
         sortBy={sortBy}
         onSortChange={availableSortOptions.length > 1 ? handleSortChange : undefined}
         supportedSortOptions={availableSortOptions}
-        onCopy={handleCopy}
+        onCopy={canCopy ? handleCopy : undefined}
+        copyLabel={copyLabel}
+        downloadsTooltipLabel={downloadsTooltipLabel}
         supportedInstallTypes={supportedInstallTypes}
         showInstall={canInstall}
       />
+        );
+      })()}
 
       <style>{`
         .app {

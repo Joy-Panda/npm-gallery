@@ -25,9 +25,12 @@ export async function selectInstallTargetManifest(
   currentSource?: SourceType
 ): Promise<string | undefined> {
   const useDotNet = projectType === 'dotnet' || currentSource === 'nuget';
+  const usePhp = projectType === 'php' || currentSource === 'packagist';
   const manifestUris = useDotNet
     ? await workspaceService.getDotNetManifestFiles()
-    : await workspaceService.getPackageJsonFiles();
+    : usePhp
+      ? await workspaceService.getComposerManifestFiles()
+      : await workspaceService.getPackageJsonFiles();
   const manifestPaths = [...new Set(manifestUris.map((uri) => uri.fsPath))];
 
   if (manifestPaths.length <= 1) {
@@ -50,7 +53,7 @@ export async function selectInstallTargetManifest(
 
   const preferredManifestPath =
     getRememberedInstallTarget(manifestPaths, preferredTargetPath) ||
-    (preferredTargetPath && (preferredTargetPath.endsWith('package.json') || preferredTargetPath.endsWith('Directory.Packages.props') || preferredTargetPath.endsWith('.csproj'))
+    (preferredTargetPath && (preferredTargetPath.endsWith('package.json') || preferredTargetPath.endsWith('composer.json') || preferredTargetPath.endsWith('Directory.Packages.props') || preferredTargetPath.endsWith('.csproj'))
       ? preferredTargetPath
       : getPreferredManifestPath(manifestPaths, useDotNet));
 
@@ -85,7 +88,9 @@ export async function selectInstallTargetManifest(
   const selection = await vscode.window.showQuickPick(items, {
     placeHolder: useDotNet
       ? `Select target for ${packageName} (NuGet CPM or PackageReference)`
-      : `Select the target package.json for ${packageName}`,
+      : usePhp
+        ? `Select the target composer.json for ${packageName}`
+        : `Select the target package.json for ${packageName}`,
     title: useDotNet ? 'Copy to which manifest?' : 'Install into which project?',
     matchOnDescription: true,
     matchOnDetail: true,
@@ -103,9 +108,12 @@ export async function getInstallTargetSummary(
   currentSource?: SourceType
 ): Promise<InstallTargetSummary | null> {
   const useDotNet = projectType === 'dotnet' || currentSource === 'nuget';
+  const usePhp = projectType === 'php' || currentSource === 'packagist';
   const manifestUris = useDotNet
     ? await workspaceService.getDotNetManifestFiles()
-    : await workspaceService.getPackageJsonFiles();
+    : usePhp
+      ? await workspaceService.getComposerManifestFiles()
+      : await workspaceService.getPackageJsonFiles();
   const manifestPaths = [...new Set(manifestUris.map((uri) => uri.fsPath))];
   if (manifestPaths.length === 0) {
     return null;
@@ -113,7 +121,7 @@ export async function getInstallTargetSummary(
 
   const manifestPath =
     getRememberedInstallTarget(manifestPaths, preferredTargetPath) ||
-    (preferredTargetPath && (preferredTargetPath.endsWith('package.json') || preferredTargetPath.endsWith('Directory.Packages.props') || preferredTargetPath.endsWith('.csproj'))
+    (preferredTargetPath && (preferredTargetPath.endsWith('package.json') || preferredTargetPath.endsWith('composer.json') || preferredTargetPath.endsWith('Directory.Packages.props') || preferredTargetPath.endsWith('.csproj'))
       ? preferredTargetPath
       : getPreferredManifestPath(manifestPaths, useDotNet)) ||
     manifestPaths[0];
@@ -217,7 +225,7 @@ function getPreferredManifestPath(manifestPaths: string[], useDotNet?: boolean):
   const activePath = vscode.window.activeTextEditor?.document.uri.fsPath;
   if (activePath && manifestPaths.includes(activePath)) {
     const lower = activePath.toLowerCase();
-    if (lower.endsWith('package.json') || lower.endsWith('directory.packages.props') || lower.endsWith('.csproj') || lower.endsWith('.vbproj') || lower.endsWith('.fsproj')) {
+    if (lower.endsWith('package.json') || lower.endsWith('composer.json') || lower.endsWith('directory.packages.props') || lower.endsWith('.csproj') || lower.endsWith('.vbproj') || lower.endsWith('.fsproj')) {
       return activePath;
     }
   }
@@ -231,7 +239,8 @@ function getPreferredManifestPath(manifestPaths: string[], useDotNet?: boolean):
 
   return manifestPaths.find((manifestPath) => {
     const relativePath = vscode.workspace.asRelativePath(manifestPath) || manifestPath;
-    return relativePath.replace(/\\/g, '/') === 'package.json';
+    const normalized = relativePath.replace(/\\/g, '/');
+    return normalized === 'package.json' || normalized === 'composer.json';
   });
 }
 

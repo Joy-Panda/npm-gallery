@@ -166,6 +166,10 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
       registryLink = `https://www.nuget.org/packages/${details.name}`;
       registryLabel = 'NuGet';
       break;
+    case 'php':
+      registryLink = `https://packagist.org/packages/${details.name}`;
+      registryLabel = 'Packagist';
+      break;
     case 'npm':
     case 'unknown':
     default:

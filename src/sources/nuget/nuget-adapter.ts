@@ -208,6 +208,8 @@ export class NuGetSourceAdapter extends BaseSourceAdapter {
         return this.snippetDotNetCli(packageName, version);
       case 'cpm':
         return this.snippetCpm(packageName, version);
+      case 'cpm-combined':
+        return this.snippetCpmCombined(packageName, version);
       case 'cpm-project':
         return this.snippetCpmProject(packageName);
       case 'paket':
@@ -245,6 +247,13 @@ export class NuGetSourceAdapter extends BaseSourceAdapter {
     return `    <PackageVersion Include="${id}" Version="${version}" />`;
   }
 
+  private snippetCpmCombined(id: string, version: string): string {
+    return [
+      `    <PackageVersion Include="${id}" Version="${version}" />`,
+      `    <PackageReference Include="${id}" />`,
+    ].join('\n');
+  }
+
   /** CPM project file: PackageReference without version (version from CPM) */
   private snippetCpmProject(id: string): string {
     return `    <PackageReference Include="${id}" />`;
@@ -276,7 +285,7 @@ export class NuGetSourceAdapter extends BaseSourceAdapter {
   /** PMC: copy then paste in Package Manager Console */
   private snippetPmc(id: string, version: string): string {
     const ver = version === '*' ? '' : ` -Version ${version}`;
-    return `Install-Package ${id}${ver}`;
+    return `NuGet\\Install-Package ${id}${ver}`;
   }
 
   /** Script & Interactive: #r "nuget: ..." */

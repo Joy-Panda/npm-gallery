@@ -393,6 +393,8 @@ export class InstallService {
 
     try {
       const lockFiles: Array<{ file: string; manager: PackageManager }> = [
+        { file: 'composer.lock', manager: 'composer' },
+        { file: 'composer.json', manager: 'composer' },
         { file: 'bun.lock', manager: 'bun' },
         { file: 'bun.lockb', manager: 'bun' },
         { file: 'pnpm-lock.yaml', manager: 'pnpm' },
@@ -427,6 +429,10 @@ export class InstallService {
       // Ignore FS errors and fall back to config
     }
 
+    if (this.sourceSelector?.getCurrentProjectType() === 'php') {
+      return 'composer';
+    }
+
     return this.getConfiguredPackageManager();
   }
 
@@ -457,6 +463,8 @@ export class InstallService {
 
       // Check for lock files (priority order: pnpm > yarn > npm)
       const lockFiles: Array<{ file: string; manager: PackageManager }> = [
+        { file: 'composer.lock', manager: 'composer' },
+        { file: 'composer.json', manager: 'composer' },
         { file: 'pnpm-lock.yaml', manager: 'pnpm' },
         { file: 'yarn.lock', manager: 'yarn' },
         { file: 'package-lock.json', manager: 'npm' },
@@ -474,6 +482,10 @@ export class InstallService {
       }
     } catch {
       // If fs check fails, fall back to configured
+    }
+
+    if (this.sourceSelector?.getCurrentProjectType() === 'php') {
+      return 'composer';
     }
 
     return this.getConfiguredPackageManager();
@@ -498,6 +510,7 @@ export class InstallService {
       maven: `Maven Gallery${workspaceSuffix}${targetSuffix}`,
       go: `Go Gallery${workspaceSuffix}${targetSuffix}`,
       dotnet: `NuGet Gallery${workspaceSuffix}${targetSuffix}`,
+      php: `Packagist Gallery${workspaceSuffix}${targetSuffix}`,
       unknown: `Package Gallery${workspaceSuffix}${targetSuffix}`,
     };
 

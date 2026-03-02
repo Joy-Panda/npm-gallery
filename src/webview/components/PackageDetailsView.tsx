@@ -4,7 +4,7 @@ import {
   Layers, Loader2, BookOpen,
   GitBranch, Cpu
 } from 'lucide-react';
-import type { DependencyType, PackageDetails, Vulnerability } from '../../types/package';
+import type { DependencyType, NuGetCopyFormat, PackageDetails, Vulnerability } from '../../types/package';
 import { useVSCode } from '../context/VSCodeContext';
 import { PackageHeader } from './PackageHeader';
 import { PackageSidebar } from './PackageSidebar';
@@ -15,6 +15,7 @@ import { SecurityTab } from './tabs/SecurityTab';
 import { DependentsTab } from './tabs/DependentsTab';
 import { RequirementsTab } from './tabs/RequirementsTab';
 import { FrameworksTab } from './tabs/FrameworksTab';
+import { getNuGetActionLabel, getNuGetFormatOptions, resolveAdaptiveNuGetFormat } from '../utils/nuget';
 
 interface VSCodeAPI {
   postMessage: (message: unknown) => void;
@@ -39,13 +40,22 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
   const supportsSecurity =
     sourceInfo.supportedCapabilities.includes('security') || !!details?.security;
   const supportsInstallation = sourceInfo.supportedCapabilities.includes('installation');
+  const supportsCopy = sourceInfo.supportedCapabilities.includes('copy');
+  const isNuGetProject = sourceInfo.currentProjectType === 'dotnet' || sourceInfo.currentSource === 'nuget';
   const supportedInstallTypes: DependencyType[] =
     sourceInfo.currentProjectType === 'npm'
       ? ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']
+      : sourceInfo.currentProjectType === 'php'
+        ? ['dependencies', 'devDependencies']
       : ['dependencies'];
   const [isLoading, setIsLoading] = useState(!initialData);
   const [error, setError] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
+  const [loadingMoreDependents, setLoadingMoreDependents] = useState(false);
+  const adaptiveNuGet = resolveAdaptiveNuGetFormat(sourceInfo);
+  const [selectedNuGetFormat, setSelectedNuGetFormat] = useState<NuGetCopyFormat | ''>(
+    adaptiveNuGet.format || ''
+  );
   const [expandedSections, setExpandedSections] = useState<{
     runtime: boolean;
     dev: boolean;
@@ -74,6 +84,10 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
   }, [details?.security?.vulnerabilities]);
 
   useEffect(() => {
+    setSelectedNuGetFormat(adaptiveNuGet.format || '');
+  }, [adaptiveNuGet.format]);
+
+  useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       const message = event.data;
       switch (message.type) {
@@ -82,10 +96,38 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
           setSecurityOnlyView(!!message.securityOnlyView);
           setIsLoading(false);
           setError(null);
+          setLoadingMoreDependents(false);
+          break;
+        case 'dependentsLoaded':
+          setDetails((current) => {
+            if (!current) {
+              return current;
+            }
+            const existing = current.dependents;
+            const incoming = message.data;
+            return {
+              ...current,
+              dependents: existing
+                ? {
+                    ...incoming,
+                    directSample: [
+                      ...existing.directSample,
+                      ...incoming.directSample.filter((item: any) => !existing.directSample.some(
+                        (prev) => prev.package.system === item.package.system &&
+                          prev.package.name === item.package.name &&
+                          prev.version === item.version
+                      )),
+                    ],
+                  }
+                : incoming,
+            };
+          });
+          setLoadingMoreDependents(false);
           break;
         case 'error':
           setError(message.message);
           setIsLoading(false);
+          setLoadingMoreDependents(false);
           break;
         case 'installSuccess':
           setInstalling(false);
@@ -125,6 +167,33 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
 
   const openPackageDetails = (packageName: string) => {
     vscode.postMessage({ type: 'openPackageDetails', packageName });
+  };
+
+  const loadMoreDependents = (nextPageUrl: string) => {
+    if (!details || loadingMoreDependents) {
+      return;
+    }
+    setLoadingMoreDependents(true);
+    vscode.postMessage({
+      type: 'loadMoreDependents',
+      packageName: details.name,
+      version: details.version,
+      nextPageUrl,
+    });
+  };
+
+  const copyNuGetSnippet = (format?: NuGetCopyFormat) => {
+    if (!details) return;
+    setInstalling(true);
+    vscode.postMessage({
+      type: 'copySnippet',
+      packageName: details.name,
+      options: {
+        version: details.version,
+        format,
+      },
+    });
+    setTimeout(() => setInstalling(false), 2000);
   };
 
   const toggleVulnerability = (vulnId: number) => {
@@ -291,10 +360,37 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
           details={details}
           installing={installing}
           onInstall={install}
+          onCopyNuGet={
+            isNuGetProject && supportsCopy
+              ? () =>
+                  copyNuGetSnippet(
+                    adaptiveNuGet.uncertain
+                      ? ((selectedNuGetFormat || undefined) as NuGetCopyFormat | undefined)
+                      : adaptiveNuGet.format
+                  )
+              : undefined
+          }
+          nugetActionLabel={getNuGetActionLabel(
+            adaptiveNuGet.uncertain ? selectedNuGetFormat || undefined : adaptiveNuGet.format
+          )}
+          nugetFormatOptions={
+            isNuGetProject && supportsCopy && adaptiveNuGet.uncertain
+              ? getNuGetFormatOptions()
+              : undefined
+          }
+          selectedNuGetFormat={selectedNuGetFormat}
+          onNuGetFormatChange={(value) => setSelectedNuGetFormat(value as NuGetCopyFormat)}
           formatDownloads={formatDownloads}
           formatBytes={formatBytes}
           supportedInstallTypes={supportedInstallTypes}
           showInstall={supportsInstallation}
+          downloadsLabel={
+            sourceInfo.currentSource === 'nuget'
+              ? 'total downloads'
+              : sourceInfo.currentSource === 'packagist' || sourceInfo.currentSource === 'npm-registry'
+                ? 'monthly downloads'
+                : undefined
+          }
           installTargetLabel={
             sourceInfo.installTarget
               ? `${sourceInfo.installTarget.label} (${sourceInfo.installTarget.packageManager})`
@@ -411,6 +507,8 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
                   details={details}
                   onOpenPackageDetails={openPackageDetails}
                   onOpenExternal={openExternal}
+                  onLoadMore={loadMoreDependents}
+                  loadingMore={loadingMoreDependents}
                 />
               )}
               {activeTab === 'frameworks' && (

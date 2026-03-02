@@ -48,7 +48,7 @@ export class NpmTransformer implements ISourceTransformer<NpmSearchResponse, Npm
         : undefined,
       homepage: obj.package.links?.homepage,
       score: obj.score,
-      downloads: obj.downloads?.weekly,
+      downloads: obj.downloads?.monthly ?? obj.downloads?.weekly,
     };
   }
 

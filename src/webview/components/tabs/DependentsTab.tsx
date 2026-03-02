@@ -6,6 +6,8 @@ interface DependentsTabProps {
   details: PackageDetails;
   onOpenPackageDetails: (packageName: string) => void;
   onOpenExternal?: (url: string) => void;
+  onLoadMore?: (nextPageUrl: string) => void;
+  loadingMore?: boolean;
 }
 
 const styles = `
@@ -108,6 +110,31 @@ const styles = `
     border-radius: 10px;
   }
 
+  .dependents-actions {
+    display: flex;
+    justify-content: center;
+    margin-top: 12px;
+  }
+
+  .dependents-more-button {
+    border: 1px solid var(--vscode-button-border, transparent);
+    background: var(--vscode-button-secondaryBackground);
+    color: var(--vscode-button-secondaryForeground);
+    border-radius: 6px;
+    padding: 8px 14px;
+    cursor: pointer;
+    font-size: 12px;
+  }
+
+  .dependents-more-button:hover:not(:disabled) {
+    background: var(--vscode-button-secondaryHoverBackground);
+  }
+
+  .dependents-more-button:disabled {
+    opacity: 0.6;
+    cursor: wait;
+  }
+
   .dependents-nuget-heading {
     font-size: 13px;
     font-weight: 600;
@@ -165,6 +192,8 @@ export const DependentsTab: React.FC<DependentsTabProps> = ({
   details,
   onOpenPackageDetails,
   onOpenExternal,
+  onLoadMore,
+  loadingMore = false,
 }) => {
   const dependents = details.dependents;
   const nugetDependents = details.nugetDependents;
@@ -330,6 +359,18 @@ export const DependentsTab: React.FC<DependentsTabProps> = ({
           dependents.indirectCount,
           dependents.indirectSample,
           <GitBranch size={16} />
+        )}
+        {dependents.nextPageUrl && onLoadMore && (
+          <div className="dependents-actions">
+            <button
+              type="button"
+              className="dependents-more-button"
+              disabled={loadingMore}
+              onClick={() => onLoadMore(dependents.nextPageUrl!)}
+            >
+              {loadingMore ? 'Loading...' : 'More'}
+            </button>
+          </div>
         )}
       </div>
     </>

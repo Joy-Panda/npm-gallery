@@ -6,6 +6,7 @@ import { SonatypeApiClient } from './sonatype-api';
 import { LibrariesIoClient } from './libraries-io';
 import { DepsDevClient } from './deps-dev';
 import { NuGetApiClient } from './nuget-api';
+import { PackagistApiClient } from './packagist-api';
 
 /**
  * All API clients
@@ -19,6 +20,7 @@ export interface ApiClients {
   librariesIo: LibrariesIoClient;
   depsDev: DepsDevClient;
   nuget: NuGetApiClient;
+  packagist: PackagistApiClient;
 }
 
 // Singleton instances
@@ -42,6 +44,7 @@ export function createApiClients(): ApiClients {
       librariesIo: librariesIoClient,
       depsDev: new DepsDevClient(),
       nuget: new NuGetApiClient(),
+      packagist: new PackagistApiClient(),
     };
   }
   return apiClients;

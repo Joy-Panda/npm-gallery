@@ -11,6 +11,7 @@ import { NpmsSourceAdapter } from '../sources/npm/npms-adapter';
 import { SonatypeSourceAdapter } from '../sources/sonatype/sonatype-adapter';
 import { LibrariesIoSourceAdapter } from '../sources/libraries-io';
 import { NuGetSourceAdapter } from '../sources/nuget';
+import { PackagistSourceAdapter } from '../sources/packagist';
 import { getApiClients } from '../api/clients';
 import type { ProjectType, SourceType } from '../types/project';
 
@@ -108,6 +109,10 @@ export class ServiceContainer {
     // Register NuGet adapter for .NET (PackageReference, CPM, Paket, Cake, PMC, .NET CLI)
     const nugetAdapter = new NuGetSourceAdapter(clients.nuget, clients.audit, clients.depsDev);
     this.sourceRegistry.register('nuget', nugetAdapter);
+
+    // Register Packagist adapter for PHP/Composer packages
+    const packagistAdapter = new PackagistSourceAdapter(clients.packagist);
+    this.sourceRegistry.register('packagist', packagistAdapter);
   }
 
   /**

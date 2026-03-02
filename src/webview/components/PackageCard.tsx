@@ -24,6 +24,8 @@ interface PackageCardProps {
   onClick: () => void;
   onInstall: (type: DependencyType) => void;
   onCopy?: (packageName: string, version: string) => void;
+  copyLabel?: string;
+  downloadsTooltipLabel?: string;
   supportedInstallTypes?: DependencyType[];
   showInstall?: boolean;
 }
@@ -33,6 +35,8 @@ export const PackageCard: React.FC<PackageCardProps> = ({
   onClick,
   onInstall,
   onCopy,
+  copyLabel = 'Copy dependency snippet',
+  downloadsTooltipLabel = 'weekly downloads',
   supportedInstallTypes = ['dependencies'],
   showInstall = true,
 }) => {
@@ -192,7 +196,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({
                     </div>
                   </TooltipTrigger>
                   <TooltipContent>
-                    {pkg.downloads?.toLocaleString()} weekly downloads
+                    {pkg.downloads?.toLocaleString()} {downloadsTooltipLabel}
                   </TooltipContent>
                 </Tooltip>
               )}
@@ -255,7 +259,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                Copy dependency snippet
+                {copyLabel}
               </TooltipContent>
             </Tooltip>
           ) : null}

@@ -13,6 +13,7 @@ export interface ParsedQuery {
   artifactId?: string;
   version?: string;
   tags?: string;
+  type?: string;
   // Libraries.io specific filters
   languages?: string;
   licenses?: string;
@@ -63,6 +64,7 @@ export function parseQuery(query: string): ParsedQuery {
     { pattern: /\bartifactId:([^\s]+)/g, key: 'artifactId' as const },
     { pattern: /\bversion:([^\s]+)/g, key: 'version' as const },
     { pattern: /\btags:([^\s]+)/g, key: 'tags' as const },
+    { pattern: /\btype:([^\s]+)/g, key: 'type' as const },
     { pattern: /\blanguages:([^\s]+)/g, key: 'languages' as const },
     { pattern: /\blicenses:([^\s]+)/g, key: 'licenses' as const },
     { pattern: /\bplatforms:([^\s]+)/g, key: 'platforms' as const },
@@ -136,6 +138,7 @@ export function buildQuery(params: {
   artifactId?: string;
   version?: string;
   tags?: string;
+  type?: string;
   // Libraries.io specific filters
   languages?: string;
   licenses?: string;
@@ -182,6 +185,9 @@ export function buildQuery(params: {
   }
   if (params.tags) {
     parts.push(`tags:${params.tags}`);
+  }
+  if (params.type) {
+    parts.push(`type:${params.type}`);
   }
 
   // Add Libraries.io specific filters
@@ -244,6 +250,7 @@ export function extractBaseText(query: string): string {
     /\bartifactId:([^\s]+)/g,
     /\bversion:([^\s]+)/g,
     /\btags:([^\s]+)/g,
+    /\btype:([^\s]+)/g,
     /\blanguages:([^\s]+)/g,
     /\blicenses:([^\s]+)/g,
     /\bplatforms:([^\s]+)/g,
@@ -281,6 +288,7 @@ export function parseQueryToFilters(query: string): {
   artifactId: string;
   version: string;
   tags: string;
+  type: string;
   languages: string;
   licenses: string;
   platforms: string;
@@ -302,6 +310,7 @@ export function parseQueryToFilters(query: string): {
     artifactId: parsed.artifactId || '',
     version: parsed.version || '',
     tags: parsed.tags || '',
+    type: parsed.type || '',
     languages: parsed.languages || '',
     licenses: parsed.licenses || '',
     platforms: parsed.platforms || '',

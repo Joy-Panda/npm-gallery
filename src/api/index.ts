@@ -6,4 +6,5 @@ export { OSVClient } from './osv';
 export { SonatypeApiClient } from './sonatype-api';
 export { DepsDevClient } from './deps-dev';
 export { NuGetApiClient } from './nuget-api';
+export { PackagistApiClient } from './packagist-api';
 export { createApiClients, getApiClients, type ApiClients } from './clients';

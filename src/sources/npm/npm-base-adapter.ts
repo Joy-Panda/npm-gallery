@@ -193,6 +193,11 @@ export abstract class NpmBaseAdapter extends BaseSourceAdapter {
         flags: {},
         exactFlag: '',
       },
+      composer: {
+        command: 'npm install',
+        flags: {},
+        exactFlag: '--save-exact',
+      },
     };
 
     const managerConfig = config[packageManager] || config.npm;

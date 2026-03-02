@@ -127,7 +127,11 @@ export interface ISourceAdapter {
   /**
    * Get dependents info (optional)
    */
-  getDependents?(name: string, version: string): Promise<DependentsInfo | null>;
+  getDependents?(
+    name: string,
+    version: string,
+    options?: { pageUrl?: string }
+  ): Promise<DependentsInfo | null>;
 
   /**
    * Get requirements info (optional)
@@ -235,7 +239,11 @@ export abstract class BaseSourceAdapter implements ISourceAdapter {
     throw new CapabilityNotSupportedError(SourceCapability.SECURITY, this.sourceType);
   }
 
-  async getDependents?(_name: string, _version: string): Promise<DependentsInfo | null> {
+  async getDependents?(
+    _name: string,
+    _version: string,
+    _options?: { pageUrl?: string }
+  ): Promise<DependentsInfo | null> {
     if (!this.supportsCapability(SourceCapability.DEPENDENTS)) {
       throw new CapabilityNotSupportedError(SourceCapability.DEPENDENTS, this.sourceType);
     }

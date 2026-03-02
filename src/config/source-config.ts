@@ -39,6 +39,12 @@ export const DEFAULT_SOURCE_CONFIG: Record<ProjectType, SourceConfig> = {
     sortOptions: ['relevance', 'popularity', 'name'],
     filters: ['author', 'tags', 'packageType'],
   },
+  php: {
+    primary: 'packagist',
+    fallbacks: [],
+    sortOptions: ['relevance', 'popularity', 'name'],
+    filters: ['tags', 'type'],
+  },
   unknown: {
     primary: 'npm-registry',
     fallbacks: ['npms-io'], // libraries-io is used as internal fallback, not in fallbacks list

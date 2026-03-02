@@ -26,7 +26,7 @@ export class ProjectDetector {
     }
 
     // All detected project types in stable order (workspace-style: show multiple)
-    const order: ProjectType[] = ['npm', 'maven', 'dotnet', 'go'];
+    const order: ProjectType[] = ['npm', 'maven', 'dotnet', 'go', 'php'];
     const unique = [...new Set(projects.map(p => p.type))].filter(
       (t): t is ProjectType => t !== 'unknown'
     );
@@ -44,7 +44,9 @@ export class ProjectDetector {
 
     // Check for each project type
     for (const [projectType, configFiles] of Object.entries(PROJECT_CONFIG_FILES)) {
-      if (projectType === 'unknown') continue;
+      if (projectType === 'unknown') {
+        continue;
+      }
 
       for (const configFile of configFiles) {
         const found = await this.findConfigFile(folderPath, configFile, projectType as ProjectType);
@@ -104,6 +106,9 @@ export class ProjectDetector {
     }
     if (lowerPath.endsWith('packages.config') || lowerPath.endsWith('directory.packages.props') || lowerPath.endsWith('paket.dependencies')) {
       return 'dotnet';
+    }
+    if (lowerPath.endsWith('composer.json')) {
+      return 'php';
     }
 
     return 'unknown';

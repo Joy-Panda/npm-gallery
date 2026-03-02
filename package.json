@@ -32,7 +32,8 @@
     "workspaceContains:**/*.csproj",
     "workspaceContains:**/packages.config",
     "workspaceContains:**/Directory.Packages.props",
-    "workspaceContains:**/paket.dependencies"
+    "workspaceContains:**/paket.dependencies",
+    "workspaceContains:**/composer.json"
   ],
   "main": "./dist/extension.js",
   "contributes": {

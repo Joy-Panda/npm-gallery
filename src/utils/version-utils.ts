@@ -144,6 +144,9 @@ export function parseVersionComponents(version: string): {
 } {
   // Remove common suffixes that don't affect version comparison
   let cleanVersion = version.trim();
+  if (/^v\d/i.test(cleanVersion)) {
+    cleanVersion = cleanVersion.slice(1);
+  }
   
   // Handle Maven qualifiers (RELEASE, FINAL, etc.) - these are typically equivalent to no qualifier
   const qualifierMatch = cleanVersion.match(/^(.+?)(\.(RELEASE|FINAL))$/i);

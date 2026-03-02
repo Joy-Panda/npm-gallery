@@ -281,6 +281,7 @@ export type NuGetCopyFormat =
   | 'packagereference'   // Copy to .csproj
   | 'dotnet-cli'        // Run in terminal
   | 'cpm'               // Copy to Directory.Packages.props (PackageVersion)
+  | 'cpm-combined'      // Copy both CPM snippets together
   | 'cpm-project'       // Copy to .csproj when using CPM (PackageReference without version)
   | 'paket'             // Run in terminal (paket add)
   | 'paket-deps'        // Copy to paket.dependencies
@@ -298,6 +299,7 @@ export const NUGET_FORMAT_RUN_TYPE: Record<NuGetCopyFormat, NuGetFormatRunType> 
   packagereference: 'copy',
   'dotnet-cli': 'terminal',
   cpm: 'copy',
+  'cpm-combined': 'copy',
   'cpm-project': 'copy',
   paket: 'terminal',
   'paket-deps': 'copy',
@@ -320,6 +322,7 @@ export const NUGET_COPY_FORMAT_LABELS: Record<NuGetCopyFormat, string> = {
   packagereference: 'PackageReference (.csproj)',
   'dotnet-cli': '.NET CLI (terminal)',
   cpm: 'CPM - Directory.Packages.props',
+  'cpm-combined': 'CPM - Combined snippets',
   'cpm-project': 'CPM - Project file (PackageReference)',
   paket: 'Paket CLI (terminal)',
   'paket-deps': 'Paket (paket.dependencies)',
@@ -343,7 +346,7 @@ export type NuGetManagementStyle = 'packagereference' | 'cpm' | 'paket' | 'packa
 /** Map NuGet management style to default copy/run format */
 export const NUGET_STYLE_TO_COPY_FORMAT: Record<NuGetManagementStyle, NuGetCopyFormat> = {
   packagereference: 'packagereference',
-  cpm: 'cpm',
+  cpm: 'cpm-combined',
   paket: 'paket',
   'packages.config': 'pmc',
   cake: 'cake',
@@ -368,7 +371,7 @@ export interface CopyOptions {
 /**
  * Package manager type
  */
-export type PackageManager = 'npm' | 'yarn' | 'pnpm' | 'bun' | 'dotnet' | 'paket';
+export type PackageManager = 'npm' | 'yarn' | 'pnpm' | 'bun' | 'dotnet' | 'paket' | 'composer';
 
 /**
  * Search result from APIs
@@ -490,6 +493,7 @@ export function getFilterLabel(filter: SearchFilter): string {
       artifactId: 'Artifact ID',
       version: 'Version',
       tags: 'Tags',
+      type: 'Type',
       languages: 'Languages',
       licenses: 'Licenses',
       platforms: 'Platforms',
@@ -514,6 +518,7 @@ export function getFilterPlaceholder(filter: SearchFilter): string {
       artifactId: 'artifactId (e.g., guice)',
       version: 'version (e.g., 1.0.0)',
       tags: 'tags (comma-separated)',
+      type: 'package type (e.g., library, composer-plugin)',
       languages: 'languages (comma-separated, e.g., Java,JavaScript)',
       licenses: 'licenses (comma-separated, e.g., MIT,Apache-2.0)',
       platforms: 'platforms (comma-separated, e.g., Maven,NPM)',
@@ -568,6 +573,7 @@ export interface DependentsInfo {
   directSample: DependentSampleItem[];
   indirectSample: DependentSampleItem[];
   webUrl?: string;
+  nextPageUrl?: string;
 }
 
 export interface RequirementItem {

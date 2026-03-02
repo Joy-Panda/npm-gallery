@@ -7,6 +7,7 @@ import {
   parseDependencySpec,
   type ParsedDependencySpec,
 } from '../utils/version-utils';
+import { parseCakeDirectives } from '../utils/cake-utils';
 import type {
   MonorepoTool,
   WorkspaceAlignmentIssue,
@@ -34,7 +35,7 @@ export class WorkspaceService {
 
     // Watch for package manifests and monorepo config changes
     this.fileWatcher = vscode.workspace.createFileSystemWatcher(
-      '**/{package.json,pom.xml,lerna.json,nx.json,workspace.json,pnpm-workspace.yaml,Directory.Packages.props,paket.dependencies,*.cake}'
+      '**/{package.json,composer.json,composer.lock,pom.xml,lerna.json,nx.json,workspace.json,pnpm-workspace.yaml,Directory.Packages.props,paket.dependencies,*.cake}'
     );
 
     const invalidateAndNotify = (uri?: vscode.Uri) => {
@@ -91,6 +92,10 @@ export class WorkspaceService {
    */
   async getPomXmlFiles(): Promise<vscode.Uri[]> {
     return vscode.workspace.findFiles('**/pom.xml', '**/target/**');
+  }
+
+  async getComposerManifestFiles(): Promise<vscode.Uri[]> {
+    return vscode.workspace.findFiles('**/composer.json', '**/{vendor,node_modules}/**');
   }
 
   /**
@@ -485,20 +490,23 @@ export class WorkspaceService {
 
   private async loadInstalledPackages(): Promise<InstalledPackage[]> {
     const packageJsonFiles = await this.getPackageJsonFiles();
+    const composerManifestFiles = await this.getComposerManifestFiles();
     const pomXmlFiles = await this.getPomXmlFiles();
     const dotnetManifestFiles = await this.getDotNetInstalledManifestFiles();
-    return this.loadInstalledPackagesForUris(packageJsonFiles, pomXmlFiles, dotnetManifestFiles);
+    return this.loadInstalledPackagesForUris(packageJsonFiles, composerManifestFiles, pomXmlFiles, dotnetManifestFiles);
   }
 
   private async loadInstalledPackagesForScope(scope: WorkspacePackageScope): Promise<InstalledPackage[]> {
     const packageJsonFiles = await this.getPackageJsonFilesForScope(scope);
+    const composerManifestFiles = await this.getComposerManifestFilesForScope(scope);
     const pomXmlFiles = await this.getPomXmlFilesForScope(scope);
     const dotnetManifestFiles = await this.getDotNetManifestFilesForScope(scope);
-    return this.loadInstalledPackagesForUris(packageJsonFiles, pomXmlFiles, dotnetManifestFiles);
+    return this.loadInstalledPackagesForUris(packageJsonFiles, composerManifestFiles, pomXmlFiles, dotnetManifestFiles);
   }
 
   private async loadInstalledPackagesForUris(
     packageJsonFiles: vscode.Uri[],
+    composerManifestFiles: vscode.Uri[],
     pomXmlFiles: vscode.Uri[],
     dotnetManifestFiles: vscode.Uri[] = []
   ): Promise<InstalledPackage[]> {
@@ -577,6 +585,22 @@ export class WorkspaceService {
       }
     }
 
+    for (const uri of composerManifestFiles) {
+      try {
+        const [composerJsonContent, composerLockContent] = await Promise.all([
+          vscode.workspace.fs.readFile(uri),
+          this.readOptionalFile(vscode.Uri.joinPath(uri, '..', 'composer.lock')),
+        ]);
+        const composerJson = JSON.parse(composerJsonContent.toString()) as Record<string, unknown>;
+        const composerLock = composerLockContent
+          ? JSON.parse(composerLockContent.toString()) as Record<string, unknown>
+          : null;
+        installedPackages.push(...this.parseComposerManifest(composerJson, composerLock, uri.fsPath));
+      } catch {
+        // Skip invalid composer manifests
+      }
+    }
+
     // Get Maven packages
     for (const uri of pomXmlFiles) {
       try {
@@ -644,6 +668,28 @@ export class WorkspaceService {
     }
 
     return packageJsonFiles.filter(
+      (uri) => vscode.workspace.getWorkspaceFolder(uri)?.uri.fsPath === scope.workspaceFolderPath
+    );
+  }
+
+  private async getComposerManifestFilesForScope(scope: WorkspacePackageScope): Promise<vscode.Uri[]> {
+    if (scope.manifestPath) {
+      const lower = scope.manifestPath.toLowerCase();
+      if (lower.endsWith('composer.json')) {
+        return [vscode.Uri.file(scope.manifestPath)];
+      }
+      if (lower.endsWith('composer.lock')) {
+        return [vscode.Uri.file(scope.manifestPath.replace(/composer\.lock$/i, 'composer.json'))];
+      }
+      return [];
+    }
+
+    const composerManifestFiles = await this.getComposerManifestFiles();
+    if (!scope.workspaceFolderPath) {
+      return composerManifestFiles;
+    }
+
+    return composerManifestFiles.filter(
       (uri) => vscode.workspace.getWorkspaceFolder(uri)?.uri.fsPath === scope.workspaceFolderPath
     );
   }
@@ -819,28 +865,120 @@ export class WorkspaceService {
    */
   private parseCakePackages(text: string, manifestPath: string): InstalledPackage[] {
     const packages: InstalledPackage[] = [];
-    const re = /#(addin|tool)\s+nuget:\?package=([^&\s]+)(?:&version=([^\s&]+))?/gi;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(text)) !== null) {
-      const id = m[2]?.trim();
-      const version = m[3]?.trim();
-      if (!id) continue;
-      // Only include lines that pin a version (so they appear in installed/updates)
-      if (!version) continue;
-      const kind = (m[1] ?? 'addin').toLowerCase();
+    const path = require('path') as typeof import('path');
+    const manifestName = path.basename(manifestPath);
+    for (const directive of parseCakeDirectives(text)) {
       packages.push({
         workspaceFolderPath: vscode.workspace.getWorkspaceFolder(vscode.Uri.file(manifestPath))?.uri.fsPath,
-        manifestName: kind === 'tool' ? 'Cake (tool)' : 'Cake (addin)',
-        name: id,
-        currentVersion: version,
-        resolvedVersion: version,
-        versionSpecifier: version,
-        isRegistryResolvable: true,
+        manifestName,
+        name: directive.packageId,
+        currentVersion: directive.version || 'floating',
+        resolvedVersion: directive.version,
+        versionSpecifier: directive.version,
+        isRegistryResolvable: !!directive.version,
         type: 'dependencies',
         hasUpdate: false,
         packageJsonPath: manifestPath,
       });
     }
+    return packages;
+  }
+
+  private parseComposerManifest(
+    composerJson: Record<string, unknown>,
+    composerLock: Record<string, unknown> | null,
+    manifestPath: string
+  ): InstalledPackage[] {
+    const workspaceFolderPath = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(manifestPath))?.uri.fsPath;
+    const manifestName =
+      typeof composerJson.name === 'string' && composerJson.name.trim()
+        ? composerJson.name.trim()
+        : this.getFallbackManifestName(manifestPath);
+
+    const packages: InstalledPackage[] = [];
+    const addPackage = (
+      name: string,
+      version: string,
+      type: DependencyType,
+      versionSpecifier?: string
+    ) => {
+      if (this.isComposerPlatformPackage(name)) {
+        return;
+      }
+
+      const parsedSpec = parseDependencySpec(versionSpecifier || version);
+      packages.push({
+        workspaceFolderPath,
+        manifestName,
+        name,
+        currentVersion: version,
+        resolvedVersion: version,
+        versionSpecifier: versionSpecifier || version,
+        specKind: parsedSpec.kind,
+        isRegistryResolvable: true,
+        type,
+        hasUpdate: false,
+        packageJsonPath: manifestPath,
+      });
+    };
+
+    if (composerLock) {
+      const requireMap = this.readComposerDependencyMap(composerJson.require);
+      const requireDevMap = this.readComposerDependencyMap(composerJson['require-dev']);
+      const runtimePackages = Array.isArray(composerLock.packages)
+        ? composerLock.packages as Array<Record<string, unknown>>
+        : [];
+      const devPackages = Array.isArray(composerLock['packages-dev'])
+        ? composerLock['packages-dev'] as Array<Record<string, unknown>>
+        : [];
+
+      for (const pkg of runtimePackages) {
+        const name = typeof pkg.name === 'string' ? pkg.name : undefined;
+        const version = typeof pkg.version === 'string' ? pkg.version : undefined;
+        if (name && version) {
+          addPackage(name, version, 'dependencies', requireMap.get(name) || version);
+        }
+      }
+
+      for (const pkg of devPackages) {
+        const name = typeof pkg.name === 'string' ? pkg.name : undefined;
+        const version = typeof pkg.version === 'string' ? pkg.version : undefined;
+        if (name && version) {
+          addPackage(name, version, 'devDependencies', requireDevMap.get(name) || version);
+        }
+      }
+
+      return packages;
+    }
+
+    const dependencySets: Array<{ deps: Record<string, string>; type: DependencyType }> = [
+      { deps: this.readComposerDependencyObject(composerJson.require), type: 'dependencies' },
+      { deps: this.readComposerDependencyObject(composerJson['require-dev']), type: 'devDependencies' },
+    ];
+
+    for (const dependencySet of dependencySets) {
+      for (const [name, versionRange] of Object.entries(dependencySet.deps)) {
+        if (this.isComposerPlatformPackage(name)) {
+          continue;
+        }
+
+        const parsedSpec = parseDependencySpec(versionRange);
+        packages.push({
+          workspaceFolderPath,
+          manifestName,
+          name,
+          currentVersion: parsedSpec.displayText || versionRange,
+          resolvedVersion: parsedSpec.normalizedVersion,
+          versionSpecifier: versionRange,
+          specKind: parsedSpec.kind,
+          isRegistryResolvable: parsedSpec.isRegistryResolvable,
+          type: dependencySet.type,
+          hasUpdate: false,
+          packageJsonPath: manifestPath,
+        });
+      }
+    }
+
     return packages;
   }
 
@@ -1064,12 +1202,16 @@ export class WorkspaceService {
     const fileName = uri.fsPath.split(/[/\\]/).pop()?.toLowerCase();
     if (
       fileName === 'package.json' ||
+      fileName === 'composer.json' ||
       fileName === 'pom.xml' ||
       fileName === 'directory.packages.props' ||
       fileName === 'paket.dependencies' ||
       fileName?.endsWith('.cake')
     ) {
       return { manifestPath: uri.fsPath };
+    }
+    if (fileName === 'composer.lock') {
+      return { manifestPath: uri.fsPath.replace(/composer\.lock$/i, 'composer.json') };
     }
     return undefined;
   }
@@ -1396,17 +1538,17 @@ export class WorkspaceService {
       const content = await vscode.workspace.fs.readFile(uri);
       const text = content.toString();
 
-      const escapedId = this.escapeRegex(packageId);
-      // Match #addin or #tool line with package=Id and optional &version=current
-      const re = new RegExp(
-        `(#${kind}\\s+nuget:\\?package=${escapedId})(?:&version=[^\\s&]+)?([^\\n]*)`,
-        'im'
+      const directive = parseCakeDirectives(text).find(
+        (entry) => entry.kind === kind && entry.packageId.toLowerCase() === packageId.toLowerCase()
       );
-      const updatedText = text.replace(re, `$1&version=${newVersion}$2`);
-
-      if (updatedText === text) {
+      if (!directive) {
         return false;
       }
+
+      const updatedText = directive.versionRange
+        ? `${text.slice(0, directive.versionRange.start)}${newVersion}${text.slice(directive.versionRange.end)}`
+        : `${text.slice(0, directive.end)}&version=${newVersion}${text.slice(directive.end)}`;
+
       await vscode.workspace.fs.writeFile(uri, Buffer.from(updatedText));
       this.invalidateInstalledPackagesCache();
       return true;
@@ -1485,6 +1627,40 @@ export class WorkspaceService {
     } catch {
       return null;
     }
+  }
+
+  private async readOptionalFile(uri: vscode.Uri): Promise<Uint8Array | null> {
+    try {
+      return await vscode.workspace.fs.readFile(uri);
+    } catch {
+      return null;
+    }
+  }
+
+  private readComposerDependencyMap(value: unknown): Map<string, string> {
+    return new Map(Object.entries(this.readComposerDependencyObject(value)));
+  }
+
+  private readComposerDependencyObject(value: unknown): Record<string, string> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return {};
+    }
+
+    return Object.fromEntries(
+      Object.entries(value).filter(
+        (entry): entry is [string, string] => typeof entry[0] === 'string' && typeof entry[1] === 'string'
+      )
+    );
+  }
+
+  private isComposerPlatformPackage(name: string): boolean {
+    const normalized = name.toLowerCase();
+    return normalized === 'php' ||
+      normalized.startsWith('ext-') ||
+      normalized.startsWith('lib-') ||
+      normalized === 'composer-plugin-api' ||
+      normalized === 'composer-runtime-api' ||
+      normalized === 'composer-api';
   }
 
   /**

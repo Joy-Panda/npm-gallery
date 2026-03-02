@@ -42,6 +42,7 @@ export function useSearch(): {
       parsed.groupId ||
       parsed.artifactId ||
       parsed.tags ||
+      parsed.type ||
       parsed.languages ||
       parsed.licenses ||
       parsed.platforms ||
@@ -66,6 +67,7 @@ export function useSearch(): {
       groupId: parsed.groupId,
       artifactId: parsed.artifactId,
       tags: parsed.tags,
+      type: parsed.type,
       languages: parsed.languages,
       licenses: parsed.licenses,
       platforms: parsed.platforms,

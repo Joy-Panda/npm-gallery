@@ -15,6 +15,7 @@ interface FilterState {
   artifactId: string;
   version: string;
   tags: string;
+  type: string;
   // Libraries.io specific filters
   languages: string;
   licenses: string;

@@ -1,4 +1,5 @@
 import type {
+  DependentsInfo,
   PackageInfo,
   PackageDetails,
   SearchResult,
@@ -22,7 +23,8 @@ export type ExtensionToWebviewMessage =
   | LoadingMessage
   | ErrorMessage
   | ConfigUpdateMessage
-  | SourceInfoMessage;
+  | SourceInfoMessage
+  | DependentsLoadedMessage;
 
 export interface SearchResultsMessage {
   type: 'searchResults';
@@ -110,6 +112,11 @@ export interface SourceInfoMessage {
   };
 }
 
+export interface DependentsLoadedMessage {
+  type: 'dependentsLoaded';
+  data: DependentsInfo;
+}
+
 /**
  * Messages sent from webview to extension
  */
@@ -121,6 +128,7 @@ export type WebviewToExtensionMessage =
   | CopySnippetMessage
   | RefreshMessage
   | OpenPackageDetailsMessage
+  | LoadMoreDependentsMessage
   | ReadyMessage
   | ChangeSourceMessage
   | ChangeProjectTypeMessage
@@ -164,6 +172,13 @@ export interface RefreshMessage {
 export interface OpenPackageDetailsMessage {
   type: 'openPackageDetails';
   packageName: string;
+}
+
+export interface LoadMoreDependentsMessage {
+  type: 'loadMoreDependents';
+  packageName: string;
+  version: string;
+  nextPageUrl: string;
 }
 
 export interface ReadyMessage {

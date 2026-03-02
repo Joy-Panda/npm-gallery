@@ -39,6 +39,7 @@ export const API_ENDPOINTS = {
   GITHUB_API: 'https://api.github.com',
   OSV_API: 'https://api.osv.dev',
   LIBRARIES_IO: 'https://libraries.io/api',
+  PACKAGIST: 'https://packagist.org',
 } as const;
 
 /**

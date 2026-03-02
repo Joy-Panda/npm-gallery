@@ -17,6 +17,8 @@ interface SearchResultsProps {
   onSortChange?: (sortBy: SearchSortBy) => void;
   supportedSortOptions?: SearchSortBy[];
   onCopy?: (packageName: string, version: string) => void;
+  copyLabel?: string;
+  downloadsTooltipLabel?: string;
   supportedInstallTypes?: DependencyType[];
   showInstall?: boolean;
 }
@@ -36,6 +38,8 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
     'maintenance',
   ] as SearchSortBy[],
   onCopy,
+  copyLabel,
+  downloadsTooltipLabel,
   supportedInstallTypes = ['dependencies'],
   showInstall = true,
 }) => {
@@ -136,6 +140,8 @@ export const SearchResults: React.FC<SearchResultsProps> = ({
             onClick={() => onPackageSelect(pkg)}
             onInstall={(type) => onInstall(pkg, type)}
             onCopy={onCopy}
+            copyLabel={copyLabel}
+            downloadsTooltipLabel={downloadsTooltipLabel}
             supportedInstallTypes={supportedInstallTypes}
             showInstall={showInstall}
           />

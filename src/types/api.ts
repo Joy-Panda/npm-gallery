@@ -112,6 +112,7 @@ export interface NpmSearchObject {
     };
   };
   downloads: {
+    monthly?: number;
     weekly: number;
   };
   searchScore: number;

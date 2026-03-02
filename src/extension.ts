@@ -32,10 +32,24 @@ export async function activate(context: vscode.ExtensionContext) {
   const updatesProvider = new UpdatesProvider();
   // PackageJsonEditorProvider is no longer used - package.json opens with default editor
 
-  // Register hover provider for package.json
+  // Register hover providers for package manifests
   context.subscriptions.push(
     vscode.languages.registerHoverProvider(
       { language: 'json', pattern: '**/package.json' },
+      hoverProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider(
+      { language: 'json', pattern: '**/composer.json' },
+      hoverProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider(
+      { language: 'xml', pattern: '**/Directory.Packages.props' },
       hoverProvider
     )
   );
@@ -44,6 +58,13 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider(
       { language: 'json', pattern: '**/package.json' },
+      codeLensProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider(
+      { language: 'json', pattern: '**/composer.json' },
       codeLensProvider
     )
   );
