@@ -125,6 +125,14 @@ export class PackagistSourceAdapter extends BaseSourceAdapter {
     const details = this.transformer.transformPackageDetails(response.package, version);
     details.requirements = this.transformer.buildRequirements(response.package, version) || undefined;
     try {
+      const readme = await this.client.getPackageReadme(name);
+      if (readme) {
+        details.readme = readme;
+      }
+    } catch {
+      // Continue with description-like readme fallback.
+    }
+    try {
       details.security = await this.getSecurityInfo(name, details.version) || undefined;
     } catch {
       // Continue without security info.

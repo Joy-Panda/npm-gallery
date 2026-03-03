@@ -29,6 +29,7 @@ export async function selectInstallTargetManifest(
   const useRuby = projectType === 'ruby' || currentSource === 'rubygems';
   const useClojure = projectType === 'clojure' || currentSource === 'clojars';
   const useRust = projectType === 'rust' || currentSource === 'crates-io';
+  const useGo = projectType === 'go' || currentSource === 'pkg-go-dev';
   const usePerl = projectType === 'perl' || currentSource === 'metacpan';
   const usePub = projectType === 'dart' || projectType === 'flutter' || currentSource === 'pub-dev';
   const useR = projectType === 'r' || currentSource === 'cran';
@@ -42,6 +43,8 @@ export async function selectInstallTargetManifest(
           ? await workspaceService.getClojureManifestFiles()
           : useRust
             ? await workspaceService.getCargoManifestFiles()
+            : useGo
+              ? await workspaceService.getGoManifestFiles()
             : usePerl
               ? await workspaceService.getPerlManifestFiles()
               : usePub
@@ -71,7 +74,7 @@ export async function selectInstallTargetManifest(
 
   const preferredManifestPath =
     getRememberedInstallTarget(manifestPaths, preferredTargetPath) ||
-    (preferredTargetPath && (preferredTargetPath.endsWith('package.json') || preferredTargetPath.endsWith('composer.json') || preferredTargetPath.endsWith('Gemfile') || preferredTargetPath.endsWith('deps.edn') || preferredTargetPath.endsWith('project.clj') || preferredTargetPath.endsWith('Cargo.toml') || preferredTargetPath.endsWith('cpanfile') || preferredTargetPath.endsWith('pubspec.yaml') || preferredTargetPath.endsWith('DESCRIPTION') || preferredTargetPath.endsWith('Directory.Packages.props') || preferredTargetPath.endsWith('.csproj'))
+    (preferredTargetPath && (preferredTargetPath.endsWith('package.json') || preferredTargetPath.endsWith('composer.json') || preferredTargetPath.endsWith('Gemfile') || preferredTargetPath.endsWith('deps.edn') || preferredTargetPath.endsWith('project.clj') || preferredTargetPath.endsWith('Cargo.toml') || preferredTargetPath.endsWith('go.mod') || preferredTargetPath.endsWith('cpanfile') || preferredTargetPath.endsWith('pubspec.yaml') || preferredTargetPath.endsWith('DESCRIPTION') || preferredTargetPath.endsWith('Directory.Packages.props') || preferredTargetPath.endsWith('.csproj'))
       ? preferredTargetPath
       : getPreferredManifestPath(manifestPaths, useDotNet));
 
@@ -113,7 +116,9 @@ export async function selectInstallTargetManifest(
           : useClojure
             ? `Select the target Clojure manifest for ${packageName}`
             : useRust
-              ? `Select the target Cargo.toml for ${packageName}`
+            ? `Select the target Cargo.toml for ${packageName}`
+            : useGo
+              ? `Select the target go.mod for ${packageName}`
               : usePerl
                 ? `Select the target cpanfile for ${packageName}`
                 : usePub
@@ -142,6 +147,7 @@ export async function getInstallTargetSummary(
   const useRuby = projectType === 'ruby' || currentSource === 'rubygems';
   const useClojure = projectType === 'clojure' || currentSource === 'clojars';
   const useRust = projectType === 'rust' || currentSource === 'crates-io';
+  const useGo = projectType === 'go' || currentSource === 'pkg-go-dev';
   const usePerl = projectType === 'perl' || currentSource === 'metacpan';
   const usePub = projectType === 'dart' || projectType === 'flutter' || currentSource === 'pub-dev';
   const useR = projectType === 'r' || currentSource === 'cran';
@@ -155,6 +161,8 @@ export async function getInstallTargetSummary(
           ? await workspaceService.getClojureManifestFiles()
           : useRust
             ? await workspaceService.getCargoManifestFiles()
+            : useGo
+              ? await workspaceService.getGoManifestFiles()
             : usePerl
               ? await workspaceService.getPerlManifestFiles()
               : usePub
@@ -169,7 +177,7 @@ export async function getInstallTargetSummary(
 
   const manifestPath =
     getRememberedInstallTarget(manifestPaths, preferredTargetPath) ||
-    (preferredTargetPath && (preferredTargetPath.endsWith('package.json') || preferredTargetPath.endsWith('composer.json') || preferredTargetPath.endsWith('Gemfile') || preferredTargetPath.endsWith('deps.edn') || preferredTargetPath.endsWith('project.clj') || preferredTargetPath.endsWith('Cargo.toml') || preferredTargetPath.endsWith('cpanfile') || preferredTargetPath.endsWith('pubspec.yaml') || preferredTargetPath.endsWith('DESCRIPTION') || preferredTargetPath.endsWith('Directory.Packages.props') || preferredTargetPath.endsWith('.csproj'))
+    (preferredTargetPath && (preferredTargetPath.endsWith('package.json') || preferredTargetPath.endsWith('composer.json') || preferredTargetPath.endsWith('Gemfile') || preferredTargetPath.endsWith('deps.edn') || preferredTargetPath.endsWith('project.clj') || preferredTargetPath.endsWith('Cargo.toml') || preferredTargetPath.endsWith('go.mod') || preferredTargetPath.endsWith('cpanfile') || preferredTargetPath.endsWith('pubspec.yaml') || preferredTargetPath.endsWith('DESCRIPTION') || preferredTargetPath.endsWith('Directory.Packages.props') || preferredTargetPath.endsWith('.csproj'))
       ? preferredTargetPath
       : getPreferredManifestPath(manifestPaths, useDotNet)) ||
     manifestPaths[0];

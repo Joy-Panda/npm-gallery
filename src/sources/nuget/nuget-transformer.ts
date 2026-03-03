@@ -7,6 +7,7 @@ import type {
   NuGetDependencyGroup,
   NuGetFrameworkProduct,
   NuGetFrameworkVersion,
+  RequirementsInfo,
 } from '../../types/package';
 import type {
   NuGetSearchResponse,
@@ -112,8 +113,55 @@ export class NuGetTransformer {
       dependencies: Object.keys(dependencies).length ? dependencies : undefined,
       nugetDependencyGroups,
       nugetFrameworks,
+      requirements: this.transformRequirements(item, registrationIndex) || undefined,
       repository: item.projectUrl ? { url: item.projectUrl } : undefined,
       homepage: item.projectUrl,
+    };
+  }
+
+  transformRequirements(
+    item: NuGetSearchResultItem,
+    registrationIndex?: NuGetRegistrationIndex | null
+  ): RequirementsInfo | null {
+    if (!registrationIndex) {
+      return null;
+    }
+
+    const leaf = this.getLeafForVersion(registrationIndex, item.version) ?? this.getLatestLeaf(registrationIndex);
+    const groups = leaf?.catalogEntry?.dependencyGroups;
+    if (!groups?.length) {
+      return null;
+    }
+
+    const frameworkItems = groups
+      .map((group) => {
+        const targetFramework = formatTargetFrameworkDisplay(group.targetFramework);
+        const rawFramework = group.targetFramework?.trim();
+        return {
+          name: targetFramework,
+          requirement: rawFramework || '(any)',
+          optional: !rawFramework,
+          type: 'target-framework',
+        };
+      })
+      .filter((item, index, array) => array.findIndex((candidate) => candidate.name === item.name) === index);
+
+    if (frameworkItems.length === 0) {
+      return null;
+    }
+
+    return {
+      system: 'nuget',
+      package: item.id,
+      version: item.version,
+      sections: [
+        {
+          id: 'frameworks',
+          title: 'Target Frameworks',
+          items: frameworkItems,
+        },
+      ],
+      webUrl: `https://www.nuget.org/packages/${item.id}`,
     };
   }
 

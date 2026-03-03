@@ -108,6 +108,9 @@ export class ProjectDetector {
     if (lowerPath.endsWith('pom.xml')) {
       return 'maven';
     }
+    if (lowerPath.endsWith('build.gradle') || lowerPath.endsWith('build.gradle.kts')) {
+      return 'maven';
+    }
     if (lowerPath.endsWith('go.mod')) {
       return 'go';
     }

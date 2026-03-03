@@ -8,3 +8,4 @@ export * from './crates';
 export * from './metacpan';
 export * from './pubdev';
 export * from './cran';
+export * from './pkg-go-dev';

@@ -3,6 +3,7 @@ import * as json from 'jsonc-parser/lib/esm/main.js';
 import { getServices } from '../services';
 import type { SourceType } from '../types/project';
 import { formatBytes } from '../utils/formatters';
+import { parseCakeDirectives } from '../utils/cake-utils';
 import { formatDependencySpecDisplay, parseDependencySpec } from '../utils/version-utils';
 
 /**
@@ -34,8 +35,10 @@ export class PackageHoverProvider implements vscode.HoverProvider {
       return this.createHover(packageInfo, 'npm', getServices().getCurrentSourceType());
     }
 
-    if (fileName.endsWith('composer.json')) {
-      const packageInfo = this.extractComposerPackageInfo(document, line, position);
+    if (fileName.endsWith('composer.json') || fileName.endsWith('composer.lock')) {
+      const packageInfo = fileName.endsWith('composer.lock')
+        ? this.extractComposerLockPackageInfo(document, position)
+        : this.extractComposerPackageInfo(document, line, position);
       if (!packageInfo) {
         return null;
       }
@@ -52,8 +55,10 @@ export class PackageHoverProvider implements vscode.HoverProvider {
       return this.createHover(packageInfo, 'rubygems');
     }
 
-    if (fileName.endsWith('cpanfile')) {
-      const packageInfo = this.extractCpanfilePackageInfo(line, position);
+    if (fileName.endsWith('cpanfile') || fileName.endsWith('cpanfile.snapshot')) {
+      const packageInfo = fileName.endsWith('cpanfile.snapshot')
+        ? this.extractCpanfileSnapshotPackageInfo(line, position)
+        : this.extractCpanfilePackageInfo(line, position);
       if (!packageInfo) {
         return null;
       }
@@ -78,8 +83,24 @@ export class PackageHoverProvider implements vscode.HoverProvider {
       return this.createHover(packageInfo, 'cran');
     }
 
-    if (fileName.endsWith('directory.packages.props')) {
-      const packageInfo = this.extractDirectoryPackagesPropsInfo(line, position);
+    if (
+      fileName.endsWith('directory.packages.props') ||
+      fileName.endsWith('packages.config') ||
+      fileName.endsWith('.csproj') ||
+      fileName.endsWith('.vbproj') ||
+      fileName.endsWith('.fsproj') ||
+      fileName.endsWith('paket.dependencies') ||
+      fileName.endsWith('.cake')
+    ) {
+      const packageInfo = fileName.endsWith('directory.packages.props')
+        ? this.extractDirectoryPackagesPropsInfo(line, position)
+        : fileName.endsWith('packages.config')
+          ? this.extractPackagesConfigInfo(line, position)
+          : fileName.endsWith('paket.dependencies')
+            ? this.extractPaketDependencyInfo(line, position)
+            : fileName.endsWith('.cake')
+              ? this.extractCakePackageInfo(document, position)
+              : this.extractProjectPackageReferenceInfo(document, position);
       if (!packageInfo) {
         return null;
       }
@@ -110,6 +131,32 @@ export class PackageHoverProvider implements vscode.HoverProvider {
         return null;
       }
       return this.createHover(packageInfo, 'crates-io');
+    }
+
+    if (fileName.endsWith('go.mod')) {
+      const packageInfo = this.extractGoModPackageInfo(document, line, position);
+      if (!packageInfo) {
+        return null;
+      }
+      return this.createHover(packageInfo, 'pkg-go-dev');
+    }
+
+    if (fileName.endsWith('pom.xml')) {
+      const packageInfo = this.extractPomXmlPackageInfo(document, position);
+      if (!packageInfo) {
+        return null;
+      }
+      const currentSource = getServices().getCurrentSourceType();
+      return this.createHover(packageInfo, currentSource === 'libraries-io' ? 'libraries-io' : 'sonatype', currentSource);
+    }
+
+    if (fileName.endsWith('build.gradle') || fileName.endsWith('build.gradle.kts')) {
+      const packageInfo = this.extractGradlePackageInfo(document, position);
+      if (!packageInfo) {
+        return null;
+      }
+      const currentSource = getServices().getCurrentSourceType();
+      return this.createHover(packageInfo, currentSource === 'libraries-io' ? 'libraries-io' : 'sonatype', currentSource);
     }
 
     return null;
@@ -153,6 +200,47 @@ export class PackageHoverProvider implements vscode.HoverProvider {
       rawVersion: parsedSpec.raw,
       displayVersion: formatDependencySpecDisplay(parsedSpec),
       isRegistryResolvable: this.isComposerRegistryPackage(name) && !!parsedSpec.normalizedVersion,
+    };
+  }
+
+  private extractComposerLockPackageInfo(
+    document: vscode.TextDocument,
+    position: vscode.Position
+  ): {
+    name: string;
+    version: string;
+    rawVersion: string;
+    displayVersion: string;
+    isRegistryResolvable: boolean;
+  } | null {
+    const offset = document.offsetAt(position);
+    const location = json.getLocation(document.getText(), offset);
+    const section = typeof location.path[0] === 'string' ? location.path[0] : undefined;
+    const index = typeof location.path[1] === 'number' ? location.path[1] : undefined;
+    if ((section !== 'packages' && section !== 'packages-dev') || index === undefined) {
+      return null;
+    }
+
+    const tree = json.parseTree(document.getText());
+    if (!tree) {
+      return null;
+    }
+
+    const packageNode = json.findNodeAtLocation(tree, [section, index]);
+    const packageValue = packageNode ? json.getNodeValue(packageNode) as Record<string, unknown> : null;
+    const name = typeof packageValue?.name === 'string' ? packageValue.name : undefined;
+    const version = typeof packageValue?.version === 'string' ? packageValue.version : undefined;
+    if (!name || !version) {
+      return null;
+    }
+
+    const isRegistryResolvable = this.isComposerRegistryPackage(name);
+    return {
+      name,
+      version,
+      rawVersion: version,
+      displayVersion: version,
+      isRegistryResolvable,
     };
   }
 
@@ -238,6 +326,146 @@ export class PackageHoverProvider implements vscode.HoverProvider {
       displayVersion: version,
       isRegistryResolvable: true,
     };
+  }
+
+  private extractPackagesConfigInfo(
+    line: string,
+    position: vscode.Position
+  ): {
+    name: string;
+    version: string;
+    rawVersion: string;
+    displayVersion: string;
+    isRegistryResolvable: boolean;
+  } | null {
+    const regex = /<package\b[^>]*\bid="([^"]+)"[^>]*\bversion="([^"]+)"[^>]*\/?>|<package\b[^>]*\bversion="([^"]+)"[^>]*\bid="([^"]+)"[^>]*\/?>/i;
+    const match = line.match(regex);
+    if (!match) {
+      return null;
+    }
+
+    const [fullMatch] = match;
+    const name = (match[1] ?? match[4])?.trim();
+    const version = (match[2] ?? match[3])?.trim();
+    if (!name || !version) {
+      return null;
+    }
+
+    const startIndex = line.indexOf(fullMatch);
+    const endIndex = startIndex + fullMatch.length;
+    if (position.character < startIndex || position.character > endIndex) {
+      return null;
+    }
+
+    return {
+      name,
+      version,
+      rawVersion: version,
+      displayVersion: version,
+      isRegistryResolvable: true,
+    };
+  }
+
+  private extractPaketDependencyInfo(
+    line: string,
+    position: vscode.Position
+  ): {
+    name: string;
+    version: string;
+    rawVersion: string;
+    displayVersion: string;
+    isRegistryResolvable: boolean;
+  } | null {
+    const regex = /^\s*nuget\s+([^\s]+)\s+([^\s~]+)/i;
+    const match = line.match(regex);
+    if (!match) {
+      return null;
+    }
+
+    const [fullMatch, name, version] = match;
+    const startIndex = line.indexOf(fullMatch);
+    const endIndex = startIndex + fullMatch.length;
+    if (position.character < startIndex || position.character > endIndex) {
+      return null;
+    }
+
+    return {
+      name,
+      version,
+      rawVersion: version,
+      displayVersion: version,
+      isRegistryResolvable: true,
+    };
+  }
+
+  private extractCakePackageInfo(
+    document: vscode.TextDocument,
+    position: vscode.Position
+  ): {
+    name: string;
+    version: string;
+    rawVersion: string;
+    displayVersion: string;
+    isRegistryResolvable: boolean;
+  } | null {
+    const offset = document.offsetAt(position);
+    const directive = parseCakeDirectives(document.getText()).find(
+      (entry) => offset >= entry.start && offset <= entry.end
+    );
+    if (!directive) {
+      return null;
+    }
+
+    return {
+      name: directive.packageId,
+      version: directive.version || 'floating',
+      rawVersion: directive.version || '',
+      displayVersion: directive.version || 'floating',
+      isRegistryResolvable: !!directive.version,
+    };
+  }
+
+  private extractProjectPackageReferenceInfo(
+    document: vscode.TextDocument,
+    position: vscode.Position
+  ): {
+    name: string;
+    version: string;
+    rawVersion: string;
+    displayVersion: string;
+    isRegistryResolvable: boolean;
+  } | null {
+    const text = document.getText();
+    const offset = document.offsetAt(position);
+    const regex = /<PackageReference\b([^>]*?)\/>|<PackageReference\b([^>]*?)>([\s\S]*?)<\/PackageReference>/gi;
+    let match: RegExpExecArray | null;
+
+    while ((match = regex.exec(text)) !== null) {
+      const fullMatch = match[0];
+      const start = match.index ?? 0;
+      const end = start + fullMatch.length;
+      if (offset < start || offset > end) {
+        continue;
+      }
+
+      const attrs = (match[1] ?? match[2] ?? '').trim();
+      const body = match[3] ?? '';
+      const name = this.readXmlAttribute(attrs, 'Include') || this.readXmlAttribute(attrs, 'Update');
+      const version = this.readXmlAttribute(attrs, 'Version') || this.readXmlElementText(body, 'Version');
+      if (!name) {
+        return null;
+      }
+
+      return {
+        name,
+        version: version || 'managed by cpm',
+        rawVersion: version || '',
+        displayVersion: version || 'managed by cpm',
+        isRegistryResolvable: !!version,
+      };
+    }
+
+    return null;
   }
 
   private extractGemfilePackageInfo(
@@ -453,6 +681,50 @@ export class PackageHoverProvider implements vscode.HoverProvider {
     };
   }
 
+  private extractGoModPackageInfo(
+    document: vscode.TextDocument,
+    line: string,
+    position: vscode.Position
+  ): {
+    name: string;
+    version: string;
+    rawVersion: string;
+    displayVersion: string;
+    isRegistryResolvable: boolean;
+  } | null {
+    const isRequireBlock = this.isGoRequireBlock(document, position.line);
+    const trimmed = line.replace(/\s*\/\/.*$/, '').trim();
+    const requireLine = isRequireBlock ? trimmed : (trimmed.match(/^require\s+(.+)$/)?.[1] || '');
+    const match = requireLine.match(/^([^\s]+)\s+(v[^\s]+)$/);
+    if (!match) {
+      return null;
+    }
+
+    return {
+      name: match[1],
+      version: match[2],
+      rawVersion: match[2],
+      displayVersion: match[2],
+      isRegistryResolvable: true,
+    };
+  }
+
+  private isGoRequireBlock(document: vscode.TextDocument, lineNumber: number): boolean {
+    for (let index = lineNumber; index >= 0; index -= 1) {
+      const line = document.lineAt(index).text.trim();
+      if (line === ')') {
+        return false;
+      }
+      if (/^require\s*\($/.test(line)) {
+        return true;
+      }
+      if (/^[A-Za-z]/.test(line) && !/^require\b/.test(line)) {
+        break;
+      }
+    }
+    return false;
+  }
+
   private getCargoTomlSectionName(document: vscode.TextDocument, lineNumber: number): string | null {
     for (let index = lineNumber; index >= 0; index -= 1) {
       const line = document.lineAt(index).text.trim();
@@ -501,6 +773,38 @@ export class PackageHoverProvider implements vscode.HoverProvider {
       version: versionRange || 'latest',
       rawVersion: versionRange || '',
       displayVersion: versionRange || 'latest',
+      isRegistryResolvable: true,
+    };
+  }
+
+  private extractCpanfileSnapshotPackageInfo(
+    line: string,
+    position: vscode.Position
+  ): {
+    name: string;
+    version: string;
+    rawVersion: string;
+    displayVersion: string;
+    isRegistryResolvable: boolean;
+  } | null {
+    const regex = /distribution:\s+.+\/([A-Za-z0-9_:.-]+)-([0-9][A-Za-z0-9._-]*)/;
+    const match = line.match(regex);
+    if (!match) {
+      return null;
+    }
+
+    const [fullMatch, name, version] = match;
+    const startIndex = line.indexOf(fullMatch);
+    const endIndex = startIndex + fullMatch.length;
+    if (position.character < startIndex || position.character > endIndex) {
+      return null;
+    }
+
+    return {
+      name,
+      version,
+      rawVersion: version,
+      displayVersion: version,
       isRegistryResolvable: true,
     };
   }
@@ -644,6 +948,84 @@ export class PackageHoverProvider implements vscode.HoverProvider {
     return null;
   }
 
+  private extractPomXmlPackageInfo(
+    document: vscode.TextDocument,
+    position: vscode.Position
+  ): {
+    name: string;
+    version: string;
+    rawVersion: string;
+    displayVersion: string;
+    isRegistryResolvable: boolean;
+  } | null {
+    const text = document.getText();
+    const offset = document.offsetAt(position);
+    const dependencyRegex = /<dependency>([\s\S]*?)<\/dependency>/g;
+    let match: RegExpExecArray | null;
+
+    while ((match = dependencyRegex.exec(text)) !== null) {
+      const start = match.index;
+      const end = start + match[0].length;
+      if (offset < start || offset > end) {
+        continue;
+      }
+
+      const body = match[1];
+      const groupId = body.match(/<groupId>(.*?)<\/groupId>/)?.[1]?.trim();
+      const artifactId = body.match(/<artifactId>(.*?)<\/artifactId>/)?.[1]?.trim();
+      const version = body.match(/<version>(.*?)<\/version>/)?.[1]?.trim();
+      if (!groupId || !artifactId || !version) {
+        return null;
+      }
+
+      return {
+        name: `${groupId}:${artifactId}`,
+        version,
+        rawVersion: version,
+        displayVersion: version,
+        isRegistryResolvable: !/\$\{.+\}/.test(version),
+      };
+    }
+
+    return null;
+  }
+
+  private extractGradlePackageInfo(
+    document: vscode.TextDocument,
+    position: vscode.Position
+  ): {
+    name: string;
+    version: string;
+    rawVersion: string;
+    displayVersion: string;
+    isRegistryResolvable: boolean;
+  } | null {
+    const text = document.getText();
+    const offset = document.offsetAt(position);
+    const dependencyRegex =
+      /(?:^|\s)(implementation|testImplementation|compileOnly|runtimeOnly|api|compile)\s*(?:\(\s*)?["']([^:"']+):([^:"']+):([^"')\s]+)["']\s*\)?/gm;
+    let match: RegExpExecArray | null;
+
+    while ((match = dependencyRegex.exec(text)) !== null) {
+      const start = match.index;
+      const end = start + match[0].length;
+      if (offset < start || offset > end) {
+        continue;
+      }
+
+      const [, , groupId, artifactId, version] = match;
+      return {
+        name: `${groupId}:${artifactId}`,
+        version,
+        rawVersion: version,
+        displayVersion: version,
+        isRegistryResolvable: !/[${]/.test(version),
+      };
+    }
+
+    return null;
+  }
+
   private getPubspecSectionName(document: vscode.TextDocument, lineNumber: number): string | null {
     for (let index = lineNumber; index >= 0; index -= 1) {
       const line = document.lineAt(index).text;
@@ -667,7 +1049,7 @@ export class PackageHoverProvider implements vscode.HoverProvider {
       displayVersion: string;
       isRegistryResolvable: boolean;
     },
-    ecosystem: 'npm' | 'nuget' | 'packagist' | 'rubygems' | 'metacpan' | 'pub-dev' | 'cran' | 'clojars' | 'crates-io',
+    ecosystem: 'npm' | 'nuget' | 'packagist' | 'rubygems' | 'metacpan' | 'pub-dev' | 'cran' | 'clojars' | 'crates-io' | 'pkg-go-dev' | 'sonatype' | 'libraries-io',
     sourceType?: SourceType | null
   ): Promise<vscode.Hover> {
     const { name, version, isRegistryResolvable, displayVersion } = packageInfo;
@@ -682,14 +1064,20 @@ export class PackageHoverProvider implements vscode.HoverProvider {
             : ecosystem === 'metacpan'
               ? services.sourceRegistry.getAdapter('metacpan')
               : ecosystem === 'pub-dev'
-                ? services.sourceRegistry.getAdapter('pub-dev')
-                : ecosystem === 'cran'
-                  ? services.sourceRegistry.getAdapter('cran')
-            : ecosystem === 'clojars'
-              ? services.sourceRegistry.getAdapter('clojars')
-              : ecosystem === 'crates-io'
-                ? services.sourceRegistry.getAdapter('crates-io')
-                : null;
+              ? services.sourceRegistry.getAdapter('pub-dev')
+              : ecosystem === 'cran'
+                ? services.sourceRegistry.getAdapter('cran')
+                : ecosystem === 'clojars'
+                  ? services.sourceRegistry.getAdapter('clojars')
+                  : ecosystem === 'crates-io'
+                    ? services.sourceRegistry.getAdapter('crates-io')
+                    : ecosystem === 'pkg-go-dev'
+                      ? services.sourceRegistry.getAdapter('pkg-go-dev')
+                    : ecosystem === 'sonatype'
+                      ? services.sourceRegistry.getAdapter('sonatype')
+                      : ecosystem === 'libraries-io'
+                        ? services.sourceRegistry.getAdapter('libraries-io')
+                        : null;
 
     try {
       const [details, bundleSize, security] = await Promise.all([
@@ -730,7 +1118,7 @@ export class PackageHoverProvider implements vscode.HoverProvider {
     details: { description?: string; license?: string; downloads?: number; score?: { final: number } },
     bundleSize: { size: number; gzip: number } | null,
     security: { summary: { total: number; critical: number; high: number } } | null,
-    ecosystem: 'npm' | 'nuget' | 'packagist' | 'rubygems' | 'metacpan' | 'pub-dev' | 'cran' | 'clojars' | 'crates-io',
+    ecosystem: 'npm' | 'nuget' | 'packagist' | 'rubygems' | 'metacpan' | 'pub-dev' | 'cran' | 'clojars' | 'crates-io' | 'pkg-go-dev' | 'sonatype' | 'libraries-io',
     sourceType?: SourceType | null
   ): vscode.MarkdownString {
     const md = new vscode.MarkdownString();
@@ -751,20 +1139,22 @@ export class PackageHoverProvider implements vscode.HoverProvider {
     // Stats
     const stats: string[] = [];
 
-    if (details.downloads) {
+    if (details.downloads && sourceType !== 'libraries-io' && ecosystem !== 'libraries-io') {
       stats.push(
         ecosystem === 'nuget'
           ? `⬇️ ${this.formatDownloads(details.downloads)} total`
           : ecosystem === 'rubygems'
             ? `⬇️ ${this.formatDownloads(details.downloads)} total`
-            : ecosystem === 'metacpan'
-              ? `⬇️ ${this.formatDownloads(details.downloads)} total`
+              : ecosystem === 'metacpan'
+                ? `⬇️ ${this.formatDownloads(details.downloads)} total`
               : ecosystem === 'pub-dev'
                 ? `⬇️ ${this.formatDownloads(details.downloads)} monthly`
                 : ecosystem === 'cran'
                   ? `⬇️ ${this.formatDownloads(details.downloads)} monthly`
-            : ecosystem === 'clojars'
-              ? `⬇️ ${this.formatDownloads(details.downloads)} total`
+                  : ecosystem === 'pkg-go-dev'
+                    ? `⬇️ ${this.formatDownloads(details.downloads)} total`
+                : ecosystem === 'clojars'
+                  ? `⬇️ ${this.formatDownloads(details.downloads)} total`
               : ecosystem === 'crates-io'
                 ? `⬇️ ${this.formatDownloads(details.downloads)} total`
                 : ecosystem === 'packagist' || sourceType === 'npm-registry'
@@ -808,7 +1198,9 @@ export class PackageHoverProvider implements vscode.HoverProvider {
     // Actions
     md.appendMarkdown('---\n\n');
     const externalUrl =
-      ecosystem === 'nuget'
+      sourceType === 'libraries-io' || ecosystem === 'libraries-io'
+        ? `https://libraries.io/search?q=${encodeURIComponent(name)}`
+        : ecosystem === 'nuget'
         ? `https://www.nuget.org/packages/${name}`
         : ecosystem === 'packagist'
           ? `https://packagist.org/packages/${name}`
@@ -820,13 +1212,17 @@ export class PackageHoverProvider implements vscode.HoverProvider {
                 ? `https://pub.dev/packages/${name}`
                 : ecosystem === 'cran'
                   ? `https://cran.r-project.org/package=${name}`
+                  : ecosystem === 'pkg-go-dev'
+                    ? `https://pkg.go.dev/${name}`
             : ecosystem === 'clojars'
               ? `https://clojars.org/${name}`
               : ecosystem === 'crates-io'
                 ? `https://crates.io/crates/${name}`
                 : `https://www.npmjs.com/package/${name}`;
     const externalLabel =
-      ecosystem === 'nuget'
+      sourceType === 'libraries-io' || ecosystem === 'libraries-io'
+        ? 'Libraries.io'
+        : ecosystem === 'nuget'
         ? 'NuGet'
         : ecosystem === 'packagist'
           ? 'Packagist'
@@ -838,6 +1234,8 @@ export class PackageHoverProvider implements vscode.HoverProvider {
                 ? 'pub.dev'
                 : ecosystem === 'cran'
                   ? 'CRAN'
+                  : ecosystem === 'pkg-go-dev'
+                    ? 'pkg.go.dev'
             : ecosystem === 'clojars'
               ? 'Clojars'
               : ecosystem === 'crates-io'
@@ -864,6 +1262,16 @@ export class PackageHoverProvider implements vscode.HoverProvider {
       return `${(count / 1000).toFixed(1)}K`;
     }
     return count.toString();
+  }
+
+  private readXmlAttribute(attrs: string, name: string): string | undefined {
+    const match = attrs.match(new RegExp(`\\b${name}\\s*=\\s*"([^"]+)"`, 'i'));
+    return match?.[1]?.trim();
+  }
+
+  private readXmlElementText(body: string, name: string): string | undefined {
+    const match = body.match(new RegExp(`<${name}>\\s*([^<]+?)\\s*</${name}>`, 'i'));
+    return match?.[1]?.trim();
   }
 
   private isComposerRegistryPackage(name: string): boolean {

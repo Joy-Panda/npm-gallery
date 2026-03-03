@@ -468,8 +468,8 @@ export class PackageService {
       // For sonatype and libraries-io adapters, getPackageDetails supports optional version parameter
       // For other adapters, we'll get latest version details
       let details: PackageDetails;
-      if (version && (adapter.sourceType === 'sonatype' || adapter.sourceType === 'libraries-io')) {
-        // Sonatype and Libraries.io adapters support version parameter
+      if (version && (adapter.sourceType === 'sonatype' || adapter.sourceType === 'libraries-io' || adapter.sourceType === 'pkg-go-dev')) {
+        // Sonatype, Libraries.io, and pkg.go.dev adapters support version parameter
         const adapterWithVersion = adapter as any;
         try {
           details = await adapterWithVersion.getPackageDetails(name, version);

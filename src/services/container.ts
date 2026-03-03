@@ -18,6 +18,7 @@ import { CratesIoSourceAdapter } from '../sources/crates';
 import { MetaCpanSourceAdapter } from '../sources/metacpan';
 import { PubDevSourceAdapter } from '../sources/pubdev';
 import { CranSourceAdapter } from '../sources/cran';
+import { PkgGoDevSourceAdapter } from '../sources/pkg-go-dev';
 import { getApiClients } from '../api/clients';
 import type { ProjectType, SourceType } from '../types/project';
 
@@ -143,6 +144,10 @@ export class ServiceContainer {
     // Register CRAN adapter backed by r-universe search/package APIs
     const cranAdapter = new CranSourceAdapter(clients.cran);
     this.sourceRegistry.register('cran', cranAdapter);
+
+    // Register pkg.go.dev adapter for Go modules
+    const pkgGoDevAdapter = new PkgGoDevSourceAdapter(clients.librariesIo, clients.audit, clients.depsDev);
+    this.sourceRegistry.register('pkg-go-dev', pkgGoDevAdapter);
   }
 
   /**

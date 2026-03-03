@@ -18,7 +18,7 @@ import type {
   PackageRepository,
   SecurityInfo,
 } from '../../types/package';
-import { getSortValue, createFilterOption } from '../../types/package';
+import { getSortValue, createFilterOption, createSortOption } from '../../types/package';
 import type { SourceType, ProjectType } from '../../types/project';
 
 /**
@@ -30,10 +30,9 @@ export class SonatypeSourceAdapter extends BaseSourceAdapter {
   readonly displayName = 'Sonatype Central';
   readonly projectType: ProjectType = 'maven';
   readonly supportedSortOptions: SearchSortBy[] = [
-    /*createSortOption('score desc', 'Score'),
+    createSortOption('relevance', 'Relevance'),
     createSortOption('timestamp desc', 'Published Date'),
-    createSortOption('g asc', 'Group ID'),
-    createSortOption('a asc', 'Artifact ID'),*/
+    createSortOption('name', 'Artifact ID'),
   ];
   readonly supportedFilters: SearchFilter[] = [
     createFilterOption('groupId', 'Group ID', 'groupId (e.g., com.google.inject)'),
@@ -522,6 +521,14 @@ export class SonatypeSourceAdapter extends BaseSourceAdapter {
     } else if (format === 'grape') {
       // Grape (Groovy) format
       return this.generateGrapeSnippet(parsed.groupId, parsed.artifactId, version, scope);
+    } else if (format === 'mill') {
+      return this.generateMillSnippet(parsed.groupId, parsed.artifactId, version, scope);
+    } else if (format === 'ivy') {
+      return this.generateIvySnippet(parsed.groupId, parsed.artifactId, version, scope);
+    } else if (format === 'leiningen') {
+      return this.generateLeiningenSnippet(parsed.groupId, parsed.artifactId, version);
+    } else if (format === 'buildr') {
+      return this.generateBuildrSnippet(parsed.groupId, parsed.artifactId, version, scope);
     }
 
     // Default to Maven
@@ -603,6 +610,70 @@ export class SonatypeSourceAdapter extends BaseSourceAdapter {
     let snippet = `@Grab(group='${groupId}', module='${artifactId}', version='${version}')`;
     if (scope !== 'compile' && scope !== 'runtime') {
       snippet += ` // scope: ${scope}`;
+    }
+    return snippet;
+  }
+
+  /**
+   * Generate Mill dependency snippet
+   * Official docs show both mvnDeps/mvn"..." and compileMvnDeps lists.
+   */
+  private generateMillSnippet(
+    groupId: string,
+    artifactId: string,
+    version: string,
+    scope: string
+  ): string {
+    const coordinate = `${groupId}:${artifactId}:${version}`;
+    if (scope === 'provided') {
+      return `def compileMvnDeps = Seq(\n  mvn"${coordinate}"\n)`;
+    }
+    if (scope === 'test') {
+      return `def testMvnDeps = Seq(\n  mvn"${coordinate}"\n)`;
+    }
+    if (scope === 'runtime') {
+      return `def runMvnDeps = Seq(\n  mvn"${coordinate}"\n)`;
+    }
+    return `def mvnDeps = Seq(\n  mvn"${coordinate}"\n)`;
+  }
+
+  /**
+   * Generate Apache Ivy dependency snippet
+   */
+  private generateIvySnippet(
+    groupId: string,
+    artifactId: string,
+    version: string,
+    scope: string
+  ): string {
+    const conf = scope === 'compile' ? '' : ` conf="${scope}"`;
+    return `    <dependency org="${groupId}" name="${artifactId}" rev="${version}"${conf}/>`;
+  }
+
+  /**
+   * Generate Leiningen dependency snippet using Maven coordinates.
+   */
+  private generateLeiningenSnippet(
+    groupId: string,
+    artifactId: string,
+    version: string
+  ): string {
+    return `[${groupId}/${artifactId} "${version}"]`;
+  }
+
+  /**
+   * Generate Buildr dependency snippet.
+   */
+  private generateBuildrSnippet(
+    groupId: string,
+    artifactId: string,
+    version: string,
+    scope: string
+  ): string {
+    const configuration = scope === 'test' ? 'test' : 'compile';
+    const snippet = `${configuration}.with '${groupId}:${artifactId}:jar:${version}'`;
+    if (scope === 'provided' || scope === 'runtime') {
+      return `${snippet} # scope: ${scope}`;
     }
     return snippet;
   }

@@ -225,6 +225,8 @@ export class LibrariesIoClient extends BaseApiClient {
       'ruby': 'Rubygems',
       'rust': 'Cargo',
       'php': 'Packagist',
+      'dotnet': 'NuGet',
+      'flutter': 'Pub',
       'csharp': 'NuGet',
       'dart': 'Pub',
       'elixir': 'Hex',

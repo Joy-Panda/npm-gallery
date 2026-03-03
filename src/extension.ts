@@ -49,7 +49,56 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.languages.registerHoverProvider(
+      { language: 'json', pattern: '**/composer.lock' },
+      hoverProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider(
       { language: 'xml', pattern: '**/Directory.Packages.props' },
+      hoverProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider(
+      { language: 'xml', pattern: '**/packages.config' },
+      hoverProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider(
+      { language: 'xml', pattern: '**/*.csproj' },
+      hoverProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider(
+      { language: 'xml', pattern: '**/*.vbproj' },
+      hoverProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider(
+      { language: 'xml', pattern: '**/*.fsproj' },
+      hoverProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider(
+      { scheme: 'file', pattern: '**/paket.dependencies' },
+      hoverProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider(
+      { scheme: 'file', pattern: '**/*.cake' },
       hoverProvider
     )
   );
@@ -131,6 +180,34 @@ export async function activate(context: vscode.ExtensionContext) {
     )
   );
 
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider(
+      { scheme: 'file', pattern: '**/go.mod' },
+      hoverProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider(
+      { language: 'xml', pattern: '**/pom.xml' },
+      hoverProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider(
+      { scheme: 'file', pattern: '**/build.gradle' },
+      hoverProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider(
+      { scheme: 'file', pattern: '**/build.gradle.kts' },
+      hoverProvider
+    )
+  );
+
   // Register CodeLens provider for package.json, pom.xml, and Gradle files
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider(
@@ -176,6 +253,34 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider(
+      { language: 'xml', pattern: '**/packages.config' },
+      codeLensProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider(
+      { language: 'xml', pattern: '**/*.csproj' },
+      codeLensProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider(
+      { language: 'xml', pattern: '**/*.vbproj' },
+      codeLensProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider(
+      { language: 'xml', pattern: '**/*.fsproj' },
+      codeLensProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider(
       { scheme: 'file', pattern: '**/paket.dependencies' },
       codeLensProvider
     )
@@ -191,6 +296,13 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider(
       { scheme: 'file', pattern: '**/Gemfile' },
+      codeLensProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider(
+      { scheme: 'file', pattern: '**/Gemfile.lock' },
       codeLensProvider
     )
   );
@@ -218,7 +330,21 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider(
+      { scheme: 'file', pattern: '**/pubspec.lock' },
+      codeLensProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider(
       { scheme: 'file', pattern: '**/DESCRIPTION' },
+      codeLensProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider(
+      { language: 'json', pattern: '**/composer.lock' },
       codeLensProvider
     )
   );
@@ -247,6 +373,20 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider(
       { scheme: 'file', pattern: '**/Cargo.toml' },
+      codeLensProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider(
+      { scheme: 'file', pattern: '**/Cargo.lock' },
+      codeLensProvider
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.languages.registerCodeLensProvider(
+      { scheme: 'file', pattern: '**/go.mod' },
       codeLensProvider
     )
   );

@@ -18,7 +18,7 @@ interface CodeLensCacheEntry {
 
 /**
  * Provides CodeLens for package updates in package.json, composer.json, Gemfile,
- * pom.xml, Gradle, Directory.Packages.props (CPM), paket.dependencies (Paket), and Cake (.cake) scripts.
+ * pom.xml, Gradle, NuGet manifests, and Cake (.cake) scripts.
  */
 export class PackageCodeLensProvider implements vscode.CodeLensProvider {
   private _onDidChangeCodeLenses = new vscode.EventEmitter<void>();
@@ -96,8 +96,20 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
       return lenses;
     }
 
+    if (fileName.endsWith('composer.lock')) {
+      const lenses = await this.provideCodeLensesForComposerLock(document, text);
+      this.codeLensCache.set(cacheKey, { version: document.version, lenses });
+      return lenses;
+    }
+
     if (fileName.endsWith('gemfile')) {
       const lenses = await this.provideCodeLensesForGemfile(document, text);
+      this.codeLensCache.set(cacheKey, { version: document.version, lenses });
+      return lenses;
+    }
+
+    if (fileName.endsWith('gemfile.lock')) {
+      const lenses = await this.provideCodeLensesForGemfileLock(document, text);
       this.codeLensCache.set(cacheKey, { version: document.version, lenses });
       return lenses;
     }
@@ -116,6 +128,12 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
 
     if (fileName.endsWith('pubspec.yaml')) {
       const lenses = await this.provideCodeLensesForPubspecYaml(document, text);
+      this.codeLensCache.set(cacheKey, { version: document.version, lenses });
+      return lenses;
+    }
+
+    if (fileName.endsWith('pubspec.lock')) {
+      const lenses = await this.provideCodeLensesForPubspecLock(document, text);
       this.codeLensCache.set(cacheKey, { version: document.version, lenses });
       return lenses;
     }
@@ -150,6 +168,18 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
       return lenses;
     }
 
+    if (fileName.endsWith('cargo.lock')) {
+      const lenses = await this.provideCodeLensesForCargoLock(document, text);
+      this.codeLensCache.set(cacheKey, { version: document.version, lenses });
+      return lenses;
+    }
+
+    if (fileName.endsWith('go.mod')) {
+      const lenses = await this.provideCodeLensesForGoMod(document, text);
+      this.codeLensCache.set(cacheKey, { version: document.version, lenses });
+      return lenses;
+    }
+
     // Handle pom.xml
     if (fileName.endsWith('pom.xml')) {
       const lenses = await this.provideCodeLensesForPomXml(document, text);
@@ -167,6 +197,18 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
     // Handle CPM Directory.Packages.props
     if (fileName.endsWith('directory.packages.props')) {
       const lenses = await this.provideCodeLensesForDirectoryPackagesProps(document, text);
+      this.codeLensCache.set(cacheKey, { version: document.version, lenses });
+      return lenses;
+    }
+
+    if (fileName.endsWith('packages.config')) {
+      const lenses = await this.provideCodeLensesForPackagesConfig(document, text);
+      this.codeLensCache.set(cacheKey, { version: document.version, lenses });
+      return lenses;
+    }
+
+    if (fileName.endsWith('.csproj') || fileName.endsWith('.vbproj') || fileName.endsWith('.fsproj')) {
+      const lenses = await this.provideCodeLensesForProjectPackageReferences(document, text);
       this.codeLensCache.set(cacheKey, { version: document.version, lenses });
       return lenses;
     }
@@ -250,6 +292,7 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
     }
 
     const sections = ['require', 'require-dev'];
+    let updateLensCount = 0;
     const updatePromises: Promise<void>[] = [];
 
     for (const section of sections) {
@@ -319,6 +362,7 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
                     }],
                   })
                 );
+                updateLensCount += 1;
               }
             } catch {
               // Skip packages that fail
@@ -329,6 +373,129 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
     }
 
     await Promise.all(updatePromises);
+    if (updateLensCount > 0) {
+      const topOfFile = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 0));
+      codeLenses.unshift(
+        new vscode.CodeLens(topOfFile, {
+          title: `${updateLensCount} update${updateLensCount > 1 ? 's' : ''} available`,
+          command: 'npmGallery.updateAllComposerDependencies',
+          arguments: [document.uri.fsPath],
+        })
+      );
+    }
+    return codeLenses;
+  }
+
+  private async provideCodeLensesForComposerLock(
+    document: vscode.TextDocument,
+    text: string
+  ): Promise<vscode.CodeLens[]> {
+    const codeLenses: vscode.CodeLens[] = [];
+    const tree = json.parseTree(text);
+    if (!tree) {
+      return [];
+    }
+
+    const composerLock = json.getNodeValue(tree) as Record<string, unknown> | undefined;
+    if (!composerLock || typeof composerLock !== 'object') {
+      return [];
+    }
+
+    const services = getServices();
+    const config = vscode.workspace.getConfiguration('npmGallery');
+    const showSecurityInfo = config.get<boolean>('showSecurityInfo', true);
+    const packagistAdapter = services.sourceRegistry.getAdapter('packagist');
+    if (!packagistAdapter) {
+      return [];
+    }
+
+    const manifestPath = document.uri.fsPath.replace(/composer\.lock$/i, 'composer.json');
+    const sections: Array<'packages' | 'packages-dev'> = ['packages', 'packages-dev'];
+    let updateLensCount = 0;
+    const updatePromises: Promise<void>[] = [];
+
+    for (const section of sections) {
+      const entries = Array.isArray(composerLock[section])
+        ? composerLock[section] as Array<Record<string, unknown>>
+        : [];
+
+      for (let index = 0; index < entries.length; index += 1) {
+        const entry = entries[index];
+        const name = typeof entry.name === 'string' ? entry.name : undefined;
+        const currentVersion = typeof entry.version === 'string' ? entry.version : undefined;
+        if (!name || !currentVersion || this.isComposerPlatformPackage(name)) {
+          continue;
+        }
+
+        const nameNode = json.findNodeAtLocation(tree, [section, index, 'name']);
+        const targetNode = nameNode || json.findNodeAtLocation(tree, [section, index, 'version']);
+        if (!targetNode) {
+          continue;
+        }
+
+        const range = new vscode.Range(
+          document.positionAt(targetNode.offset),
+          document.positionAt(targetNode.offset + targetNode.length)
+        );
+
+        updatePromises.push(
+          (async () => {
+            try {
+              if (showSecurityInfo && packagistAdapter.getSecurityInfo) {
+                try {
+                  const security = await packagistAdapter.getSecurityInfo(name, currentVersion);
+                  if (security?.summary) {
+                    codeLenses.push(
+                      new vscode.CodeLens(range, {
+                        title: this.formatSecurityTitle(security.summary),
+                        command: 'npmGallery.showPackageDetails',
+                        arguments: [name, { installedVersion: currentVersion, securityOnly: true }],
+                      })
+                    );
+                  }
+                } catch {
+                  // Continue without security lens.
+                }
+              }
+
+              const info = await packagistAdapter.getPackageInfo(name);
+              const latestVersion = info?.version ?? null;
+              if (latestVersion && isNewerVersion(currentVersion, latestVersion)) {
+                const updateType = getUpdateType(currentVersion, latestVersion);
+                codeLenses.push(
+                  new vscode.CodeLens(range, {
+                    title: this.formatUpdateTitle(latestVersion, updateType),
+                    command: 'npmGallery.updatePackage',
+                    arguments: [{
+                      pkg: {
+                        name,
+                        latestVersion,
+                        packageJsonPath: manifestPath,
+                      },
+                    }],
+                  })
+                );
+                updateLensCount += 1;
+              }
+            } catch {
+              // Skip packages that fail.
+            }
+          })()
+        );
+      }
+    }
+
+    await Promise.all(updatePromises);
+    if (updateLensCount > 0) {
+      const topOfFile = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 0));
+      codeLenses.unshift(
+        new vscode.CodeLens(topOfFile, {
+          title: `${updateLensCount} update${updateLensCount > 1 ? 's' : ''} available`,
+          command: 'npmGallery.updateAllComposerDependencies',
+          arguments: [document.uri.fsPath],
+        })
+      );
+    }
     return codeLenses;
   }
 
@@ -419,7 +586,130 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
       );
     }
 
+    let updateLensCount = 0;
     await Promise.all(updatePromises);
+    for (const lens of codeLenses) {
+      if (lens.command?.command === 'npmGallery.updatePackage') {
+        updateLensCount += 1;
+      }
+    }
+    if (updateLensCount > 0) {
+      const topOfFile = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 0));
+      codeLenses.unshift(
+        new vscode.CodeLens(topOfFile, {
+          title: `${updateLensCount} update${updateLensCount > 1 ? 's' : ''} available`,
+          command: 'npmGallery.updateAllRubyDependencies',
+          arguments: [document.uri.fsPath],
+        })
+      );
+    }
+    return codeLenses;
+  }
+
+  private async provideCodeLensesForGemfileLock(
+    document: vscode.TextDocument,
+    text: string
+  ): Promise<vscode.CodeLens[]> {
+    const codeLenses: vscode.CodeLens[] = [];
+    const services = getServices();
+    const config = vscode.workspace.getConfiguration('npmGallery');
+    const showSecurityInfo = config.get<boolean>('showSecurityInfo', true);
+    const rubygemsAdapter = services.sourceRegistry.getAdapter('rubygems');
+    if (!rubygemsAdapter) {
+      return [];
+    }
+
+    const manifestPath = document.uri.fsPath.replace(/gemfile\.lock$/i, 'Gemfile');
+    let inSpecs = false;
+    const updatePromises: Promise<void>[] = [];
+
+    const lines = text.split(/\r?\n/);
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+      const line = lines[lineIndex].replace(/\r$/, '');
+      if (/^\s{2}specs:\s*$/.test(line)) {
+        inSpecs = true;
+        continue;
+      }
+
+      if (inSpecs && /^[A-Z][A-Z\s_-]*$/.test(line.trim())) {
+        inSpecs = false;
+        continue;
+      }
+
+      if (!inSpecs) {
+        continue;
+      }
+
+      const match = line.match(/^\s{4}([^\s(]+)\s+\(([^)]+)\)/);
+      if (!match) {
+        continue;
+      }
+
+      const [, name, currentVersion] = match;
+      const versionStart = line.indexOf(currentVersion);
+      const range = new vscode.Range(
+        new vscode.Position(lineIndex, versionStart),
+        new vscode.Position(lineIndex, versionStart + currentVersion.length)
+      );
+
+      updatePromises.push(
+        (async () => {
+          try {
+            if (showSecurityInfo && rubygemsAdapter.getSecurityInfo) {
+              try {
+                const security = await rubygemsAdapter.getSecurityInfo(name, currentVersion);
+                if (security?.summary) {
+                  codeLenses.push(
+                    new vscode.CodeLens(range, {
+                      title: this.formatSecurityTitle(security.summary),
+                      command: 'npmGallery.showPackageDetails',
+                      arguments: [name, { installedVersion: currentVersion, securityOnly: true }],
+                    })
+                  );
+                }
+              } catch {
+                // Continue without security lens.
+              }
+            }
+
+            const info = await rubygemsAdapter.getPackageInfo(name);
+            const latestVersion = info?.version ?? null;
+            if (latestVersion && isNewerVersion(currentVersion, latestVersion)) {
+              const updateType = getUpdateType(currentVersion, latestVersion);
+              codeLenses.push(
+                new vscode.CodeLens(range, {
+                  title: this.formatUpdateTitle(latestVersion, updateType),
+                  command: 'npmGallery.updatePackage',
+                  arguments: [{
+                    pkg: {
+                      name,
+                      latestVersion,
+                      packageJsonPath: manifestPath,
+                    },
+                  }],
+                })
+              );
+            }
+          } catch {
+            // Skip packages that fail.
+          }
+        })()
+      );
+    }
+
+    await Promise.all(updatePromises);
+    const updateLensCount = codeLenses.filter((lens) => lens.command?.command === 'npmGallery.updatePackage').length;
+    if (updateLensCount > 0) {
+      const topOfFile = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 0));
+      codeLenses.unshift(
+        new vscode.CodeLens(topOfFile, {
+          title: `${updateLensCount} update${updateLensCount > 1 ? 's' : ''} available`,
+          command: 'npmGallery.updateAllRubyDependencies',
+          arguments: [document.uri.fsPath],
+        })
+      );
+    }
+
     return codeLenses;
   }
 
@@ -498,6 +788,16 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
     }
 
     await Promise.all(updatePromises);
+    if (codeLenses.length > 0) {
+      const topOfFile = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 0));
+      codeLenses.unshift(
+        new vscode.CodeLens(topOfFile, {
+          title: `${codeLenses.length} update${codeLenses.length > 1 ? 's' : ''} available`,
+          command: 'npmGallery.updateAllPerlDependencies',
+          arguments: [document.uri.fsPath],
+        })
+      );
+    }
     return codeLenses;
   }
 
@@ -549,6 +849,16 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
     }
 
     await Promise.all(updatePromises);
+    if (codeLenses.length > 0) {
+      const topOfFile = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 0));
+      codeLenses.unshift(
+        new vscode.CodeLens(topOfFile, {
+          title: `${codeLenses.length} update${codeLenses.length > 1 ? 's' : ''} available`,
+          command: 'npmGallery.updateAllPerlDependencies',
+          arguments: [document.uri.fsPath],
+        })
+      );
+    }
     return codeLenses;
   }
 
@@ -581,20 +891,15 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
         continue;
       }
 
-      const parsed = this.parsePubspecDependencyForCodeLens(line);
+      const parsed = this.parsePubspecDependencyForCodeLens(lines, lineIndex);
       if (!parsed || !parsed.version) {
         continue;
       }
       const currentVersion = parsed.version;
 
-      const versionStart = line.indexOf(currentVersion);
-      if (versionStart === -1) {
-        continue;
-      }
-
       const range = new vscode.Range(
-        new vscode.Position(lineIndex, versionStart),
-        new vscode.Position(lineIndex, versionStart)
+        new vscode.Position(parsed.versionLine, parsed.versionColumn),
+        new vscode.Position(parsed.versionLine, parsed.versionColumn)
       );
 
       updatePromises.push(
@@ -637,6 +942,114 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
     }
 
     await Promise.all(updatePromises);
+    const updateLensCount = codeLenses.filter((lens) => lens.command?.command === 'npmGallery.updatePubspecDependency').length;
+    if (updateLensCount > 0) {
+      const topOfFile = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 0));
+      codeLenses.unshift(
+        new vscode.CodeLens(topOfFile, {
+          title: `${updateLensCount} update${updateLensCount > 1 ? 's' : ''} available`,
+          command: 'npmGallery.updateAllPubDependencies',
+          arguments: [document.uri.fsPath],
+        })
+      );
+    }
+    return codeLenses;
+  }
+
+  private async provideCodeLensesForPubspecLock(
+    document: vscode.TextDocument,
+    text: string
+  ): Promise<vscode.CodeLens[]> {
+    const codeLenses: vscode.CodeLens[] = [];
+    const services = getServices();
+    const config = vscode.workspace.getConfiguration('npmGallery');
+    const showSecurityInfo = config.get<boolean>('showSecurityInfo', true);
+    const adapter = services.sourceRegistry.getAdapter('pub-dev');
+    if (!adapter) {
+      return [];
+    }
+
+    const manifestPath = document.uri.fsPath.replace(/pubspec\.lock$/i, 'pubspec.yaml');
+    const lines = text.split(/\r?\n/);
+    let currentPackage: string | null = null;
+    const updatePromises: Promise<void>[] = [];
+
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+      const line = lines[lineIndex];
+      const packageMatch = line.match(/^  ([A-Za-z0-9_]+):$/);
+      if (packageMatch) {
+        currentPackage = packageMatch[1];
+        continue;
+      }
+      if (!currentPackage) {
+        continue;
+      }
+
+      const versionMatch = line.match(/^\s{4}version:\s*"([^"]+)"/);
+      if (!versionMatch) {
+        continue;
+      }
+
+      const currentVersion = versionMatch[1];
+      const versionStart = line.indexOf(currentVersion);
+      const range = new vscode.Range(
+        new vscode.Position(lineIndex, versionStart),
+        new vscode.Position(lineIndex, versionStart)
+      );
+      const packageName = currentPackage;
+      currentPackage = null;
+
+      updatePromises.push(
+        (async () => {
+          try {
+            if (showSecurityInfo && adapter.getSecurityInfo) {
+              try {
+                const security = await adapter.getSecurityInfo(packageName, currentVersion);
+                if (security?.summary) {
+                  codeLenses.push(
+                    new vscode.CodeLens(range, {
+                      title: this.formatSecurityTitle(security.summary),
+                      command: 'npmGallery.showPackageDetails',
+                      arguments: [packageName, { installedVersion: currentVersion, securityOnly: true }],
+                    })
+                  );
+                }
+              } catch {
+                // Continue without security lens.
+              }
+            }
+
+            const info = await adapter.getPackageInfo(packageName);
+            const latestVersion = info?.version ?? null;
+            if (latestVersion && isNewerVersion(currentVersion, latestVersion)) {
+              const updateType = getUpdateType(currentVersion, latestVersion);
+              codeLenses.push(
+                new vscode.CodeLens(range, {
+                  title: this.formatUpdateTitle(latestVersion, updateType),
+                  command: 'npmGallery.updatePubspecDependency',
+                  arguments: [manifestPath, packageName, latestVersion],
+                })
+              );
+            }
+          } catch {
+            // Skip packages that fail.
+          }
+        })()
+      );
+    }
+
+    await Promise.all(updatePromises);
+    const updateLensCount = codeLenses.filter((lens) => lens.command?.command === 'npmGallery.updatePubspecDependency').length;
+    if (updateLensCount > 0) {
+      const topOfFile = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 0));
+      codeLenses.unshift(
+        new vscode.CodeLens(topOfFile, {
+          title: `${updateLensCount} update${updateLensCount > 1 ? 's' : ''} available`,
+          command: 'npmGallery.updateAllPubDependencies',
+          arguments: [document.uri.fsPath],
+        })
+      );
+    }
     return codeLenses;
   }
 
@@ -651,6 +1064,7 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
       return [];
     }
 
+    const topOfFile = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 0));
     const updatePromises: Promise<void>[] = [];
     const fieldRegex = /^\s*(Depends|Imports|LinkingTo|Suggests|Enhances)\s*:\s*(.+)$/gim;
     let fieldMatch: RegExpExecArray | null;
@@ -687,6 +1101,15 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
     }
 
     await Promise.all(updatePromises);
+    if (codeLenses.length > 0) {
+      codeLenses.unshift(
+        new vscode.CodeLens(topOfFile, {
+          title: `${codeLenses.length} update(s) available`,
+          command: 'npmGallery.updateAllRDependencies',
+          arguments: [document.uri.fsPath],
+        })
+      );
+    }
     return codeLenses;
   }
 
@@ -746,6 +1169,15 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
     }
 
     await Promise.all(updatePromises);
+    if (codeLenses.length > 0) {
+      codeLenses.unshift(
+        new vscode.CodeLens(topOfFile, {
+          title: `${codeLenses.length} update(s) available`,
+          command: 'npmGallery.updateAllRDependencies',
+          arguments: [descriptionUri.fsPath],
+        })
+      );
+    }
     return codeLenses;
   }
 
@@ -790,6 +1222,17 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
     }
 
     await Promise.all(updatePromises);
+    const updateLensCount = codeLenses.filter((lens) => lens.command?.command === 'npmGallery.updateDepsEdnDependency').length;
+    if (updateLensCount > 0) {
+      const topOfFile = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 0));
+      codeLenses.unshift(
+        new vscode.CodeLens(topOfFile, {
+          title: `${updateLensCount} update${updateLensCount > 1 ? 's' : ''} available`,
+          command: 'npmGallery.updateAllClojureDependencies',
+          arguments: [document.uri.fsPath],
+        })
+      );
+    }
     return codeLenses;
   }
 
@@ -834,6 +1277,17 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
     }
 
     await Promise.all(updatePromises);
+    const updateLensCount = codeLenses.filter((lens) => lens.command?.command === 'npmGallery.updateLeiningenDependency').length;
+    if (updateLensCount > 0) {
+      const topOfFile = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 0));
+      codeLenses.unshift(
+        new vscode.CodeLens(topOfFile, {
+          title: `${updateLensCount} update${updateLensCount > 1 ? 's' : ''} available`,
+          command: 'npmGallery.updateAllClojureDependencies',
+          arguments: [document.uri.fsPath],
+        })
+      );
+    }
     return codeLenses;
   }
 
@@ -964,7 +1418,240 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
     }
 
     await Promise.all(updatePromises);
+    const updateLensCount = codeLenses.filter((lens) => lens.command?.command === 'npmGallery.updateCargoDependency').length;
+    if (updateLensCount > 0) {
+      const topOfFile = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 0));
+      codeLenses.unshift(
+        new vscode.CodeLens(topOfFile, {
+          title: `${updateLensCount} update${updateLensCount > 1 ? 's' : ''} available`,
+          command: 'npmGallery.updateAllCargoDependencies',
+          arguments: [document.uri.fsPath],
+        })
+      );
+    }
     return codeLenses;
+  }
+
+  private async provideCodeLensesForCargoLock(
+    document: vscode.TextDocument,
+    text: string
+  ): Promise<vscode.CodeLens[]> {
+    const codeLenses: vscode.CodeLens[] = [];
+    const services = getServices();
+    const config = vscode.workspace.getConfiguration('npmGallery');
+    const showSecurityInfo = config.get<boolean>('showSecurityInfo', true);
+    const cratesAdapter = services.sourceRegistry.getAdapter('crates-io');
+    if (!cratesAdapter) {
+      return [];
+    }
+
+    const manifestPath = document.uri.fsPath.replace(/cargo\.lock$/i, 'Cargo.toml');
+    const lines = text.split(/\r?\n/);
+    const updatePromises: Promise<void>[] = [];
+
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+      const line = lines[lineIndex];
+      const nameMatch = line.match(/^\s*name\s*=\s*"([^"]+)"/);
+      if (!nameMatch) {
+        continue;
+      }
+
+      let version: string | undefined;
+      let versionLine = lineIndex;
+      for (let index = lineIndex + 1; index < Math.min(lines.length, lineIndex + 8); index += 1) {
+        const candidate = lines[index];
+        const versionMatch = candidate.match(/^\s*version\s*=\s*"([^"]+)"/);
+        if (versionMatch) {
+          version = versionMatch[1];
+          versionLine = index;
+          break;
+        }
+        if (/^\s*\[\[package\]\]\s*$/.test(candidate)) {
+          break;
+        }
+      }
+
+      if (!version) {
+        continue;
+      }
+
+      const versionStart = lines[versionLine].indexOf(version);
+      const range = new vscode.Range(
+        new vscode.Position(versionLine, versionStart),
+        new vscode.Position(versionLine, versionStart)
+      );
+      const packageName = nameMatch[1];
+
+      updatePromises.push(
+        (async () => {
+          try {
+            if (showSecurityInfo && cratesAdapter.getSecurityInfo) {
+              try {
+                const security = await cratesAdapter.getSecurityInfo(packageName, version!);
+                if (security?.summary) {
+                  codeLenses.push(
+                    new vscode.CodeLens(range, {
+                      title: this.formatSecurityTitle(security.summary),
+                      command: 'npmGallery.showPackageDetails',
+                      arguments: [packageName, { installedVersion: version, securityOnly: true }],
+                    })
+                  );
+                }
+              } catch {
+                // Continue without security lens.
+              }
+            }
+
+            const info = await cratesAdapter.getPackageInfo(packageName);
+            const latestVersion = info?.version ?? null;
+            if (latestVersion && isNewerVersion(version!, latestVersion)) {
+              const updateType = getUpdateType(version!, latestVersion);
+              codeLenses.push(
+                new vscode.CodeLens(range, {
+                  title: this.formatUpdateTitle(latestVersion, updateType),
+                  command: 'npmGallery.updateCargoDependency',
+                  arguments: [manifestPath, packageName, latestVersion],
+                })
+              );
+            }
+          } catch {
+            // Skip packages that fail.
+          }
+        })()
+      );
+    }
+
+    await Promise.all(updatePromises);
+    const updateLensCount = codeLenses.filter((lens) => lens.command?.command === 'npmGallery.updateCargoDependency').length;
+    if (updateLensCount > 0) {
+      const topOfFile = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 0));
+      codeLenses.unshift(
+        new vscode.CodeLens(topOfFile, {
+          title: `${updateLensCount} update${updateLensCount > 1 ? 's' : ''} available`,
+          command: 'npmGallery.updateAllCargoDependencies',
+          arguments: [document.uri.fsPath],
+        })
+      );
+    }
+
+    return codeLenses;
+  }
+
+  private async provideCodeLensesForGoMod(
+    document: vscode.TextDocument,
+    text: string
+  ): Promise<vscode.CodeLens[]> {
+    const codeLenses: vscode.CodeLens[] = [];
+    const services = getServices();
+    const config = vscode.workspace.getConfiguration('npmGallery');
+    const showSecurityInfo = config.get<boolean>('showSecurityInfo', true);
+    const goAdapter = services.sourceRegistry.getAdapter('pkg-go-dev');
+    if (!goAdapter) {
+      return [];
+    }
+
+    const lines = text.split(/\r?\n/);
+    const updatePromises: Promise<void>[] = [];
+    let inRequireBlock = false;
+
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+      const line = lines[lineIndex];
+      const trimmed = line.replace(/\s*\/\/.*$/, '').trim();
+      if (!trimmed) {
+        continue;
+      }
+
+      if (/^require\s*\($/.test(trimmed)) {
+        inRequireBlock = true;
+        continue;
+      }
+      if (inRequireBlock && trimmed === ')') {
+        inRequireBlock = false;
+        continue;
+      }
+
+      const parsed = this.parseGoDependencyForCodeLens(trimmed, inRequireBlock);
+      if (!parsed) {
+        continue;
+      }
+
+      const versionStart = line.indexOf(parsed.version);
+      const range = new vscode.Range(
+        new vscode.Position(lineIndex, versionStart),
+        new vscode.Position(lineIndex, versionStart)
+      );
+
+      updatePromises.push(
+        (async () => {
+          try {
+            if (showSecurityInfo && goAdapter.getSecurityInfo) {
+              try {
+                const security = await goAdapter.getSecurityInfo(parsed.name, parsed.version);
+                if (security?.summary) {
+                  codeLenses.push(
+                    new vscode.CodeLens(range, {
+                      title: this.formatSecurityTitle(security.summary),
+                      command: 'npmGallery.showPackageDetails',
+                      arguments: [parsed.name, { installedVersion: parsed.version, securityOnly: true }],
+                    })
+                  );
+                }
+              } catch {
+                // Continue without security lens.
+              }
+            }
+
+            const info = await goAdapter.getPackageInfo(parsed.name);
+            const latestVersion = info?.version ?? null;
+            if (latestVersion && isNewerVersion(parsed.version, latestVersion)) {
+              const updateType = getUpdateType(parsed.version, latestVersion);
+              codeLenses.push(
+                new vscode.CodeLens(range, {
+                  title: this.formatUpdateTitle(latestVersion, updateType),
+                  command: 'npmGallery.updateGoDependency',
+                  arguments: [document.uri.fsPath, parsed.name, latestVersion],
+                })
+              );
+            }
+          } catch {
+            // Skip packages that fail.
+          }
+        })()
+      );
+    }
+
+    await Promise.all(updatePromises);
+    const updateLensCount = codeLenses.filter((lens) => lens.command?.command === 'npmGallery.updateGoDependency').length;
+    if (updateLensCount > 0) {
+      const topOfFile = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 0));
+      codeLenses.unshift(
+        new vscode.CodeLens(topOfFile, {
+          title: `${updateLensCount} update${updateLensCount > 1 ? 's' : ''} available`,
+          command: 'npmGallery.updateAllGoDependencies',
+          arguments: [document.uri.fsPath],
+        })
+      );
+    }
+
+    return codeLenses;
+  }
+
+  private parseGoDependencyForCodeLens(
+    trimmedLine: string,
+    inRequireBlock: boolean
+  ): { name: string; version: string } | null {
+    const content = inRequireBlock
+      ? trimmedLine
+      : (trimmedLine.match(/^require\s+(.+)$/)?.[1] || '');
+    const match = content.match(/^([^\s]+)\s+(v[^\s]+)$/);
+    if (!match) {
+      return null;
+    }
+
+    return {
+      name: match[1],
+      version: match[2],
+    };
   }
 
   private isCargoDependencySection(sectionName: string): boolean {
@@ -1003,13 +1690,46 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
       sectionName === 'dependency_overrides';
   }
 
-  private parsePubspecDependencyForCodeLens(line: string): { name: string; version?: string } | null {
+  private parsePubspecDependencyForCodeLens(
+    lines: string[],
+    lineIndex: number
+  ): { name: string; version?: string; versionLine: number; versionColumn: number } | null {
+    const line = lines[lineIndex];
     const stringMatch = line.match(/^\s{2,}([A-Za-z0-9_.-]+)\s*:\s*["']?([^"'#\n]+)["']?\s*$/);
     if (stringMatch) {
+      const version = stringMatch[2].trim();
       return {
         name: stringMatch[1],
-        version: stringMatch[2].trim(),
+        version,
+        versionLine: lineIndex,
+        versionColumn: line.indexOf(version),
       };
+    }
+
+    const blockMatch = line.match(/^\s{2,}([A-Za-z0-9_.-]+)\s*:\s*$/);
+    if (!blockMatch) {
+      return null;
+    }
+
+    for (let index = lineIndex + 1; index < lines.length; index += 1) {
+      const candidate = lines[index];
+      if (!candidate.trim()) {
+        continue;
+      }
+      if (/^\S/.test(candidate) || /^\s{2}[A-Za-z0-9_.-]+\s*:\s*$/.test(candidate)) {
+        break;
+      }
+
+      const versionMatch = candidate.match(/^\s{4,}version:\s*["']?([^"'#\n]+)["']?\s*$/);
+      if (versionMatch) {
+        const version = versionMatch[1].trim();
+        return {
+          name: blockMatch[1],
+          version,
+          versionLine: index,
+          versionColumn: candidate.indexOf(version),
+        };
+      }
     }
 
     return null;
@@ -1047,11 +1767,20 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
   ): Promise<vscode.CodeLens[]> {
     const codeLenses: vscode.CodeLens[] = [];
     const services = getServices();
+    const config = vscode.workspace.getConfiguration('npmGallery');
+    const showSecurityInfo = config.get<boolean>('showSecurityInfo', true);
+    const currentSource = services.getCurrentSourceType();
+    const securityAdapter = (currentSource === 'libraries-io'
+      ? services.sourceRegistry.getAdapter('libraries-io')
+      : services.sourceRegistry.getAdapter('sonatype'));
+    if (!securityAdapter) {
+      return codeLenses;
+    }
 
-    // Extract dependencies from pom.xml
     const dependencyRegex = /<dependency>([\s\S]*?)<\/dependency>/g;
-    let dependencyMatch;
+    let dependencyMatch: RegExpExecArray | null;
     const updatePromises: Promise<void>[] = [];
+    let updateLensCount = 0;
 
     while ((dependencyMatch = dependencyRegex.exec(text)) !== null) {
       const depContent = dependencyMatch[1];
@@ -1063,20 +1792,38 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
         const groupId = groupIdMatch[1].trim();
         const artifactId = artifactIdMatch[1].trim();
         const currentVersion = versionMatch[1].trim();
+        if (/\$\{.+\}/.test(currentVersion)) {
+          continue;
+        }
         const coordinate = `${groupId}:${artifactId}`;
+        const versionTagStart = dependencyMatch.index! + depContent.indexOf('<version>');
+        const position = document.positionAt(versionTagStart);
+        const range = new vscode.Range(position, position);
 
         updatePromises.push(
           (async () => {
             try {
+              if (showSecurityInfo && securityAdapter.getSecurityInfo) {
+                try {
+                  const security = await securityAdapter.getSecurityInfo(coordinate, currentVersion);
+                  if (security?.summary) {
+                    codeLenses.push(
+                      new vscode.CodeLens(range, {
+                        title: this.formatSecurityTitle(security.summary),
+                        command: 'npmGallery.showPackageDetails',
+                        arguments: [coordinate, { installedVersion: currentVersion, securityOnly: true }],
+                      })
+                    );
+                  }
+                } catch {
+                  // Continue without security lens.
+                }
+              }
+
               const latestVersion = await services.package.getLatestVersion(coordinate);
 
               if (latestVersion && isNewerVersion(currentVersion, latestVersion)) {
                 const updateType = getUpdateType(currentVersion, latestVersion);
-                // Find the position of the version tag
-                const versionTagStart = dependencyMatch.index! + depContent.indexOf('<version>');
-                const position = document.positionAt(versionTagStart);
-                const range = new vscode.Range(position, position);
-
                 codeLenses.push(
                   new vscode.CodeLens(range, {
                     title: this.formatUpdateTitle(latestVersion, updateType),
@@ -1084,6 +1831,7 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
                     arguments: [document.uri.fsPath, groupId, artifactId, latestVersion],
                   })
                 );
+                updateLensCount += 1;
               }
             } catch {
               // Skip packages that fail
@@ -1094,6 +1842,16 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
     }
 
     await Promise.all(updatePromises);
+    if (updateLensCount > 0) {
+      const topOfFile = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 0));
+      codeLenses.unshift(
+        new vscode.CodeLens(topOfFile, {
+          title: `${updateLensCount} update${updateLensCount > 1 ? 's' : ''} available`,
+          command: 'npmGallery.updateAllSonatypeDependencies',
+          arguments: [document.uri.fsPath],
+        })
+      );
+    }
     return codeLenses;
   }
 
@@ -1106,35 +1864,59 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
   ): Promise<vscode.CodeLens[]> {
     const codeLenses: vscode.CodeLens[] = [];
     const services = getServices();
+    const config = vscode.workspace.getConfiguration('npmGallery');
+    const showSecurityInfo = config.get<boolean>('showSecurityInfo', true);
+    const currentSource = services.getCurrentSourceType();
+    const securityAdapter = (currentSource === 'libraries-io'
+      ? services.sourceRegistry.getAdapter('libraries-io')
+      : services.sourceRegistry.getAdapter('sonatype'));
+    if (!securityAdapter) {
+      return codeLenses;
+    }
 
-    // Match Gradle dependency declarations
-    // Supports: implementation 'groupId:artifactId:version'
-    //           testImplementation 'groupId:artifactId:version'
-    //           compileOnly 'groupId:artifactId:version'
-    //           etc.
-    const gradleDepRegex = /(?:implementation|testImplementation|compileOnly|runtimeOnly|api|compile)\s+['"]([^:]+):([^:]+):([^'"]+)['"]/g;
-    let depMatch;
+    const gradleDepRegex =
+      /(?:^|\s)(implementation|testImplementation|compileOnly|runtimeOnly|api|compile)\s*(?:\(\s*)?['"]([^:]+):([^:]+):([^"')\s]+)['"]\s*\)?/gm;
+    let depMatch: RegExpExecArray | null;
     const updatePromises: Promise<void>[] = [];
+    let updateLensCount = 0;
 
     while ((depMatch = gradleDepRegex.exec(text)) !== null) {
-      const groupId = depMatch[1];
-      const artifactId = depMatch[2];
-      const currentVersion = depMatch[3];
+      const groupId = depMatch[2];
+      const artifactId = depMatch[3];
+      const currentVersion = depMatch[4];
+      if (/[${]/.test(currentVersion)) {
+        continue;
+      }
       const coordinate = `${groupId}:${artifactId}`;
       const matchIndex = depMatch.index;
+      const versionStart = matchIndex + depMatch[0].lastIndexOf(':') + 1;
+      const position = document.positionAt(versionStart);
+      const range = new vscode.Range(position, position);
 
       updatePromises.push(
         (async () => {
           try {
+            if (showSecurityInfo && securityAdapter.getSecurityInfo) {
+              try {
+                const security = await securityAdapter.getSecurityInfo(coordinate, currentVersion);
+                if (security?.summary) {
+                  codeLenses.push(
+                    new vscode.CodeLens(range, {
+                      title: this.formatSecurityTitle(security.summary),
+                      command: 'npmGallery.showPackageDetails',
+                      arguments: [coordinate, { installedVersion: currentVersion, securityOnly: true }],
+                    })
+                  );
+                }
+              } catch {
+                // Continue without security lens.
+              }
+            }
+
             const latestVersion = await services.package.getLatestVersion(coordinate);
 
             if (latestVersion && isNewerVersion(currentVersion, latestVersion)) {
               const updateType = getUpdateType(currentVersion, latestVersion);
-              // Find the position of the version in the dependency line
-              const versionStart = matchIndex + depMatch[0].lastIndexOf(':') + 1;
-              const position = document.positionAt(versionStart);
-              const range = new vscode.Range(position, position);
-
               codeLenses.push(
                 new vscode.CodeLens(range, {
                   title: this.formatUpdateTitle(latestVersion, updateType),
@@ -1142,6 +1924,7 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
                   arguments: [document.uri.fsPath, groupId, artifactId, latestVersion],
                 })
               );
+              updateLensCount += 1;
             }
           } catch {
             // Skip packages that fail
@@ -1151,6 +1934,16 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
     }
 
     await Promise.all(updatePromises);
+    if (updateLensCount > 0) {
+      const topOfFile = new vscode.Range(new vscode.Position(0, 0), new vscode.Position(0, 0));
+      codeLenses.unshift(
+        new vscode.CodeLens(topOfFile, {
+          title: `${updateLensCount} update${updateLensCount > 1 ? 's' : ''} available`,
+          command: 'npmGallery.updateAllSonatypeDependencies',
+          arguments: [document.uri.fsPath],
+        })
+      );
+    }
     return codeLenses;
   }
 
@@ -1263,6 +2056,194 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
 
     await Promise.all(updatePromises);
     return codeLenses;
+  }
+
+  private async provideCodeLensesForPackagesConfig(
+    document: vscode.TextDocument,
+    text: string
+  ): Promise<vscode.CodeLens[]> {
+    const codeLenses: vscode.CodeLens[] = [];
+    const services = getServices();
+    const config = vscode.workspace.getConfiguration('npmGallery');
+    const showSecurityInfo = config.get<boolean>('showSecurityInfo', true);
+    const nugetAdapter = services.sourceRegistry.getAdapter('nuget');
+    if (!nugetAdapter) {
+      return codeLenses;
+    }
+
+    const entries: Array<{ name: string; version: string; versionStart: number }> = [];
+    const packageRegex = /<package\b([^>]*?)\/?>/gi;
+    let match: RegExpExecArray | null;
+    while ((match = packageRegex.exec(text)) !== null) {
+      const attrs = match[1] ?? '';
+      const name = this.readXmlAttribute(attrs, 'id');
+      const version = this.readXmlAttribute(attrs, 'version');
+      if (!name || !version) {
+        continue;
+      }
+
+      const versionAttr = attrs.match(/\bversion\s*=\s*"([^"]+)"/i);
+      if (!versionAttr || versionAttr.index === undefined) {
+        continue;
+      }
+
+      const attrOffset = match.index + match[0].indexOf(attrs);
+      const valueOffset = attrOffset + versionAttr.index + versionAttr[0].length - versionAttr[1].length - 1;
+      entries.push({ name, version, versionStart: valueOffset });
+    }
+
+    await this.populateNuGetCodeLenses(
+      document,
+      codeLenses,
+      nugetAdapter,
+      entries,
+      showSecurityInfo,
+      (entry) => ({
+        title: this.formatUpdateTitle(entry.latestVersion, entry.updateType),
+        command: 'npmGallery.updatePackagesConfigPackage',
+        arguments: [document.uri.fsPath, entry.name, entry.latestVersion],
+      })
+    );
+
+    return codeLenses;
+  }
+
+  private async provideCodeLensesForProjectPackageReferences(
+    document: vscode.TextDocument,
+    text: string
+  ): Promise<vscode.CodeLens[]> {
+    const codeLenses: vscode.CodeLens[] = [];
+    const services = getServices();
+    const config = vscode.workspace.getConfiguration('npmGallery');
+    const showSecurityInfo = config.get<boolean>('showSecurityInfo', true);
+    const nugetAdapter = services.sourceRegistry.getAdapter('nuget');
+    if (!nugetAdapter) {
+      return codeLenses;
+    }
+
+    const entries: Array<{ name: string; version: string; versionStart: number }> = [];
+    const refRegex = /<PackageReference\b([^>]*?)\/>|<PackageReference\b([^>]*?)>([\s\S]*?)<\/PackageReference>/gi;
+    let match: RegExpExecArray | null;
+    while ((match = refRegex.exec(text)) !== null) {
+      const fullMatch = match[0];
+      const attrs = (match[1] ?? match[2] ?? '').trim();
+      const body = match[3] ?? '';
+      const name = this.readXmlAttribute(attrs, 'Include') || this.readXmlAttribute(attrs, 'Update');
+      if (!name) {
+        continue;
+      }
+
+      const attrVersionMatch = attrs.match(/\bVersion\s*=\s*"([^"]+)"/i);
+      if (attrVersionMatch && attrVersionMatch.index !== undefined) {
+        const attrOffset = match.index + fullMatch.indexOf(attrs);
+        const valueOffset = attrOffset + attrVersionMatch.index + attrVersionMatch[0].length - attrVersionMatch[1].length - 1;
+        entries.push({ name, version: attrVersionMatch[1], versionStart: valueOffset });
+        continue;
+      }
+
+      const bodyVersionMatch = body.match(/<Version>\s*([^<]+?)\s*<\/Version>/i);
+      if (bodyVersionMatch && bodyVersionMatch.index !== undefined) {
+        const bodyOffset = match.index + fullMatch.indexOf(body);
+        const valueOffset = bodyOffset + bodyVersionMatch.index + bodyVersionMatch[0].indexOf(bodyVersionMatch[1]);
+        entries.push({ name, version: bodyVersionMatch[1].trim(), versionStart: valueOffset });
+      }
+    }
+
+    await this.populateNuGetCodeLenses(
+      document,
+      codeLenses,
+      nugetAdapter,
+      entries,
+      showSecurityInfo,
+      (entry) => ({
+        title: this.formatUpdateTitle(entry.latestVersion, entry.updateType),
+        command: 'npmGallery.updateProjectPackageReference',
+        arguments: [document.uri.fsPath, entry.name, entry.latestVersion],
+      })
+    );
+
+    return codeLenses;
+  }
+
+  private async populateNuGetCodeLenses(
+    document: vscode.TextDocument,
+    codeLenses: vscode.CodeLens[],
+    nugetAdapter: ISourceAdapter,
+    entries: Array<{ name: string; version: string; versionStart: number }>,
+    showSecurityInfo: boolean,
+    createUpdateCommand: (entry: { name: string; latestVersion: string; updateType: string | null }) => vscode.Command
+  ): Promise<void> {
+    let bulkSecurity: Record<string, { summary: { total: number; critical: number; high: number } } | null> = {};
+    if (showSecurityInfo && entries.length > 0 && nugetAdapter.getSecurityInfoBulk) {
+      try {
+        const securityResults = await nugetAdapter.getSecurityInfoBulk(
+          entries.map((entry) => ({ name: entry.name, version: entry.version }))
+        );
+        for (const entry of entries) {
+          const key = `${entry.name}@${entry.version}`;
+          const sec = securityResults[key];
+          bulkSecurity[key] = sec?.summary
+            ? {
+                summary: {
+                  total: sec.summary.total,
+                  critical: sec.summary.critical,
+                  high: sec.summary.high,
+                },
+              }
+            : null;
+        }
+      } catch {
+        bulkSecurity = {};
+      }
+    }
+
+    const updatePromises: Promise<void>[] = [];
+    for (const entry of entries) {
+      updatePromises.push(
+        (async () => {
+          try {
+            const position = document.positionAt(entry.versionStart);
+            const range = new vscode.Range(position, position);
+            const securityKey = `${entry.name}@${entry.version}`;
+            let securitySummary = this.securitySummaries.get(securityKey);
+            if (showSecurityInfo && !securitySummary) {
+              const sec = bulkSecurity[securityKey];
+              if (sec?.summary) {
+                securitySummary = sec.summary;
+                this.securitySummaries.set(securityKey, securitySummary);
+              }
+            }
+
+            if (showSecurityInfo && securitySummary) {
+              codeLenses.push(
+                new vscode.CodeLens(range, {
+                  title: this.formatSecurityTitle(securitySummary),
+                  command: 'npmGallery.showPackageDetails',
+                  arguments: [entry.name, { installedVersion: entry.version, securityOnly: true }],
+                })
+              );
+            }
+
+            const info = await nugetAdapter.getPackageInfo(entry.name);
+            const latestVersion = info?.version ?? null;
+            if (latestVersion && isNewerVersion(entry.version, latestVersion)) {
+              const updateType = getUpdateType(entry.version, latestVersion);
+              codeLenses.push(
+                new vscode.CodeLens(range, createUpdateCommand({
+                  name: entry.name,
+                  latestVersion,
+                  updateType,
+                }))
+              );
+            }
+          } catch {
+            // Skip packages that fail
+          }
+        })()
+      );
+    }
+
+    await Promise.all(updatePromises);
   }
 
   /**
@@ -1528,6 +2509,11 @@ export class PackageCodeLensProvider implements vscode.CodeLensProvider {
     }
 
     return codeLenses;
+  }
+
+  private readXmlAttribute(attrs: string, name: string): string | undefined {
+    const match = attrs.match(new RegExp(`\\b${name}\\s*=\\s*"([^"]+)"`, 'i'));
+    return match?.[1]?.trim();
   }
 
 

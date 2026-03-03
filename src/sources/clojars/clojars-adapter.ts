@@ -119,10 +119,17 @@ export class ClojarsSourceAdapter extends BaseSourceAdapter {
   async getPackageDetails(name: string, version?: string): Promise<PackageDetails> {
     const artifact = await this.getArtifactByName(name);
     const downloads = await this.getDownloadCount(name);
-    const security = version ? await this.getSecurityInfo(name, version).catch(() => null) : null;
+    const rawVersion =
+      version ||
+      (typeof artifact.latest_version === 'string' ? artifact.latest_version : undefined) ||
+      (typeof artifact.version === 'string' ? artifact.version : undefined);
+    const resolvedVersion = rawVersion?.trim() || undefined;
+    const security = resolvedVersion
+      ? await this.getSecurityInfo(name, resolvedVersion).catch(() => null)
+      : null;
     const details = this.transformer.transformArtifactDetails(artifact, downloads, security);
-    if (version) {
-      details.version = version;
+    if (resolvedVersion) {
+      details.version = resolvedVersion;
     }
     return details;
   }

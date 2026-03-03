@@ -122,6 +122,8 @@ export function registerCommands(
               ? await services.workspace.getClojureManifestFiles()
               : projectType === 'rust' || currentSource === 'crates-io'
                 ? await services.workspace.getCargoManifestFiles()
+                : projectType === 'go' || currentSource === 'pkg-go-dev'
+                  ? await services.workspace.getGoManifestFiles()
                 : await services.workspace.getPackageJsonFiles();
       if (!targetManifestPath && manifestFiles.length > 1) {
         return;
@@ -160,6 +162,7 @@ export function registerCommands(
         let packageName: string | undefined;
         let targetVersion = version;
         let targetPath: string | undefined;
+        let manifestUpdatedDirectly = false;
 
         // Handle TreeItem object from context menu
         if (arg && typeof arg === 'object' && 'pkg' in arg && arg.pkg) {
@@ -178,7 +181,58 @@ export function registerCommands(
 
         if (!packageName) return;
 
-        const result = await services.install.update(packageName, targetVersion, targetPath);
+        const attemptDirectManifestUpdate = async (): Promise<boolean> => {
+          const manifestPath = targetPath || vscode.window.activeTextEditor?.document.uri.fsPath;
+          if (!manifestPath?.endsWith('package.json') || !targetVersion) {
+            return false;
+          }
+
+          try {
+            const packageJson = await services.workspace.getPackageJson(vscode.Uri.file(manifestPath));
+            if (!packageJson) {
+              return false;
+            }
+
+            const depTypes: Array<'dependencies' | 'devDependencies' | 'peerDependencies' | 'optionalDependencies'> = [
+              'dependencies',
+              'devDependencies',
+              'peerDependencies',
+              'optionalDependencies',
+            ];
+
+            for (const depType of depTypes) {
+              const deps = packageJson[depType];
+              if (deps && typeof deps === 'object' && packageName in deps) {
+                const updated = await services.workspace.updatePackageJson(
+                  vscode.Uri.file(manifestPath),
+                  packageName,
+                  targetVersion,
+                  depType
+                );
+                if (updated) {
+                  targetPath = manifestPath;
+                  manifestUpdatedDirectly = true;
+                  return true;
+                }
+              }
+            }
+          } catch {
+            return false;
+          }
+
+          return false;
+        };
+
+        let result = await services.install.update(packageName, targetVersion, targetPath);
+        if (!result.success) {
+          const currentSource = services.getCurrentSourceType();
+          if (currentSource === 'libraries-io' && await attemptDirectManifestUpdate()) {
+            result = {
+              success: true,
+              message: `Updated ${packageName} to ${targetVersion}`,
+            };
+          }
+        }
 
         if (result.success) {
           vscode.window.showInformationMessage(result.message);
@@ -192,6 +246,9 @@ export function registerCommands(
           } else {
             providers.codelens.refresh();
             providers.updates.refresh();
+          }
+          if (manifestUpdatedDirectly && targetPath) {
+            await providers.installed.refreshScope({ manifestPath: targetPath });
           }
         } else {
           vscode.window.showErrorMessage(result.message);
@@ -229,11 +286,84 @@ export function registerCommands(
         
         if (result) {
           vscode.window.showInformationMessage(`Updated ${groupId}:${artifactId} to ${newVersion}`);
-          providers.codelens.refresh();
-          providers.updates.refresh();
+          const scope = { manifestPath: gradlePath };
+          await providers.installed.refreshScope(scope);
+          await providers.updates.refreshScope(scope);
+          providers.codelens.refresh(scope);
         } else {
           vscode.window.showErrorMessage(`Failed to update ${groupId}:${artifactId}`);
         }
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'npmGallery.updateAllSonatypeDependencies',
+      async (sourcePath?: string) => {
+        const activeEditor = vscode.window.activeTextEditor;
+        const targetPath = sourcePath || activeEditor?.document.uri.fsPath;
+        if (!targetPath || (!targetPath.endsWith('pom.xml') && !targetPath.endsWith('build.gradle') && !targetPath.endsWith('build.gradle.kts'))) {
+          vscode.window.showErrorMessage('Please open a pom.xml, build.gradle, or build.gradle.kts file');
+          return;
+        }
+
+        const confirm = await vscode.window.showWarningMessage(
+          'Update all Sonatype dependencies? This may include breaking changes.',
+          'Update',
+          'Cancel'
+        );
+        if (confirm !== 'Update') {
+          return;
+        }
+
+        const document = activeEditor && activeEditor.document.uri.fsPath === targetPath
+          ? activeEditor.document
+          : await vscode.workspace.openTextDocument(vscode.Uri.file(targetPath));
+        const codeLenses = await providers.codelens.provideCodeLenses(document, new vscode.CancellationTokenSource().token);
+        const updateCommand = targetPath.endsWith('pom.xml')
+          ? 'npmGallery.updateMavenDependency'
+          : 'npmGallery.updateGradleDependency';
+        const updates = new Map<string, { groupId: string; artifactId: string; version: string }>();
+
+        for (const codeLens of codeLenses) {
+          if (codeLens.command?.command !== updateCommand || !codeLens.command.arguments) {
+            continue;
+          }
+
+          const [, groupId, artifactId, version] = codeLens.command.arguments as [string, string, string, string];
+          if (!groupId || !artifactId || !version) {
+            continue;
+          }
+
+          updates.set(`${groupId}:${artifactId}`, { groupId, artifactId, version });
+        }
+
+        if (updates.size === 0) {
+          vscode.window.showInformationMessage('No Sonatype dependencies to update');
+          return;
+        }
+
+        let updateCount = 0;
+        for (const update of updates.values()) {
+          const result = targetPath.endsWith('pom.xml')
+            ? await services.workspace.updateMavenDependency(targetPath, update.groupId, update.artifactId, update.version)
+            : await services.workspace.updateGradleDependency(targetPath, update.groupId, update.artifactId, update.version);
+          if (result) {
+            updateCount += 1;
+          }
+        }
+
+        if (updateCount === 0) {
+          vscode.window.showWarningMessage('Failed to update Sonatype dependencies');
+          return;
+        }
+
+        vscode.window.showInformationMessage(`Updated ${updateCount} Sonatype dependenc${updateCount === 1 ? 'y' : 'ies'}`);
+        const scope = { manifestPath: targetPath };
+        await providers.installed.refreshScope(scope);
+        await providers.updates.refreshScope(scope);
+        providers.codelens.refresh(scope);
       }
     )
   );
@@ -247,6 +377,8 @@ export function registerCommands(
         if (result) {
           vscode.window.showInformationMessage(`Updated ${packageId} to ${newVersion}`);
           const scope = { manifestPath: propsPath };
+          await providers.installed.refreshScope(scope);
+          await providers.updates.refreshScope(scope);
           providers.codelens.refresh(scope);
         } else {
           vscode.window.showErrorMessage(`Failed to update ${packageId}`);
@@ -264,6 +396,8 @@ export function registerCommands(
         if (result) {
           vscode.window.showInformationMessage(`Updated ${packageId} to ${newVersion}`);
           const scope = { manifestPath: depsPath };
+          await providers.installed.refreshScope(scope);
+          await providers.updates.refreshScope(scope);
           providers.codelens.refresh(scope);
         } else {
           vscode.window.showErrorMessage(`Failed to update ${packageId}`);
@@ -281,6 +415,44 @@ export function registerCommands(
         if (result) {
           vscode.window.showInformationMessage(`Updated ${packageId} (${kind}) to ${newVersion}`);
           const scope = { manifestPath: cakePath };
+          await providers.installed.refreshScope(scope);
+          await providers.updates.refreshScope(scope);
+          providers.codelens.refresh(scope);
+        } else {
+          vscode.window.showErrorMessage(`Failed to update ${packageId}`);
+        }
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'npmGallery.updatePackagesConfigPackage',
+      async (configPath: string, packageId: string, newVersion: string) => {
+        const result = await services.workspace.updatePackagesConfigPackage(configPath, packageId, newVersion);
+        if (result) {
+          vscode.window.showInformationMessage(`Updated ${packageId} to ${newVersion}`);
+          const scope = { manifestPath: configPath };
+          await providers.installed.refreshScope(scope);
+          await providers.updates.refreshScope(scope);
+          providers.codelens.refresh(scope);
+        } else {
+          vscode.window.showErrorMessage(`Failed to update ${packageId}`);
+        }
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'npmGallery.updateProjectPackageReference',
+      async (projectPath: string, packageId: string, newVersion: string) => {
+        const result = await services.workspace.updateProjectPackageReference(projectPath, packageId, newVersion);
+        if (result) {
+          vscode.window.showInformationMessage(`Updated ${packageId} to ${newVersion}`);
+          const scope = { manifestPath: projectPath };
+          await providers.installed.refreshScope(scope);
+          await providers.updates.refreshScope(scope);
           providers.codelens.refresh(scope);
         } else {
           vscode.window.showErrorMessage(`Failed to update ${packageId}`);
@@ -327,6 +499,75 @@ export function registerCommands(
 
   context.subscriptions.push(
     vscode.commands.registerCommand(
+      'npmGallery.updateAllClojureDependencies',
+      async (sourcePath?: string) => {
+        const activeEditor = vscode.window.activeTextEditor;
+        const targetPath = sourcePath || activeEditor?.document.uri.fsPath;
+        if (!targetPath || (!targetPath.endsWith('deps.edn') && !targetPath.endsWith('project.clj'))) {
+          vscode.window.showErrorMessage('Please open a deps.edn or project.clj file');
+          return;
+        }
+
+        const confirm = await vscode.window.showWarningMessage(
+          'Update all Clojure dependencies? This may include breaking changes.',
+          'Update',
+          'Cancel'
+        );
+        if (confirm !== 'Update') {
+          return;
+        }
+
+        const document = activeEditor && activeEditor.document.uri.fsPath === targetPath
+          ? activeEditor.document
+          : await vscode.workspace.openTextDocument(vscode.Uri.file(targetPath));
+        const codeLenses = await providers.codelens.provideCodeLenses(document, new vscode.CancellationTokenSource().token);
+        const updates = new Map<string, string>();
+        const updateCommand = targetPath.endsWith('deps.edn')
+          ? 'npmGallery.updateDepsEdnDependency'
+          : 'npmGallery.updateLeiningenDependency';
+
+        for (const codeLens of codeLenses) {
+          if (codeLens.command?.command !== updateCommand || !codeLens.command.arguments) {
+            continue;
+          }
+          const [, packageId, version] = codeLens.command.arguments as [string, string, string];
+          if (!packageId || !version) {
+            continue;
+          }
+          updates.set(packageId, version);
+        }
+
+        if (updates.size === 0) {
+          vscode.window.showInformationMessage('No Clojure dependencies to update');
+          return;
+        }
+
+        let updateCount = 0;
+        for (const [packageId, version] of updates) {
+          const result = targetPath.endsWith('deps.edn')
+            ? await services.workspace.updateDepsEdnDependency(targetPath, packageId, version)
+            : await services.workspace.updateLeiningenDependency(targetPath, packageId, version);
+          if (result) {
+            updateCount += 1;
+          }
+        }
+
+        if (updateCount === 0) {
+          vscode.window.showWarningMessage('Failed to update Clojure dependencies');
+          return;
+        }
+
+        vscode.window.showInformationMessage(`Updated ${updateCount} Clojure dependenc${updateCount === 1 ? 'y' : 'ies'}`);
+        const scope = { manifestPath: targetPath };
+        await providers.installed.refreshScope(scope);
+        await providers.updates.refreshScope(scope);
+        providers.codelens.refresh(scope);
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
       'npmGallery.updateCargoDependency',
       async (cargoPath: string, packageId: string, newVersion: string) => {
         const result = await services.workspace.updateCargoDependency(cargoPath, packageId, newVersion);
@@ -345,6 +586,160 @@ export function registerCommands(
 
   context.subscriptions.push(
     vscode.commands.registerCommand(
+      'npmGallery.updateGoDependency',
+      async (goModPath: string, packageId: string, newVersion: string) => {
+        const result = await services.workspace.updateGoDependency(goModPath, packageId, newVersion);
+        if (result) {
+          vscode.window.showInformationMessage(`Updated ${packageId} to ${newVersion}`);
+          const scope = { manifestPath: goModPath };
+          await providers.installed.refreshScope(scope);
+          await providers.updates.refreshScope(scope);
+          providers.codelens.refresh(scope);
+        } else {
+          vscode.window.showErrorMessage(`Failed to update ${packageId}`);
+        }
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'npmGallery.updateAllGoDependencies',
+      async (sourcePath?: string) => {
+        const activeEditor = vscode.window.activeTextEditor;
+        const targetPath = sourcePath || activeEditor?.document.uri.fsPath;
+        if (!targetPath || !targetPath.endsWith('go.mod')) {
+          vscode.window.showErrorMessage('Please open a go.mod file');
+          return;
+        }
+
+        const confirm = await vscode.window.showWarningMessage(
+          'Update all Go dependencies? This may include breaking changes.',
+          'Update',
+          'Cancel'
+        );
+        if (confirm !== 'Update') {
+          return;
+        }
+
+        const document = activeEditor && activeEditor.document.uri.fsPath === targetPath
+          ? activeEditor.document
+          : await vscode.workspace.openTextDocument(vscode.Uri.file(targetPath));
+        const codeLenses = await providers.codelens.provideCodeLenses(document, new vscode.CancellationTokenSource().token);
+        const updates = new Map<string, string>();
+
+        for (const codeLens of codeLenses) {
+          if (codeLens.command?.command !== 'npmGallery.updateGoDependency' || !codeLens.command.arguments) {
+            continue;
+          }
+
+          const [, packageId, version] = codeLens.command.arguments as [string, string, string];
+          if (!packageId || !version) {
+            continue;
+          }
+
+          updates.set(packageId, version);
+        }
+
+        if (updates.size === 0) {
+          vscode.window.showInformationMessage('No Go dependencies to update');
+          return;
+        }
+
+        let updateCount = 0;
+        for (const [packageId, version] of updates) {
+          const result = await services.workspace.updateGoDependency(targetPath, packageId, version);
+          if (result) {
+            updateCount += 1;
+          }
+        }
+
+        if (updateCount === 0) {
+          vscode.window.showWarningMessage('Failed to update Go dependencies');
+          return;
+        }
+
+        vscode.window.showInformationMessage(`Updated ${updateCount} Go dependenc${updateCount === 1 ? 'y' : 'ies'}`);
+        const scope = { manifestPath: targetPath };
+        await providers.installed.refreshScope(scope);
+        await providers.updates.refreshScope(scope);
+        providers.codelens.refresh(scope);
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'npmGallery.updateAllCargoDependencies',
+      async (sourcePath?: string) => {
+        const activeEditor = vscode.window.activeTextEditor;
+        const targetPath = sourcePath || activeEditor?.document.uri.fsPath;
+        if (!targetPath || (!targetPath.endsWith('Cargo.toml') && !targetPath.endsWith('Cargo.lock'))) {
+          vscode.window.showErrorMessage('Please open a Cargo.toml or Cargo.lock file');
+          return;
+        }
+
+        const manifestPath = targetPath.endsWith('Cargo.lock')
+          ? targetPath.replace(/cargo\.lock$/i, 'Cargo.toml')
+          : targetPath;
+
+        const confirm = await vscode.window.showWarningMessage(
+          'Update all Cargo dependencies? This may include breaking changes.',
+          'Update',
+          'Cancel'
+        );
+        if (confirm !== 'Update') {
+          return;
+        }
+
+        const document = activeEditor && activeEditor.document.uri.fsPath === targetPath
+          ? activeEditor.document
+          : await vscode.workspace.openTextDocument(vscode.Uri.file(targetPath));
+        const codeLenses = await providers.codelens.provideCodeLenses(document, new vscode.CancellationTokenSource().token);
+        const updates = new Map<string, string>();
+
+        for (const codeLens of codeLenses) {
+          if (codeLens.command?.command !== 'npmGallery.updateCargoDependency' || !codeLens.command.arguments) {
+            continue;
+          }
+
+          const [, packageId, version] = codeLens.command.arguments as [string, string, string];
+          if (!packageId || !version) {
+            continue;
+          }
+
+          updates.set(packageId, version);
+        }
+
+        if (updates.size === 0) {
+          vscode.window.showInformationMessage('No Cargo dependencies to update');
+          return;
+        }
+
+        let updateCount = 0;
+        for (const [packageId, version] of updates) {
+          const result = await services.workspace.updateCargoDependency(manifestPath, packageId, version);
+          if (result) {
+            updateCount += 1;
+          }
+        }
+
+        if (updateCount === 0) {
+          vscode.window.showWarningMessage('Failed to update Cargo dependencies');
+          return;
+        }
+
+        vscode.window.showInformationMessage(`Updated ${updateCount} Cargo dependenc${updateCount === 1 ? 'y' : 'ies'}`);
+        const scope = { manifestPath };
+        await providers.installed.refreshScope(scope);
+        await providers.updates.refreshScope(scope);
+        providers.codelens.refresh(scope);
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
       'npmGallery.updatePerlDependency',
       async (cpanfilePath: string, packageId: string, newVersion: string) => {
         const result = await services.workspace.updatePerlDependency(cpanfilePath, packageId, newVersion);
@@ -356,6 +751,78 @@ export function registerCommands(
           providers.codelens.refresh(scope);
         } else {
           vscode.window.showErrorMessage(`Failed to update ${packageId}`);
+        }
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'npmGallery.updateAllPerlDependencies',
+      async (sourcePath?: string) => {
+        const activeEditor = vscode.window.activeTextEditor;
+        const targetPath = sourcePath || activeEditor?.document.uri.fsPath;
+        if (!targetPath || (!targetPath.endsWith('cpanfile') && !targetPath.endsWith('cpanfile.snapshot'))) {
+          vscode.window.showErrorMessage('Please open a cpanfile or cpanfile.snapshot file');
+          return;
+        }
+
+        const confirm = await vscode.window.showWarningMessage(
+          'Update all Perl dependencies? This may include breaking changes.',
+          'Update',
+          'Cancel'
+        );
+        if (confirm !== 'Update') {
+          return;
+        }
+
+        const document = activeEditor && activeEditor.document.uri.fsPath === targetPath
+          ? activeEditor.document
+          : await vscode.workspace.openTextDocument(vscode.Uri.file(targetPath));
+        const codeLenses = await providers.codelens.provideCodeLenses(document, new vscode.CancellationTokenSource().token);
+        const updates = new Map<string, { manifestPath: string; version: string }>();
+
+        for (const codeLens of codeLenses) {
+          if (codeLens.command?.command !== 'npmGallery.updatePerlDependency' || !codeLens.command.arguments) {
+            continue;
+          }
+          const [manifestPath, packageId, version] = codeLens.command.arguments as [string, string, string];
+          if (!manifestPath || !packageId || !version) {
+            continue;
+          }
+          updates.set(packageId, { manifestPath, version });
+        }
+
+        if (updates.size === 0) {
+          vscode.window.showInformationMessage('No Perl dependencies to update');
+          return;
+        }
+
+        let updateCount = 0;
+        let manifestPathForRefresh: string | undefined;
+        for (const [packageId, update] of updates) {
+          const result = await services.workspace.updatePerlDependency(update.manifestPath, packageId, update.version);
+          if (result) {
+            updateCount += 1;
+            manifestPathForRefresh = update.manifestPath;
+          }
+        }
+
+        if (updateCount === 0) {
+          vscode.window.showWarningMessage('Failed to update Perl dependencies');
+          return;
+        }
+
+        vscode.window.showInformationMessage(`Updated ${updateCount} Perl dependenc${updateCount === 1 ? 'y' : 'ies'}`);
+        const scope = manifestPathForRefresh ? { manifestPath: manifestPathForRefresh } : undefined;
+        if (scope) {
+          await providers.installed.refreshScope(scope);
+          await providers.updates.refreshScope(scope);
+          providers.codelens.refresh(scope);
+        } else {
+          await providers.installed.refresh();
+          await providers.updates.refresh();
+          providers.codelens.refresh();
         }
       }
     )
@@ -381,6 +848,74 @@ export function registerCommands(
 
   context.subscriptions.push(
     vscode.commands.registerCommand(
+      'npmGallery.updateAllPubDependencies',
+      async (sourcePath?: string) => {
+        const activeEditor = vscode.window.activeTextEditor;
+        const targetPath = sourcePath || activeEditor?.document.uri.fsPath;
+        if (!targetPath || (!targetPath.endsWith('pubspec.yaml') && !targetPath.endsWith('pubspec.lock'))) {
+          vscode.window.showErrorMessage('Please open a pubspec.yaml or pubspec.lock file');
+          return;
+        }
+
+        const manifestPath = targetPath.endsWith('pubspec.lock')
+          ? targetPath.replace(/pubspec\.lock$/i, 'pubspec.yaml')
+          : targetPath;
+
+        const confirm = await vscode.window.showWarningMessage(
+          'Update all pub dependencies? This may include breaking changes.',
+          'Update',
+          'Cancel'
+        );
+        if (confirm !== 'Update') {
+          return;
+        }
+
+        const document = activeEditor && activeEditor.document.uri.fsPath === targetPath
+          ? activeEditor.document
+          : await vscode.workspace.openTextDocument(vscode.Uri.file(targetPath));
+        const codeLenses = await providers.codelens.provideCodeLenses(document, new vscode.CancellationTokenSource().token);
+        const updates = new Map<string, string>();
+
+        for (const codeLens of codeLenses) {
+          if (codeLens.command?.command !== 'npmGallery.updatePubspecDependency' || !codeLens.command.arguments) {
+            continue;
+          }
+          const [, packageId, version] = codeLens.command.arguments as [string, string, string];
+          if (!packageId || !version) {
+            continue;
+          }
+          updates.set(packageId, version);
+        }
+
+        if (updates.size === 0) {
+          vscode.window.showInformationMessage('No pub dependencies to update');
+          return;
+        }
+
+        let updateCount = 0;
+        for (const [packageId, version] of updates) {
+          const result = await services.workspace.updatePubspecDependency(manifestPath, packageId, version);
+          if (result) {
+            updateCount += 1;
+          }
+        }
+
+        if (updateCount === 0) {
+          vscode.window.showWarningMessage('Failed to update pub dependencies');
+          return;
+        }
+
+        vscode.window.showInformationMessage(`Updated ${updateCount} pub dependenc${updateCount === 1 ? 'y' : 'ies'}`);
+        const scope = { manifestPath };
+        await providers.installed.refreshScope(scope);
+        await providers.updates.refreshScope(scope);
+        providers.codelens.refresh(scope);
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
       'npmGallery.updateRDependency',
       async (descriptionPath: string, packageId: string, newVersion: string) => {
         const result = await services.workspace.updateRDependency(descriptionPath, packageId, newVersion);
@@ -393,6 +928,218 @@ export function registerCommands(
         } else {
           vscode.window.showErrorMessage(`Failed to update ${packageId}`);
         }
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'npmGallery.updateAllRDependencies',
+      async (sourcePath?: string) => {
+        const activeEditor = vscode.window.activeTextEditor;
+        const targetPath = sourcePath || activeEditor?.document.uri.fsPath;
+        if (!targetPath || (!targetPath.endsWith('DESCRIPTION') && !targetPath.endsWith('.Rproj'))) {
+          vscode.window.showErrorMessage('Please open a DESCRIPTION or .Rproj file');
+          return;
+        }
+
+        const descriptionPath = targetPath.endsWith('.Rproj')
+          ? require('path').join(require('path').dirname(targetPath), 'DESCRIPTION')
+          : targetPath;
+
+        const confirm = await vscode.window.showWarningMessage(
+          'Update all R dependencies? This may include breaking changes.',
+          'Update',
+          'Cancel'
+        );
+        if (confirm !== 'Update') {
+          return;
+        }
+
+        const document = activeEditor && activeEditor.document.uri.fsPath === targetPath
+          ? activeEditor.document
+          : await vscode.workspace.openTextDocument(vscode.Uri.file(targetPath));
+        const codeLenses = await providers.codelens.provideCodeLenses(document, new vscode.CancellationTokenSource().token);
+        const updates = new Map<string, string>();
+
+        for (const codeLens of codeLenses) {
+          if (codeLens.command?.command !== 'npmGallery.updateRDependency' || !codeLens.command.arguments) {
+            continue;
+          }
+          const [, packageId, version] = codeLens.command.arguments as [string, string, string];
+          if (!packageId || !version) {
+            continue;
+          }
+          updates.set(packageId, version);
+        }
+
+        if (updates.size === 0) {
+          vscode.window.showInformationMessage('No R dependencies to update');
+          return;
+        }
+
+        let updateCount = 0;
+        for (const [packageId, version] of updates) {
+          const result = await services.workspace.updateRDependency(descriptionPath, packageId, version);
+          if (result) {
+            updateCount += 1;
+          }
+        }
+
+        if (updateCount === 0) {
+          vscode.window.showWarningMessage('Failed to update R dependencies');
+          return;
+        }
+
+        vscode.window.showInformationMessage(`Updated ${updateCount} R dependenc${updateCount === 1 ? 'y' : 'ies'}`);
+        const scope = { manifestPath: descriptionPath };
+        await providers.installed.refreshScope(scope);
+        await providers.updates.refreshScope(scope);
+        providers.codelens.refresh(scope);
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'npmGallery.updateAllComposerDependencies',
+      async (sourcePath?: string) => {
+        const activeEditor = vscode.window.activeTextEditor;
+        const targetPath = sourcePath || activeEditor?.document.uri.fsPath;
+        if (!targetPath || (!targetPath.endsWith('composer.json') && !targetPath.endsWith('composer.lock'))) {
+          vscode.window.showErrorMessage('Please open a composer.json or composer.lock file');
+          return;
+        }
+
+        const manifestPath = targetPath.endsWith('composer.lock')
+          ? targetPath.replace(/composer\.lock$/i, 'composer.json')
+          : targetPath;
+
+        const confirm = await vscode.window.showWarningMessage(
+          'Update all Composer dependencies? This may include breaking changes.',
+          'Update',
+          'Cancel'
+        );
+        if (confirm !== 'Update') {
+          return;
+        }
+
+        const document = activeEditor && activeEditor.document.uri.fsPath === targetPath
+          ? activeEditor.document
+          : await vscode.workspace.openTextDocument(vscode.Uri.file(targetPath));
+        const codeLenses = await providers.codelens.provideCodeLenses(document, new vscode.CancellationTokenSource().token);
+        const updates = new Map<string, string>();
+
+        for (const codeLens of codeLenses) {
+          if (codeLens.command?.command !== 'npmGallery.updatePackage' || !codeLens.command.arguments) {
+            continue;
+          }
+
+          const [payload] = codeLens.command.arguments as Array<{ pkg?: { name?: string; latestVersion?: string } }>;
+          const packageName = payload?.pkg?.name;
+          const latestVersion = payload?.pkg?.latestVersion;
+          if (!packageName || !latestVersion) {
+            continue;
+          }
+
+          updates.set(packageName, latestVersion);
+        }
+
+        if (updates.size === 0) {
+          vscode.window.showInformationMessage('No Composer dependencies to update');
+          return;
+        }
+
+        let updateCount = 0;
+        for (const [packageName, latestVersion] of updates) {
+          const result = await services.install.update(packageName, latestVersion, manifestPath);
+          if (result.success) {
+            updateCount += 1;
+          }
+        }
+
+        if (updateCount === 0) {
+          vscode.window.showWarningMessage('Failed to update Composer dependencies');
+          return;
+        }
+
+        vscode.window.showInformationMessage(`Triggered ${updateCount} Composer update${updateCount === 1 ? '' : 's'}`);
+        const scope = { manifestPath };
+        await providers.installed.refreshScope(scope);
+        await providers.updates.refreshScope(scope);
+        providers.codelens.refresh(scope);
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'npmGallery.updateAllRubyDependencies',
+      async (sourcePath?: string) => {
+        const activeEditor = vscode.window.activeTextEditor;
+        const targetPath = sourcePath || activeEditor?.document.uri.fsPath;
+        if (!targetPath || (!targetPath.endsWith('Gemfile') && !targetPath.endsWith('Gemfile.lock'))) {
+          vscode.window.showErrorMessage('Please open a Gemfile or Gemfile.lock file');
+          return;
+        }
+
+        const manifestPath = targetPath.endsWith('Gemfile.lock')
+          ? targetPath.replace(/gemfile\.lock$/i, 'Gemfile')
+          : targetPath;
+
+        const confirm = await vscode.window.showWarningMessage(
+          'Update all Ruby dependencies? This may include breaking changes.',
+          'Update',
+          'Cancel'
+        );
+        if (confirm !== 'Update') {
+          return;
+        }
+
+        const document = activeEditor && activeEditor.document.uri.fsPath === targetPath
+          ? activeEditor.document
+          : await vscode.workspace.openTextDocument(vscode.Uri.file(targetPath));
+        const codeLenses = await providers.codelens.provideCodeLenses(document, new vscode.CancellationTokenSource().token);
+        const updates = new Map<string, string>();
+
+        for (const codeLens of codeLenses) {
+          if (codeLens.command?.command !== 'npmGallery.updatePackage' || !codeLens.command.arguments) {
+            continue;
+          }
+
+          const [payload] = codeLens.command.arguments as Array<{ pkg?: { name?: string; latestVersion?: string } }>;
+          const packageName = payload?.pkg?.name;
+          const latestVersion = payload?.pkg?.latestVersion;
+          if (!packageName || !latestVersion) {
+            continue;
+          }
+
+          updates.set(packageName, latestVersion);
+        }
+
+        if (updates.size === 0) {
+          vscode.window.showInformationMessage('No Ruby dependencies to update');
+          return;
+        }
+
+        let updateCount = 0;
+        for (const [packageName, latestVersion] of updates) {
+          const result = await services.install.update(packageName, latestVersion, manifestPath);
+          if (result.success) {
+            updateCount += 1;
+          }
+        }
+
+        if (updateCount === 0) {
+          vscode.window.showWarningMessage('Failed to update Ruby dependencies');
+          return;
+        }
+
+        vscode.window.showInformationMessage(`Triggered ${updateCount} Ruby update${updateCount === 1 ? '' : 's'}`);
+        const scope = { manifestPath };
+        await providers.installed.refreshScope(scope);
+        await providers.updates.refreshScope(scope);
+        providers.codelens.refresh(scope);
       }
     )
   );
@@ -447,10 +1194,26 @@ export function registerCommands(
 
           // Update each package individually using install command with version
           let updateCount = 0;
+          const currentSource = services.getCurrentSourceType();
           for (const { name, latestVersion } of packagesToUpdate) {
             try {
-              await services.install.update(name, latestVersion, document.uri.fsPath);
-              updateCount++;
+              const result = await services.install.update(name, latestVersion, document.uri.fsPath);
+              if (result.success) {
+                updateCount++;
+                continue;
+              }
+
+              if (currentSource === 'libraries-io') {
+                const updated = await services.workspace.updatePackageJson(
+                  document.uri,
+                  name,
+                  latestVersion,
+                  section as 'dependencies' | 'devDependencies' | 'peerDependencies' | 'optionalDependencies'
+                );
+                if (updated) {
+                  updateCount++;
+                }
+              }
             } catch {
               // Continue with other packages if one fails
             }
@@ -526,6 +1289,33 @@ export function registerCommands(
       }
 
       if (!packageName) return;
+
+      if (!targetPath) {
+        const projectType = services.getCurrentProjectType();
+        const currentSource = services.getCurrentSourceType();
+        if (
+          projectType === 'dotnet' ||
+          currentSource === 'nuget' ||
+          projectType === 'go' ||
+          currentSource === 'pkg-go-dev' ||
+          projectType === 'r' ||
+          currentSource === 'cran' ||
+          projectType === 'perl' ||
+          currentSource === 'metacpan'
+        ) {
+          targetPath = await selectInstallTargetManifest(
+            packageName,
+            services.workspace,
+            services.install,
+            vscode.window.activeTextEditor?.document.uri.fsPath,
+            projectType,
+            currentSource
+          );
+          if (!targetPath) {
+            return;
+          }
+        }
+      }
 
       const confirm = await vscode.window.showWarningMessage(
         `Remove ${packageName}?`,

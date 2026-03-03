@@ -149,7 +149,11 @@ export class InstallService {
         return { success: false, message: 'Update command generation is not supported' };
       }
       
-      const command = adapter.getUpdateCommand(packageName, version || undefined);
+      let command = adapter.getUpdateCommand(packageName, version || undefined);
+      const packageManager = await this.detectPackageManager(targetPath);
+      if (adapter.sourceType === 'pub-dev' && packageManager === 'flutter') {
+        command = command.replace(/^dart pub\b/, 'flutter pub');
+      }
       const projectType = this.sourceSelector?.getCurrentProjectType() ?? adapter.projectType;
       const workspaceFolder = this.resolveWorkspaceFolder(targetPath);
       const executionUri = this.getExecutionUri(targetPath, workspaceFolder);
@@ -183,6 +187,40 @@ export class InstallService {
 
     try {
       const adapter = this.sourceSelector.selectSource();
+
+      if (adapter.sourceType === 'cran' && targetPath && this.workspace) {
+        const removed = await this.workspace.removeRDependency(targetPath, packageName);
+        return removed
+          ? { success: true, message: `Removed ${packageName}.` }
+          : { success: false, message: 'Remove is not supported for this R manifest' };
+      }
+
+      if (adapter.sourceType === 'metacpan' && targetPath && this.workspace) {
+        const removed = await this.workspace.removePerlDependency(targetPath, packageName);
+        return removed
+          ? { success: true, message: `Removed ${packageName}.` }
+          : { success: false, message: 'Remove is not supported for this Perl manifest' };
+      }
+
+      if (adapter.sourceType === 'nuget' && targetPath) {
+        const nugetCommand = this.getNuGetRemoveCommand(packageName, targetPath);
+        if (nugetCommand) {
+          const workspaceFolder = this.resolveWorkspaceFolder(targetPath);
+          const executionUri = this.getExecutionUri(targetPath, workspaceFolder);
+          const terminal = this.getOrCreateTerminal('dotnet', workspaceFolder, executionUri, targetPath);
+          terminal.show();
+          terminal.sendText(nugetCommand);
+          return {
+            success: true,
+            message: `Removing ${packageName}...`,
+          };
+        }
+
+        const removed = await this.removeNuGetPackage(packageName, targetPath);
+        return removed
+          ? { success: true, message: `Removed ${packageName}.` }
+          : { success: false, message: 'Remove is not supported for this NuGet manifest' };
+      }
       
       // Check if installation is supported
       if (!adapter.supportsCapability(SourceCapability.INSTALLATION)) {
@@ -193,7 +231,11 @@ export class InstallService {
         return { success: false, message: 'Remove command generation is not supported' };
       }
       
-      const command = adapter.getRemoveCommand(packageName);
+      let command = adapter.getRemoveCommand(packageName);
+      const packageManager = await this.detectPackageManager(targetPath);
+      if (adapter.sourceType === 'pub-dev' && packageManager === 'flutter') {
+        command = command.replace(/^dart pub\b/, 'flutter pub');
+      }
       const projectType = this.sourceSelector?.getCurrentProjectType() ?? adapter.projectType;
       const workspaceFolder = this.resolveWorkspaceFolder(targetPath);
       const executionUri = this.getExecutionUri(targetPath, workspaceFolder);
@@ -212,6 +254,45 @@ export class InstallService {
         message: error instanceof Error ? error.message : 'Removal failed',
       };
     }
+  }
+
+  private async removeNuGetPackage(packageName: string, targetPath: string): Promise<boolean> {
+    if (!this.workspace) {
+      return false;
+    }
+
+    const lower = targetPath.toLowerCase();
+    if (lower.endsWith('directory.packages.props')) {
+      return this.workspace.removeCpmPackage(targetPath, packageName);
+    }
+    if (lower.endsWith('paket.dependencies')) {
+      return this.workspace.removePaketDependency(targetPath, packageName);
+    }
+    if (lower.endsWith('packages.config')) {
+      return this.workspace.removePackagesConfigPackage(targetPath, packageName);
+    }
+    if (lower.endsWith('.csproj') || lower.endsWith('.vbproj') || lower.endsWith('.fsproj')) {
+      return this.workspace.removeProjectPackageReference(targetPath, packageName);
+    }
+    if (lower.endsWith('.cake')) {
+      return this.workspace.removeCakePackage(targetPath, packageName);
+    }
+
+    return false;
+  }
+
+  private getNuGetRemoveCommand(packageName: string, targetPath: string): string | null {
+    const normalized = targetPath.replace(/\\/g, '/').toLowerCase();
+    if (normalized.endsWith('paket.dependencies')) {
+      return `paket remove ${packageName}`;
+    }
+
+    if (normalized.endsWith('.csproj') || normalized.endsWith('.vbproj') || normalized.endsWith('.fsproj')) {
+      const escapedPath = targetPath.includes(' ') ? `"${targetPath}"` : targetPath;
+      return `dotnet remove ${escapedPath} package ${packageName}`;
+    }
+
+    return null;
   }
 
   /**
@@ -361,6 +442,14 @@ export class InstallService {
           format = 'sbt';
         } else if (buildTool === 'grape') {
           format = 'grape';
+        } else if (buildTool === 'mill') {
+          format = 'mill';
+        } else if (buildTool === 'ivy') {
+          format = 'ivy';
+        } else if (buildTool === 'leiningen') {
+          format = 'leiningen';
+        } else if (buildTool === 'buildr') {
+          format = 'buildr';
         } else if (buildTool === 'maven') {
           format = 'xml';
         } else {
@@ -442,6 +531,7 @@ export class InstallService {
 
     try {
       const lockFiles: Array<{ file: string; manager: PackageManager }> = [
+        { file: 'go.mod', manager: 'go' },
         { file: 'Cargo.toml', manager: 'cargo' },
         { file: 'Cargo.lock', manager: 'cargo' },
         { file: 'cpanfile', manager: 'cpanm' },
@@ -503,6 +593,9 @@ export class InstallService {
     if (this.sourceSelector?.getCurrentProjectType() === 'rust') {
       return 'cargo';
     }
+    if (this.sourceSelector?.getCurrentProjectType() === 'go') {
+      return 'go';
+    }
     if (this.sourceSelector?.getCurrentProjectType() === 'perl') {
       return 'cpanm';
     }
@@ -546,6 +639,7 @@ export class InstallService {
 
       // Check for lock files (priority order: pnpm > yarn > npm)
       const lockFiles: Array<{ file: string; manager: PackageManager }> = [
+        { file: 'go.mod', manager: 'go' },
         { file: 'Cargo.toml', manager: 'cargo' },
         { file: 'Cargo.lock', manager: 'cargo' },
         { file: 'cpanfile', manager: 'cpanm' },
@@ -591,6 +685,9 @@ export class InstallService {
     }
     if (this.sourceSelector?.getCurrentProjectType() === 'rust') {
       return 'cargo';
+    }
+    if (this.sourceSelector?.getCurrentProjectType() === 'go') {
+      return 'go';
     }
     if (this.sourceSelector?.getCurrentProjectType() === 'perl') {
       return 'cpanm';

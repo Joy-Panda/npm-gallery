@@ -85,11 +85,16 @@ export class MetaCpanSourceAdapter extends BaseSourceAdapter {
   async getPackageDetails(name: string): Promise<PackageDetails> {
     const moduleInfo = await this.client.getModule(name);
     const releaseName = typeof moduleInfo.release === 'string' ? moduleInfo.release : name;
-    const [releaseInfo, versions] = await Promise.all([
+    const [releaseInfo, versions, readme] = await Promise.all([
       this.client.getRelease(releaseName).catch(() => null),
       this.getVersions(name),
+      this.client.getPodDocumentation(name).catch(() => null),
     ]);
-    return this.transformer.transformPackageDetails(moduleInfo, releaseInfo, versions);
+    const details = this.transformer.transformPackageDetails(moduleInfo, releaseInfo, versions);
+    if (readme) {
+      details.readme = readme;
+    }
+    return details;
   }
 
   async getVersions(name: string): Promise<VersionInfo[]> {

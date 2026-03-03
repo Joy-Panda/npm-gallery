@@ -6,6 +6,7 @@ import type { PackageManager } from './package';
 export interface ExtensionConfig {
   defaultRegistry: string;
   packageManager: PackageManager;
+  userAgentContact: string;
   showBundleSize: boolean;
   showSecurityInfo: boolean;
   autoCheckUpdates: boolean;
@@ -20,6 +21,7 @@ export interface ExtensionConfig {
 export const DEFAULT_CONFIG: ExtensionConfig = {
   defaultRegistry: 'https://registry.npmjs.org',
   packageManager: 'npm',
+  userAgentContact: '',
   showBundleSize: true,
   showSecurityInfo: true,
   autoCheckUpdates: true,

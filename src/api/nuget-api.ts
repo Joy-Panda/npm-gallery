@@ -1,3 +1,5 @@
+import { createFetchRequestInit } from './base-client';
+
 /**
  * NuGet V3 API client
  * Based on:
@@ -128,7 +130,7 @@ export class NuGetApiClient {
       return this.indexPromise;
     }
     this.indexPromise = (async () => {
-      const res = await fetch(this.serviceIndexUrl, { signal });
+      const res = await fetch(this.serviceIndexUrl, createFetchRequestInit({ signal }));
       if (!res.ok) {
         throw new Error(`NuGet service index failed: ${res.status} ${res.statusText}`);
       }
@@ -186,7 +188,7 @@ export class NuGetApiClient {
       params.set('packageType', packageType.trim());
     }
     const url = `${this.searchBaseUrl}?${params.toString()}`;
-    const res = await fetch(url, { signal });
+    const res = await fetch(url, createFetchRequestInit({ signal }));
     if (!res.ok) {
       throw new Error(`NuGet search failed: ${res.status} ${res.statusText}`);
     }
@@ -204,7 +206,7 @@ export class NuGetApiClient {
     }
     const idLower = packageId.toLowerCase();
     const url = `${this.registrationsBaseUrl}/${idLower}/index.json`;
-    const res = await fetch(url, { signal });
+    const res = await fetch(url, createFetchRequestInit({ signal }));
     if (!res.ok) {
       if (res.status === 404) {
         throw new Error(`Package not found: ${packageId}`);
@@ -256,7 +258,7 @@ export class NuGetApiClient {
       .replace(/\{lower_id\}/g, lowerId)
       .replace(/\{lower_version\}/g, lowerVersion);
     try {
-      const res = await fetch(url, { signal });
+      const res = await fetch(url, createFetchRequestInit({ signal }));
       if (!res.ok) {
         return null;
       }

@@ -75,7 +75,6 @@ export class LibrariesIoTransformer {
       license: project.repository_license || project.licenses || project.normalized_licenses?.[0],
       repository: project.repository_url ? { url: project.repository_url } : undefined,
       homepage: project.homepage,
-      downloads: project.dependents_count,
       deprecated: project.deprecation_reason || undefined,
     };
   }
@@ -163,11 +162,11 @@ export class LibrariesIoTransformer {
       name: coordinate,
       version: dependencies?.version || project.latest_release_number || project.latest_stable_release_number || '0.0.0',
       description: project.description,
+      readme: project.description,
       keywords: project.keywords || [],
       license: project.repository_license || project.licenses || project.normalized_licenses?.[0],
       repository: project.repository_url ? { url: project.repository_url } : undefined,
       homepage: project.homepage,
-      downloads: project.dependents_count,
       deprecated: project.deprecation_reason || undefined, 
       versions,
       dependencies: Object.keys(deps).length > 0 ? deps : undefined,

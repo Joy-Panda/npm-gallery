@@ -366,14 +366,14 @@ export const NUGET_MANAGEMENT_STYLE_LABELS: Record<NuGetManagementStyle, string>
 export interface CopyOptions {
   version?: string;
   scope?: 'compile' | 'test' | 'runtime' | 'provided';
-  format?: 'xml' | 'gradle' | 'sbt' | 'grape' | 'other' | NuGetCopyFormat | ClojureCopyFormat;
+  format?: 'xml' | 'gradle' | 'sbt' | 'grape' | 'mill' | 'ivy' | 'leiningen' | 'buildr' | 'other' | NuGetCopyFormat | ClojureCopyFormat;
   buildTool?: BuildTool; // Auto-detect if not provided
 }
 
 /**
  * Package manager type
  */
-export type PackageManager = 'npm' | 'yarn' | 'pnpm' | 'bun' | 'dotnet' | 'paket' | 'composer' | 'bundler' | 'clojure' | 'leiningen' | 'cargo' | 'cpanm' | 'dart' | 'flutter' | 'r';
+export type PackageManager = 'npm' | 'yarn' | 'pnpm' | 'bun' | 'dotnet' | 'paket' | 'composer' | 'bundler' | 'clojure' | 'leiningen' | 'cargo' | 'go' | 'cpanm' | 'dart' | 'flutter' | 'r';
 
 /**
  * Search result from APIs

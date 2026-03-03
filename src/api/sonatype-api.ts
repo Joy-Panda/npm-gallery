@@ -1,4 +1,4 @@
-import { BaseApiClient } from './base-client';
+import { BaseApiClient, createFetchRequestInit } from './base-client';
 
 /**
  * Sonatype Central Repository search response
@@ -448,11 +448,7 @@ export class SonatypeApiClient extends BaseApiClient {
       const packageName = `${groupId}:${artifactId}`;
       const url = `https://api.deps.dev/v3alpha/systems/maven/packages/${encodeURIComponent(packageName)}/versions/${encodeURIComponent(version)}:dependencies`;
       
-      const response = await fetch(url, {
-        headers: {
-          'Accept': 'application/json',
-        },
-      });
+      const response = await fetch(url, createFetchRequestInit());
 
       if (!response.ok) {
         return null;
@@ -478,11 +474,7 @@ export class SonatypeApiClient extends BaseApiClient {
       const packageName = `${groupId}:${artifactId}`;
       const url = `https://api.deps.dev/v3/systems/maven/packages/${encodeURIComponent(packageName)}`;
       
-      const response = await fetch(url, {
-        headers: {
-          'Accept': 'application/json',
-        },
-      });
+      const response = await fetch(url, createFetchRequestInit());
 
       if (!response.ok) {
         return null;
@@ -510,11 +502,7 @@ export class SonatypeApiClient extends BaseApiClient {
       const packageName = `${groupId}:${artifactId}`;
       const url = `https://api.deps.dev/v3/systems/maven/packages/${encodeURIComponent(packageName)}/versions/${encodeURIComponent(version)}`;
       
-      const response = await fetch(url, {
-        headers: {
-          'Accept': 'application/json',
-        },
-      });
+      const response = await fetch(url, createFetchRequestInit());
 
       if (!response.ok) {
         return null;

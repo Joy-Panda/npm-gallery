@@ -41,7 +41,8 @@
     "workspaceContains:**/*.Rproj",
     "workspaceContains:**/deps.edn",
     "workspaceContains:**/project.clj",
-    "workspaceContains:**/Cargo.toml"
+    "workspaceContains:**/Cargo.toml",
+    "workspaceContains:**/go.mod"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -222,6 +223,11 @@
           ],
           "default": "npm",
           "description": "Preferred package manager"
+        },
+        "npmGallery.userAgentContact": {
+          "type": "string",
+          "default": "",
+          "description": "Optional contact string appended to the HTTP User-Agent header, for example an email address, GitHub profile, or issue tracker URL"
         },
         "npmGallery.showBundleSize": {
           "type": "boolean",

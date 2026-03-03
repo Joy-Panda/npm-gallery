@@ -13,6 +13,7 @@ interface PackageHeaderProps {
   supportedInstallTypes: DependencyType[];
   showInstall: boolean;
   installTargetLabel?: string;
+  copyContextLabel?: string;
   onCopyAction?: () => void;
   copyActionLabel?: string;
   copyFormatOptions?: Array<{ value: string; label: string }>;
@@ -120,6 +121,7 @@ export const PackageHeader: React.FC<PackageHeaderProps> = ({
   supportedInstallTypes,
   showInstall,
   installTargetLabel,
+  copyContextLabel,
   onCopyAction,
   copyActionLabel,
   copyFormatOptions,
@@ -218,7 +220,13 @@ export const PackageHeader: React.FC<PackageHeaderProps> = ({
               </Button>
             </div>
           ) : null}
-          {installTargetLabel && <div className="install-target">Install target: {installTargetLabel}</div>}
+          {(installTargetLabel || copyContextLabel) && (
+            <div className="install-target">
+              {installTargetLabel ? `Install target: ${installTargetLabel}` : ''}
+              {installTargetLabel && copyContextLabel ? ' • ' : ''}
+              {copyContextLabel || ''}
+            </div>
+          )}
         </div>
       )}
     </header>

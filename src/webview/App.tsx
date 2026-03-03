@@ -169,7 +169,8 @@ export const App: React.FC = () => {
   const availableSortOptions = supportedSortOptions as SearchSortBy[];
   const sourceHint = buildSourceHint(
     sourceInfo.detectedPackageManager,
-    sourceInfo.installTarget
+    sourceInfo.installTarget,
+    sourceInfo.detectedCopyFormatLabel
   );
   const canInstall = sourceInfo.supportedCapabilities.includes('installation');
   const canCopy = sourceInfo.supportedCapabilities.includes('copy');
@@ -429,11 +430,13 @@ export const App: React.FC = () => {
 
 function buildSourceHint(
   packageManager?: string,
-  installTarget?: { label: string; description: string; packageManager: string }
+  installTarget?: { label: string; description: string; packageManager: string },
+  detectedCopyFormatLabel?: string
 ): string {
   const managerText = packageManager ? ` Detected package manager: ${packageManager}.` : '';
   const installText = installTarget
     ? ` Install target: ${installTarget.label} (${installTarget.packageManager})${installTarget.description ? ` - ${installTarget.description}` : ''}.`
     : '';
-  return `${managerText}${installText}`;
+  const copyText = detectedCopyFormatLabel ? ` Auto copy format: ${detectedCopyFormatLabel}.` : '';
+  return `${managerText}${installText}${copyText}`;
 }

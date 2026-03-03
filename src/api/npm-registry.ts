@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { BaseApiClient } from './base-client';
+import { BaseApiClient, createDefaultRequestHeaders } from './base-client';
 import { API_ENDPOINTS } from '../types/config';
 import type {
   NpmRegistryPackage,
@@ -107,7 +107,10 @@ export class NpmRegistryClient extends BaseApiClient {
 
     try {
       const response = await axios.get<NpmDownloadsResponse>(
-        `${API_ENDPOINTS.NPM_API}/downloads/point/${period}/${encodedName}`
+        `${API_ENDPOINTS.NPM_API}/downloads/point/${period}/${encodedName}`,
+        {
+          headers: createDefaultRequestHeaders(),
+        }
       );
       return response.data;
     } catch {

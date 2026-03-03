@@ -434,6 +434,11 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
               ? `${sourceInfo.installTarget.label} (${sourceInfo.installTarget.packageManager})`
               : undefined
           }
+          copyContextLabel={
+            sourceInfo.currentSource === 'sonatype' && sourceInfo.detectedCopyFormatLabel
+              ? `Auto copy format: ${sourceInfo.detectedCopyFormatLabel}`
+              : undefined
+          }
         />
 
         {/* Content */}

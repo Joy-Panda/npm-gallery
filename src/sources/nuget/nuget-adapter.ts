@@ -18,6 +18,7 @@ import type {
   CopyOptions,
   NuGetCopyFormat,
   SecurityInfo,
+  RequirementsInfo,
 } from '../../types/package';
 import { getSortValue, createSortOption, createFilterOption } from '../../types/package';
 import type { SourceType, ProjectType } from '../../types/project';
@@ -67,6 +68,7 @@ export class NuGetSourceAdapter extends BaseSourceAdapter {
       SourceCapability.DOWNLOAD_STATS,
       SourceCapability.SECURITY,
       SourceCapability.DEPENDENTS,
+      SourceCapability.REQUIREMENTS,
     ];
   }
 
@@ -192,6 +194,22 @@ export class NuGetSourceAdapter extends BaseSourceAdapter {
   async getSuggestions(query: string, limit = 10): Promise<PackageInfo[]> {
     const res = await this.client.search({ query, take: limit });
     return res.data.map((item) => this.transformer.transformSearchItem(item));
+  }
+
+  async getRequirements(name: string, _version: string): Promise<RequirementsInfo | null> {
+    const meta = await this.client.getPackageMetadata(name);
+    if (!meta) {
+      throw new Error(`Package not found: ${name}`);
+    }
+
+    let registrationIndex: NuGetRegistrationIndex | null = null;
+    try {
+      registrationIndex = await this.client.getRegistrationIndex(name);
+    } catch {
+      registrationIndex = null;
+    }
+
+    return this.transformer.transformRequirements(meta, registrationIndex);
   }
 
   getCopySnippet(packageName: string, options: CopyOptions): string {

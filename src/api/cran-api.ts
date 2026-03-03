@@ -1,4 +1,4 @@
-import { BaseApiClient } from './base-client';
+import { BaseApiClient, createFetchRequestInit } from './base-client';
 import { API_ENDPOINTS } from '../types/config';
 
 export class CranApiClient extends BaseApiClient {
@@ -22,5 +22,33 @@ export class CranApiClient extends BaseApiClient {
       `${API_ENDPOINTS.CRANLOGS}/downloads/total/last-month/${encodeURIComponent(name)}`,
       { signal }
     );
+  }
+
+  async getPackageReadme(
+    pkg: Record<string, unknown>,
+    signal?: AbortSignal
+  ): Promise<string | null> {
+    const readmeUrl = typeof pkg._readme === 'string' && pkg._readme.trim()
+      ? pkg._readme.trim()
+      : null;
+
+    if (!readmeUrl) {
+      return null;
+    }
+
+    const response = await fetch(
+      readmeUrl,
+      createFetchRequestInit({
+        accept: 'text/plain, text/markdown, text/x-markdown, text/html',
+        signal,
+      })
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const readme = await response.text();
+    return readme.trim() || null;
   }
 }

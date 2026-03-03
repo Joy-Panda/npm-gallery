@@ -1,4 +1,4 @@
-import { BaseApiClient } from './base-client';
+import { BaseApiClient, createFetchRequestInit } from './base-client';
 import { API_ENDPOINTS } from '../types/config';
 
 export interface PackagistSearchResultItem {
@@ -111,6 +111,8 @@ export interface PackagistSecurityAdvisoriesResponse {
 export type PackagistDependentsResponse = unknown;
 
 export class PackagistApiClient extends BaseApiClient {
+  private static readonly WEB_BASE_URL = 'https://packagist.org';
+
   constructor() {
     super(API_ENDPOINTS.PACKAGIST, 'packagist');
   }
@@ -183,10 +185,136 @@ export class PackagistApiClient extends BaseApiClient {
     });
   }
 
+  async getPackageReadme(name: string, signal?: AbortSignal): Promise<string | null> {
+    const response = await fetch(
+      `${PackagistApiClient.WEB_BASE_URL}/packages/${this.encodePackagistName(name)}`,
+      createFetchRequestInit({
+        accept: 'text/html,application/xhtml+xml',
+        signal,
+      })
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const html = await response.text();
+    return this.extractReadme(html);
+  }
+
   private encodePackagistName(name: string): string {
     return name
       .split('/')
       .map(part => encodeURIComponent(part))
       .join('/');
+  }
+
+  private extractReadme(html: string): string | null {
+    const candidates = [
+      /<(section|div)\b[^>]*(?:id|class)=["'][^"']*readme[^"']*["'][^>]*>([\s\S]*?)<\/\1>/i,
+      /<(section|div)\b[^>]*(?:id|class)=["'][^"']*package__readme[^"']*["'][^>]*>([\s\S]*?)<\/\1>/i,
+      /<article\b[^>]*>([\s\S]*?)<\/article>/i,
+      /<main\b[^>]*>([\s\S]*?)<\/main>/i,
+    ];
+
+    let content: string | null = null;
+    for (const pattern of candidates) {
+      const match = html.match(pattern);
+      if (match) {
+        content = match[match.length - 1];
+        if (content) {
+          break;
+        }
+      }
+    }
+
+    if (!content) {
+      return null;
+    }
+
+    let markdown = content
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<svg\b[^>]*>[\s\S]*?<\/svg>/gi, ' ')
+      .replace(/<pre\b[^>]*>\s*<code\b[^>]*>([\s\S]*?)<\/code>\s*<\/pre>/gi, (_, code: string) => {
+        return `\n\n\`\`\`\n${this.decodeHtml(code).trim()}\n\`\`\`\n\n`;
+      })
+      .replace(/<code\b[^>]*>([\s\S]*?)<\/code>/gi, (_, code: string) => `\`${this.decodeHtml(code).trim()}\``)
+      .replace(/<a\b[^>]*href=(['"])(.*?)\1[^>]*>([\s\S]*?)<\/a>/gi, (_, _quote: string, href: string, text: string) => {
+        const label = this.cleanInlineText(text);
+        if (!label) {
+          return '';
+        }
+        const url = href.startsWith('/') ? `${PackagistApiClient.WEB_BASE_URL}${href}` : href;
+        return `[${label}](${url})`;
+      })
+      .replace(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi, (_, level: string, text: string) => {
+        return `\n\n${'#'.repeat(Number(level))} ${this.cleanInlineText(text)}\n\n`;
+      })
+      .replace(/<li\b[^>]*>/gi, '\n- ')
+      .replace(/<\/(p|div|section|article|ul|ol|table|blockquote)>/gi, '\n\n')
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/tr>/gi, '\n')
+      .replace(/<\/t[dh]>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ');
+
+    markdown = this.decodeHtml(markdown)
+      .replace(/\r/g, '')
+      .replace(/[ \t]+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+
+    const normalized = markdown.replace(/[#>*`\-\[\]\(\)!]/g, '').trim();
+    if (!normalized || normalized.length < 80) {
+      return null;
+    }
+
+    return this.trimReadmeNoise(markdown);
+  }
+
+  private trimReadmeNoise(markdown: string): string {
+    const stopHeadings = new Set([
+      '# Releases',
+      '## Releases',
+      '# Changelog',
+      '## Changelog',
+      '# Maintainers',
+      '## Maintainers',
+      '# Security',
+      '## Security',
+    ]);
+
+    const lines: string[] = [];
+    for (const line of markdown.split('\n')) {
+      const trimmed = line.trim();
+      if (stopHeadings.has(trimmed)) {
+        break;
+      }
+      lines.push(line.trimEnd());
+    }
+
+    return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+
+  private cleanInlineText(text: string): string {
+    return this.decodeHtml(text.replace(/<[^>]+>/g, ' '))
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private decodeHtml(text: string): string {
+    return text
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/gi, "'")
+      .replace(/&#x27;/gi, "'")
+      .replace(/&#x2F;/gi, '/')
+      .replace(/&#x60;/gi, '`')
+      .replace(/&#x3D;/gi, '=')
+      .replace(/&#(\d+);/g, (_match, code: string) => String.fromCharCode(Number(code)))
+      .replace(/&#x([0-9a-f]+);/gi, (_match, code: string) => String.fromCharCode(parseInt(code, 16)));
   }
 }

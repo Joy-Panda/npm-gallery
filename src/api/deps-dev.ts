@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { BaseApiClient } from './base-client';
+import { BaseApiClient, createDefaultRequestHeaders } from './base-client';
 import type {
   DependentsInfo,
   EcosystemName,
@@ -75,10 +75,7 @@ export class DepsDevClient extends BaseApiClient {
   private webClient = axios.create({
     baseURL: 'https://deps.dev',
     timeout: 10000,
-    headers: {
-      Accept: 'application/json',
-      'User-Agent': 'npm-gallery-vscode/1.0.0',
-    },
+    headers: createDefaultRequestHeaders(),
   });
 
   constructor() {

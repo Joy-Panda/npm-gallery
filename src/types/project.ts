@@ -63,11 +63,12 @@ export const PROJECT_SOURCE_MAP: Record<ProjectType, SourceType[]> = {
 
 /**
  * Config file patterns for project detection
+ * Maven/Java: pom.xml, build.gradle, build.gradle.kts
  * .NET: .csproj, .vbproj, .fsproj, packages.config, Directory.Packages.props, paket.dependencies
  */
 export const PROJECT_CONFIG_FILES: Record<ProjectType, string[]> = {
   npm: ['package.json'],
-  maven: ['pom.xml'],
+  maven: ['pom.xml', 'build.gradle', 'build.gradle.kts'],
   go: ['go.mod'],
   dotnet: ['.csproj', '.vbproj', '.fsproj', 'packages.config', 'Directory.Packages.props', 'paket.dependencies'],
   php: ['composer.json'],

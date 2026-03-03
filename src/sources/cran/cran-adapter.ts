@@ -3,6 +3,7 @@ import { SourceCapability } from '../base/capabilities';
 import { createSortOption, getSortValue } from '../../types/package';
 import type {
   CopyOptions,
+  InstallOptions,
   PackageDetails,
   PackageInfo,
   SearchFilter,
@@ -38,6 +39,7 @@ export class CranSourceAdapter extends BaseSourceAdapter {
       SourceCapability.PACKAGE_INFO,
       SourceCapability.PACKAGE_DETAILS,
       SourceCapability.VERSIONS,
+      SourceCapability.INSTALLATION,
       SourceCapability.COPY,
       SourceCapability.SUGGESTIONS,
       SourceCapability.REQUIREMENTS,
@@ -91,7 +93,15 @@ export class CranSourceAdapter extends BaseSourceAdapter {
       this.client.getPackage(name),
       this.client.getDownloads(name).catch(() => undefined),
     ]);
-    return this.transformer.transformPackageDetails(pkg, typeof downloads?.count === 'number' ? downloads.count : undefined);
+    const details = this.transformer.transformPackageDetails(
+      pkg,
+      typeof downloads?.count === 'number' ? downloads.count : undefined
+    );
+    const readme = await this.client.getPackageReadme(pkg).catch(() => null);
+    if (readme) {
+      details.readme = readme;
+    }
+    return details;
   }
 
   async getVersions(name: string): Promise<VersionInfo[]> {
@@ -102,5 +112,13 @@ export class CranSourceAdapter extends BaseSourceAdapter {
   getCopySnippet(packageName: string, options: CopyOptions): string {
     const version = options.version ? ` (>= ${options.version})` : '';
     return `${packageName}${version}`;
+  }
+
+  getInstallCommand(packageName: string, _options: InstallOptions): string {
+    return `R -q -e "install.packages('${packageName}')"`;
+  }
+
+  getRemoveCommand(packageName: string): string {
+    return `R -q -e "remove.packages('${packageName}')"`;
   }
 }

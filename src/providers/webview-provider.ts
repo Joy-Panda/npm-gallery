@@ -5,6 +5,20 @@ import type { SourceType } from '../types/project';
 import { PackageDetailsPanel } from './package-details-panel';
 import { getInstallTargetSummary, selectInstallTargetManifest } from '../utils/install-target';
 
+function getBuildToolLabel(buildTool?: string): string | undefined {
+  const labels: Record<string, string> = {
+    maven: 'Maven',
+    gradle: 'Gradle',
+    sbt: 'SBT',
+    mill: 'Mill',
+    ivy: 'Ivy',
+    grape: 'Grape',
+    leiningen: 'Leiningen',
+    buildr: 'Buildr',
+  };
+  return buildTool ? (labels[buildTool] || buildTool) : undefined;
+}
+
 /**
  * Provides the search webview panel
  */
@@ -259,13 +273,18 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
     const sortOptionsWithLabels = services.search.getSupportedSortOptionsWithLabels();
     const filterOptionsWithLabels = services.search.getSupportedFiltersWithLabels();
     const isDotNet = projectType === 'dotnet' || currentSource === 'nuget';
+    const isSonatype = projectType === 'maven' || currentSource === 'sonatype';
     const detectedNuGetStyle = isDotNet ? services.install.detectNuGetManagementStyle(activePath) : undefined;
+    const detectedBuildTool = isSonatype ? (await services.install.detectBuildTool()) || undefined : undefined;
+    const detectedCopyFormatLabel = isSonatype ? getBuildToolLabel(detectedBuildTool) : undefined;
 
     const sourceInfo: SourceInfoMessage = {
       type: 'sourceInfo',
       data: {
         currentProjectType: services.getCurrentProjectType(),
         detectedPackageManager,
+        detectedBuildTool,
+        detectedCopyFormatLabel,
         detectedNuGetStyle,
         installTarget: installTarget || undefined,
         currentSource,

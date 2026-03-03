@@ -35,7 +35,7 @@ export class WorkspaceService {
 
     // Watch for package manifests and monorepo config changes
     this.fileWatcher = vscode.workspace.createFileSystemWatcher(
-      '**/{package.json,composer.json,composer.lock,Gemfile,Gemfile.lock,deps.edn,project.clj,Cargo.toml,Cargo.lock,cpanfile,cpanfile.snapshot,pubspec.yaml,pubspec.lock,DESCRIPTION,pom.xml,lerna.json,nx.json,workspace.json,pnpm-workspace.yaml,Directory.Packages.props,paket.dependencies,*.cake}'
+      '**/{package.json,composer.json,composer.lock,Gemfile,Gemfile.lock,deps.edn,project.clj,Cargo.toml,Cargo.lock,go.mod,cpanfile,cpanfile.snapshot,pubspec.yaml,pubspec.lock,DESCRIPTION,*.Rproj,pom.xml,build.gradle,build.gradle.kts,lerna.json,nx.json,workspace.json,pnpm-workspace.yaml,Directory.Packages.props,paket.dependencies,packages.config,*.csproj,*.vbproj,*.fsproj,*.cake}'
     );
 
     const invalidateAndNotify = (uri?: vscode.Uri) => {
@@ -94,6 +94,10 @@ export class WorkspaceService {
     return vscode.workspace.findFiles('**/pom.xml', '**/target/**');
   }
 
+  async getGradleManifestFiles(): Promise<vscode.Uri[]> {
+    return vscode.workspace.findFiles('**/{build.gradle,build.gradle.kts}', '**/{build,target,node_modules,.gradle}/**');
+  }
+
   async getComposerManifestFiles(): Promise<vscode.Uri[]> {
     return vscode.workspace.findFiles('**/composer.json', '**/{vendor,node_modules}/**');
   }
@@ -110,6 +114,10 @@ export class WorkspaceService {
     return vscode.workspace.findFiles('**/Cargo.toml', '**/{target,node_modules,vendor}/**');
   }
 
+  async getGoManifestFiles(): Promise<vscode.Uri[]> {
+    return vscode.workspace.findFiles('**/go.mod', '**/{vendor,node_modules}/**');
+  }
+
   async getPerlManifestFiles(): Promise<vscode.Uri[]> {
     return vscode.workspace.findFiles('**/cpanfile', '**/{local,vendor,node_modules}/**');
   }
@@ -124,16 +132,21 @@ export class WorkspaceService {
 
   /**
    * Get .NET/NuGet manifest files that list packages (for Installed / Updates views).
-   * Returns Directory.Packages.props, paket.dependencies, and *.cake.
+   * Returns Directory.Packages.props, paket.dependencies, packages.config,
+   * PackageReference project files, and *.cake.
    */
   async getDotNetInstalledManifestFiles(): Promise<vscode.Uri[]> {
     const exclude = '**/node_modules/**,**/bin/**,**/obj/**,**/out/**';
-    const [cpmFiles, paketFiles, cakeFiles] = await Promise.all([
+    const [cpmFiles, paketFiles, packagesConfigFiles, csprojFiles, vbprojFiles, fsprojFiles, cakeFiles] = await Promise.all([
       vscode.workspace.findFiles('**/Directory.Packages.props', exclude, 5),
       vscode.workspace.findFiles('**/paket.dependencies', exclude, 10),
+      vscode.workspace.findFiles('**/packages.config', exclude, 20),
+      vscode.workspace.findFiles('**/*.csproj', exclude, 20),
+      vscode.workspace.findFiles('**/*.vbproj', exclude, 10),
+      vscode.workspace.findFiles('**/*.fsproj', exclude, 10),
       vscode.workspace.findFiles('**/*.cake', exclude, 20),
     ]);
-    return [...cpmFiles, ...paketFiles, ...cakeFiles];
+    return [...cpmFiles, ...paketFiles, ...packagesConfigFiles, ...csprojFiles, ...vbprojFiles, ...fsprojFiles, ...cakeFiles];
   }
 
   /**
@@ -518,10 +531,12 @@ export class WorkspaceService {
     const rubyManifestFiles = await this.getRubyManifestFiles();
     const clojureManifestFiles = await this.getClojureManifestFiles();
     const cargoManifestFiles = await this.getCargoManifestFiles();
+    const goManifestFiles = await this.getGoManifestFiles();
     const perlManifestFiles = await this.getPerlManifestFiles();
     const pubManifestFiles = await this.getPubManifestFiles();
     const rManifestFiles = await this.getRManifestFiles();
     const pomXmlFiles = await this.getPomXmlFiles();
+    const gradleManifestFiles = await this.getGradleManifestFiles();
     const dotnetManifestFiles = await this.getDotNetInstalledManifestFiles();
     return this.loadInstalledPackagesForUris(
       packageJsonFiles,
@@ -529,10 +544,12 @@ export class WorkspaceService {
       rubyManifestFiles,
       clojureManifestFiles,
       cargoManifestFiles,
+      goManifestFiles,
       perlManifestFiles,
       pubManifestFiles,
       rManifestFiles,
       pomXmlFiles,
+      gradleManifestFiles,
       dotnetManifestFiles
     );
   }
@@ -543,10 +560,12 @@ export class WorkspaceService {
     const rubyManifestFiles = await this.getRubyManifestFilesForScope(scope);
     const clojureManifestFiles = await this.getClojureManifestFilesForScope(scope);
     const cargoManifestFiles = await this.getCargoManifestFilesForScope(scope);
+    const goManifestFiles = await this.getGoManifestFilesForScope(scope);
     const perlManifestFiles = await this.getPerlManifestFilesForScope(scope);
     const pubManifestFiles = await this.getPubManifestFilesForScope(scope);
     const rManifestFiles = await this.getRManifestFilesForScope(scope);
     const pomXmlFiles = await this.getPomXmlFilesForScope(scope);
+    const gradleManifestFiles = await this.getGradleManifestFilesForScope(scope);
     const dotnetManifestFiles = await this.getDotNetManifestFilesForScope(scope);
     return this.loadInstalledPackagesForUris(
       packageJsonFiles,
@@ -554,10 +573,12 @@ export class WorkspaceService {
       rubyManifestFiles,
       clojureManifestFiles,
       cargoManifestFiles,
+      goManifestFiles,
       perlManifestFiles,
       pubManifestFiles,
       rManifestFiles,
       pomXmlFiles,
+      gradleManifestFiles,
       dotnetManifestFiles
     );
   }
@@ -568,10 +589,12 @@ export class WorkspaceService {
     rubyManifestFiles: vscode.Uri[],
     clojureManifestFiles: vscode.Uri[],
     cargoManifestFiles: vscode.Uri[],
+    goManifestFiles: vscode.Uri[],
     perlManifestFiles: vscode.Uri[],
     pubManifestFiles: vscode.Uri[],
     rManifestFiles: vscode.Uri[],
     pomXmlFiles: vscode.Uri[],
+    gradleManifestFiles: vscode.Uri[],
     dotnetManifestFiles: vscode.Uri[] = []
   ): Promise<InstalledPackage[]> {
     const installedPackages: InstalledPackage[] = [];
@@ -715,6 +738,15 @@ export class WorkspaceService {
       }
     }
 
+    for (const uri of goManifestFiles) {
+      try {
+        const content = await vscode.workspace.fs.readFile(uri);
+        installedPackages.push(...this.parseGoManifest(content.toString(), uri.fsPath));
+      } catch {
+        // Skip invalid go manifests
+      }
+    }
+
     for (const uri of perlManifestFiles) {
       try {
         const [cpanfileContent, snapshotContent] = await Promise.all([
@@ -772,7 +804,16 @@ export class WorkspaceService {
       }
     }
 
-    // Get .NET/NuGet packages (CPM, Paket, Cake)
+    for (const uri of gradleManifestFiles) {
+      try {
+        const content = await vscode.workspace.fs.readFile(uri);
+        installedPackages.push(...this.parseGradleManifest(content.toString(), uri.fsPath));
+      } catch {
+        // Skip invalid Gradle manifests
+      }
+    }
+
+    // Get .NET/NuGet packages (CPM, Paket, packages.config, PackageReference, Cake)
     for (const uri of dotnetManifestFiles) {
       try {
         const content = await vscode.workspace.fs.readFile(uri);
@@ -783,6 +824,14 @@ export class WorkspaceService {
           dotnetPackages = this.parseDirectoryPackagesProps(text, uri.fsPath);
         } else if (pathLower.endsWith('paket.dependencies')) {
           dotnetPackages = this.parsePaketDependencies(text, uri.fsPath);
+        } else if (pathLower.endsWith('packages.config')) {
+          dotnetPackages = this.parsePackagesConfig(text, uri.fsPath);
+        } else if (
+          pathLower.endsWith('.csproj') ||
+          pathLower.endsWith('.vbproj') ||
+          pathLower.endsWith('.fsproj')
+        ) {
+          dotnetPackages = this.parseProjectPackageReferences(text, uri.fsPath);
         } else if (pathLower.endsWith('.cake')) {
           dotnetPackages = this.parseCakePackages(text, uri.fsPath);
         }
@@ -801,6 +850,10 @@ export class WorkspaceService {
       if (
         p.endsWith('directory.packages.props') ||
         p.endsWith('paket.dependencies') ||
+        p.endsWith('packages.config') ||
+        p.endsWith('.csproj') ||
+        p.endsWith('.vbproj') ||
+        p.endsWith('.fsproj') ||
         p.endsWith('.cake')
       ) {
         return [vscode.Uri.file(scope.manifestPath)];
@@ -916,6 +969,21 @@ export class WorkspaceService {
     );
   }
 
+  private async getGoManifestFilesForScope(scope: WorkspacePackageScope): Promise<vscode.Uri[]> {
+    if (scope.manifestPath) {
+      return scope.manifestPath.toLowerCase().endsWith('go.mod') ? [vscode.Uri.file(scope.manifestPath)] : [];
+    }
+
+    const goManifestFiles = await this.getGoManifestFiles();
+    if (!scope.workspaceFolderPath) {
+      return goManifestFiles;
+    }
+
+    return goManifestFiles.filter(
+      (uri) => vscode.workspace.getWorkspaceFolder(uri)?.uri.fsPath === scope.workspaceFolderPath
+    );
+  }
+
   private async getPerlManifestFilesForScope(scope: WorkspacePackageScope): Promise<vscode.Uri[]> {
     if (scope.manifestPath) {
       const lower = scope.manifestPath.toLowerCase();
@@ -990,6 +1058,25 @@ export class WorkspaceService {
     );
   }
 
+  private async getGradleManifestFilesForScope(scope: WorkspacePackageScope): Promise<vscode.Uri[]> {
+    if (scope.manifestPath) {
+      const lower = scope.manifestPath.toLowerCase();
+      if (lower.endsWith('build.gradle') || lower.endsWith('build.gradle.kts')) {
+        return [vscode.Uri.file(scope.manifestPath)];
+      }
+      return [];
+    }
+
+    const gradleManifestFiles = await this.getGradleManifestFiles();
+    if (!scope.workspaceFolderPath) {
+      return gradleManifestFiles;
+    }
+
+    return gradleManifestFiles.filter(
+      (uri) => vscode.workspace.getWorkspaceFolder(uri)?.uri.fsPath === scope.workspaceFolderPath
+    );
+  }
+
   /**
    * Parse pom.xml file and extract dependencies
    */
@@ -1002,6 +1089,24 @@ export class WorkspaceService {
         const regex = new RegExp(`<${tag}>(.*?)</${tag}>`, 's');
         const match = content.match(regex);
         return match ? match[1].trim() : undefined;
+      };
+
+      const properties: Record<string, string> = {};
+      const propertiesMatch = xml.match(/<properties>(.*?)<\/properties>/s);
+      if (propertiesMatch) {
+        const propsContent = propertiesMatch[1];
+        const propRegex = /<([\w.-]+)>(.*?)<\/\1>/gs;
+        let propMatch: RegExpExecArray | null;
+        while ((propMatch = propRegex.exec(propsContent)) !== null) {
+          properties[propMatch[1]] = propMatch[2].trim();
+        }
+      }
+
+      const resolveProperty = (value?: string): string | undefined => {
+        if (!value) {
+          return value;
+        }
+        return value.replace(/\$\{([\w.-]+)\}/g, (match, propName) => properties[propName] || match);
       };
 
       const extractDependencies = (xmlContent: string): Array<{
@@ -1057,6 +1162,8 @@ export class WorkspaceService {
 
         const coordinate = `${dep.groupId}:${dep.artifactId}`;
         const version = dep.version || '';
+        const resolvedVersion = resolveProperty(version);
+        const isRegistryResolvable = !!resolvedVersion && !/\$\{.+\}/.test(resolvedVersion);
 
         // Map Maven scope to DependencyType
         let depType: DependencyType = 'dependencies';
@@ -1072,7 +1179,10 @@ export class WorkspaceService {
           workspaceFolderPath: vscode.workspace.getWorkspaceFolder(vscode.Uri.file(pomPath))?.uri.fsPath,
           manifestName: projectArtifactId,
           name: coordinate,
-          currentVersion: version,
+          currentVersion: resolvedVersion || version,
+          resolvedVersion: isRegistryResolvable ? resolvedVersion : undefined,
+          versionSpecifier: version || undefined,
+          isRegistryResolvable,
           type: depType,
           hasUpdate: false,
           packageJsonPath: pomPath,
@@ -1138,6 +1248,110 @@ export class WorkspaceService {
         });
       }
     }
+    return packages;
+  }
+
+  private parseGradleManifest(text: string, manifestPath: string): InstalledPackage[] {
+    const packages: InstalledPackage[] = [];
+    const manifestName = this.getFallbackManifestName(manifestPath);
+    const dependencyRegex =
+      /(?:^|\s)(implementation|testImplementation|compileOnly|runtimeOnly|api|compile)\s*(?:\(\s*)?["']([^:"']+):([^:"']+):([^"')\s]+)["']\s*\)?/gm;
+
+    let match: RegExpExecArray | null;
+    while ((match = dependencyRegex.exec(text)) !== null) {
+      const [, configuration, groupId, artifactId, versionText] = match;
+      const coordinate = `${groupId}:${artifactId}`;
+      const resolvedVersion = /[${]/.test(versionText) ? undefined : versionText;
+
+      let depType: DependencyType = 'dependencies';
+      if (configuration === 'testImplementation') {
+        depType = 'devDependencies';
+      } else if (configuration === 'compileOnly') {
+        depType = 'peerDependencies';
+      }
+
+      packages.push({
+        workspaceFolderPath: vscode.workspace.getWorkspaceFolder(vscode.Uri.file(manifestPath))?.uri.fsPath,
+        manifestName,
+        name: coordinate,
+        currentVersion: versionText,
+        resolvedVersion,
+        versionSpecifier: versionText,
+        isRegistryResolvable: !!resolvedVersion,
+        type: depType,
+        hasUpdate: false,
+        packageJsonPath: manifestPath,
+      });
+    }
+
+    return packages;
+  }
+
+  /**
+   * Parse packages.config and extract package entries.
+   */
+  private parsePackagesConfig(xml: string, manifestPath: string): InstalledPackage[] {
+    const packages: InstalledPackage[] = [];
+    const re = /<package\b([^>]*?)\/?>/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(xml)) !== null) {
+      const attrs = m[1] ?? '';
+      const id = this.readXmlAttribute(attrs, 'id');
+      const version = this.readXmlAttribute(attrs, 'version');
+      if (!id || !version) {
+        continue;
+      }
+
+      packages.push({
+        workspaceFolderPath: vscode.workspace.getWorkspaceFolder(vscode.Uri.file(manifestPath))?.uri.fsPath,
+        manifestName: 'packages.config',
+        name: id,
+        currentVersion: version,
+        resolvedVersion: version,
+        versionSpecifier: version,
+        isRegistryResolvable: true,
+        type: 'dependencies',
+        hasUpdate: false,
+        packageJsonPath: manifestPath,
+      });
+    }
+
+    return packages;
+  }
+
+  /**
+   * Parse PackageReference entries from project files.
+   * Only versioned entries are update targets; versionless references are managed elsewhere.
+   */
+  private parseProjectPackageReferences(xml: string, manifestPath: string): InstalledPackage[] {
+    const packages: InstalledPackage[] = [];
+    const re = /<PackageReference\b([^>]*?)\/>|<PackageReference\b([^>]*?)>([\s\S]*?)<\/PackageReference>/gi;
+    let m: RegExpExecArray | null;
+    const manifestName = this.getFallbackManifestName(manifestPath);
+
+    while ((m = re.exec(xml)) !== null) {
+      const attrs = (m[1] ?? m[2] ?? '').trim();
+      const body = m[3] ?? '';
+      const id = this.readXmlAttribute(attrs, 'Include') || this.readXmlAttribute(attrs, 'Update');
+      const version = this.readXmlAttribute(attrs, 'Version') || this.readXmlElementText(body, 'Version');
+      if (!id || !version) {
+        continue;
+      }
+
+      packages.push({
+        workspaceFolderPath: vscode.workspace.getWorkspaceFolder(vscode.Uri.file(manifestPath))?.uri.fsPath,
+        manifestName,
+        name: id,
+        currentVersion: version,
+        resolvedVersion: version,
+        versionSpecifier: version,
+        isRegistryResolvable: true,
+        type: 'dependencies',
+        hasUpdate: false,
+        packageJsonPath: manifestPath,
+      });
+    }
+
     return packages;
   }
 
@@ -1413,6 +1627,81 @@ export class WorkspaceService {
     }
 
     return this.dedupeInstalledPackages(packages);
+  }
+
+  private parseGoManifest(content: string, manifestPath: string): InstalledPackage[] {
+    const workspaceFolderPath = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(manifestPath))?.uri.fsPath;
+    const manifestName = this.extractGoModuleName(content) || this.getFallbackManifestName(manifestPath);
+    const packages: InstalledPackage[] = [];
+    let inRequireBlock = false;
+
+    const addPackage = (line: string, type: DependencyType) => {
+      const parsed = this.parseGoDependencyLine(line);
+      if (!parsed) {
+        return;
+      }
+
+      const parsedSpec = parseDependencySpec(parsed.version);
+      packages.push({
+        workspaceFolderPath,
+        manifestName,
+        name: parsed.name,
+        currentVersion: parsed.version,
+        resolvedVersion: parsed.version,
+        versionSpecifier: parsed.version,
+        specKind: parsedSpec.kind,
+        isRegistryResolvable: true,
+        type,
+        hasUpdate: false,
+        packageJsonPath: manifestPath,
+      });
+    };
+
+    for (const rawLine of content.split(/\r?\n/)) {
+      const line = rawLine.replace(/\s*\/\/.*$/, '').trim();
+      if (!line) {
+        continue;
+      }
+
+      if (/^require\s*\($/.test(line)) {
+        inRequireBlock = true;
+        continue;
+      }
+
+      if (inRequireBlock && line === ')') {
+        inRequireBlock = false;
+        continue;
+      }
+
+      if (inRequireBlock) {
+        addPackage(line, 'dependencies');
+        continue;
+      }
+
+      const singleRequire = line.match(/^require\s+(.+)$/);
+      if (singleRequire) {
+        addPackage(singleRequire[1], 'dependencies');
+      }
+    }
+
+    return this.dedupeInstalledPackages(packages);
+  }
+
+  private extractGoModuleName(content: string): string | undefined {
+    const match = content.match(/^\s*module\s+([^\s]+)\s*$/m);
+    return match?.[1];
+  }
+
+  private parseGoDependencyLine(line: string): { name: string; version: string } | null {
+    const match = line.match(/^([^\s]+)\s+(v[^\s]+)$/);
+    if (!match) {
+      return null;
+    }
+
+    return {
+      name: match[1],
+      version: match[2],
+    };
   }
 
   private extractCargoPackageName(content: string): string | undefined {
@@ -1983,12 +2272,19 @@ export class WorkspaceService {
       fileName === 'deps.edn' ||
       fileName === 'project.clj' ||
       fileName === 'cargo.toml' ||
+      fileName === 'go.mod' ||
       fileName === 'cpanfile' ||
       fileName === 'pubspec.yaml' ||
       fileName === 'description' ||
       fileName === 'pom.xml' ||
+      fileName === 'build.gradle' ||
+      fileName === 'build.gradle.kts' ||
       fileName === 'directory.packages.props' ||
       fileName === 'paket.dependencies' ||
+      fileName === 'packages.config' ||
+      fileName?.endsWith('.csproj') ||
+      fileName?.endsWith('.vbproj') ||
+      fileName?.endsWith('.fsproj') ||
       fileName?.endsWith('.cake')
     ) {
       return { manifestPath: uri.fsPath };
@@ -2007,6 +2303,10 @@ export class WorkspaceService {
     }
     if (fileName === 'pubspec.lock') {
       return { manifestPath: uri.fsPath.replace(/pubspec\.lock$/i, 'pubspec.yaml') };
+    }
+    if (fileName?.endsWith('.rproj')) {
+      const path = require('path') as typeof import('path');
+      return { manifestPath: path.join(path.dirname(uri.fsPath), 'DESCRIPTION') };
     }
     return undefined;
   }
@@ -2235,7 +2535,7 @@ export class WorkspaceService {
       const escapedGroupId = this.escapeRegex(groupId);
       const escapedArtifactId = this.escapeRegex(artifactId);
       const gradleDepRegex = new RegExp(
-        `((?:implementation|testImplementation|compileOnly|runtimeOnly|api|compile)\\s+['"]${escapedGroupId}:${escapedArtifactId}:)([^'"]+)(['"])`,
+        `((?:implementation|testImplementation|compileOnly|runtimeOnly|api|compile)\\s*(?:\\(\\s*)?['"]${escapedGroupId}:${escapedArtifactId}:)([^"'\\)\\s]+)((['"]\\s*\\)?)|['"])`,
         'g'
       );
 
@@ -2291,6 +2591,35 @@ export class WorkspaceService {
     }
   }
 
+  async removeCpmPackage(propsPath: string, packageId: string): Promise<boolean> {
+    try {
+      const uri = vscode.Uri.file(propsPath);
+      const content = await vscode.workspace.fs.readFile(uri);
+      const xml = content.toString();
+
+      const escapedId = this.escapeRegex(packageId);
+      const updatedXml = xml
+        .replace(
+          new RegExp(`^[ \\t]*<PackageVersion\\s+Include="${escapedId}"\\s+Version="[^"]+"\\s*/>\\s*\\r?\\n?`, 'im'),
+          ''
+        )
+        .replace(
+          new RegExp(`^[ \\t]*<PackageVersion\\s+Version="[^"]+"\\s+Include="${escapedId}"\\s*/>\\s*\\r?\\n?`, 'im'),
+          ''
+        );
+
+      if (updatedXml === xml) {
+        return false;
+      }
+
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(updatedXml));
+      this.invalidateInstalledPackagesCache();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Update Paket dependency version in paket.dependencies
    */
@@ -2312,6 +2641,159 @@ export class WorkspaceService {
         return false;
       }
       await vscode.workspace.fs.writeFile(uri, Buffer.from(updatedText));
+      this.invalidateInstalledPackagesCache();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async removePaketDependency(depsPath: string, packageId: string): Promise<boolean> {
+    try {
+      const uri = vscode.Uri.file(depsPath);
+      const content = await vscode.workspace.fs.readFile(uri);
+      const text = content.toString();
+      const escapedId = this.escapeRegex(packageId);
+      const updatedText = text.replace(
+        new RegExp(`^\\s*nuget\\s+${escapedId}\\b[^\\n]*\\r?\\n?`, 'im'),
+        ''
+      );
+
+      if (updatedText === text) {
+        return false;
+      }
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(updatedText));
+      this.invalidateInstalledPackagesCache();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async updatePackagesConfigPackage(configPath: string, packageId: string, newVersion: string): Promise<boolean> {
+    try {
+      const uri = vscode.Uri.file(configPath);
+      const content = await vscode.workspace.fs.readFile(uri);
+      const xml = content.toString();
+      let updated = false;
+
+      const updatedXml = xml.replace(/<package\b([^>]*?)\/?>/gi, (full, attrs: string) => {
+        const id = this.readXmlAttribute(attrs, 'id');
+        const version = this.readXmlAttribute(attrs, 'version');
+        if (!id || !version || id.toLowerCase() !== packageId.toLowerCase()) {
+          return full;
+        }
+        updated = true;
+        return full.replace(/(\bversion\s*=\s*")([^"]+)(")/i, `$1${newVersion}$3`);
+      });
+
+      if (!updated || updatedXml === xml) {
+        return false;
+      }
+
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(updatedXml));
+      this.invalidateInstalledPackagesCache();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async removePackagesConfigPackage(configPath: string, packageId: string): Promise<boolean> {
+    try {
+      const uri = vscode.Uri.file(configPath);
+      const content = await vscode.workspace.fs.readFile(uri);
+      const xml = content.toString();
+      let removed = false;
+
+      const updatedXml = xml.replace(/^[ \t]*<package\b([^>]*?)\/?>\s*\r?\n?/gim, (full, attrs: string) => {
+        const id = this.readXmlAttribute(attrs, 'id');
+        if (!id || id.toLowerCase() !== packageId.toLowerCase()) {
+          return full;
+        }
+        removed = true;
+        return '';
+      });
+
+      if (!removed || updatedXml === xml) {
+        return false;
+      }
+
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(updatedXml));
+      this.invalidateInstalledPackagesCache();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async updateProjectPackageReference(projectPath: string, packageId: string, newVersion: string): Promise<boolean> {
+    try {
+      const uri = vscode.Uri.file(projectPath);
+      const content = await vscode.workspace.fs.readFile(uri);
+      const xml = content.toString();
+      let updated = false;
+
+      const updatedXml = xml.replace(
+        /<PackageReference\b([^>]*?)\/>|<PackageReference\b([^>]*?)>([\s\S]*?)<\/PackageReference>/gi,
+        (full, selfClosingAttrs: string, blockAttrs: string, body: string = '') => {
+          const attrs = (selfClosingAttrs ?? blockAttrs ?? '').trim();
+          const id = this.readXmlAttribute(attrs, 'Include') || this.readXmlAttribute(attrs, 'Update');
+          if (!id || id.toLowerCase() !== packageId.toLowerCase()) {
+            return full;
+          }
+
+          if (/\bVersion\s*=\s*"[^"]*"/i.test(attrs)) {
+            updated = true;
+            return full.replace(/(\bVersion\s*=\s*")([^"]+)(")/i, `$1${newVersion}$3`);
+          }
+
+          if (/<Version>\s*[^<]*\s*<\/Version>/i.test(body)) {
+            updated = true;
+            return full.replace(/(<Version>\s*)([^<]*)(\s*<\/Version>)/i, `$1${newVersion}$3`);
+          }
+
+          return full;
+        }
+      );
+
+      if (!updated || updatedXml === xml) {
+        return false;
+      }
+
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(updatedXml));
+      this.invalidateInstalledPackagesCache();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async removeProjectPackageReference(projectPath: string, packageId: string): Promise<boolean> {
+    try {
+      const uri = vscode.Uri.file(projectPath);
+      const content = await vscode.workspace.fs.readFile(uri);
+      const xml = content.toString();
+      let removed = false;
+
+      const updatedXml = xml.replace(
+        /^[ \t]*<PackageReference\b([^>]*?)\/>\s*\r?\n?|^[ \t]*<PackageReference\b([^>]*?)>[\s\S]*?<\/PackageReference>\s*\r?\n?/gim,
+        (full, selfClosingAttrs: string, blockAttrs: string) => {
+          const attrs = (selfClosingAttrs ?? blockAttrs ?? '').trim();
+          const id = this.readXmlAttribute(attrs, 'Include') || this.readXmlAttribute(attrs, 'Update');
+          if (!id || id.toLowerCase() !== packageId.toLowerCase()) {
+            return full;
+          }
+          removed = true;
+          return '';
+        }
+      );
+
+      if (!removed || updatedXml === xml) {
+        return false;
+      }
+
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(updatedXml));
       this.invalidateInstalledPackagesCache();
       return true;
     } catch {
@@ -2364,6 +2846,36 @@ export class WorkspaceService {
         'g'
       );
       const updatedText = text.replace(re, `$1${newVersion}$3`);
+
+      if (updatedText === text) {
+        return false;
+      }
+
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(updatedText));
+      this.invalidateInstalledPackagesCache();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async removeCakePackage(cakePath: string, packageId: string): Promise<boolean> {
+    try {
+      const uri = vscode.Uri.file(cakePath);
+      const content = await vscode.workspace.fs.readFile(uri);
+      const text = content.toString();
+
+      const directive = parseCakeDirectives(text).find(
+        (entry) => entry.packageId.toLowerCase() === packageId.toLowerCase()
+      );
+      if (!directive) {
+        return false;
+      }
+
+      const lineStart = text.lastIndexOf('\n', directive.start) + 1;
+      const lineEndIndex = text.indexOf('\n', directive.end);
+      const lineEnd = lineEndIndex === -1 ? text.length : lineEndIndex + 1;
+      const updatedText = `${text.slice(0, lineStart)}${text.slice(lineEnd)}`;
 
       if (updatedText === text) {
         return false;
@@ -2430,15 +2942,65 @@ export class WorkspaceService {
     }
   }
 
+  async updateGoDependency(goModPath: string, packageId: string, newVersion: string): Promise<boolean> {
+    try {
+      const uri = vscode.Uri.file(goModPath);
+      const content = await vscode.workspace.fs.readFile(uri);
+      const text = content.toString();
+      const escapedId = this.escapeRegex(packageId);
+      const updatedText = text.replace(
+        new RegExp(`(^\\s*(?:require\\s+)?${escapedId}\\s+)(v[^\\s]+)`, 'gm'),
+        `$1${newVersion}`
+      );
+
+      if (updatedText === text) {
+        return false;
+      }
+
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(updatedText));
+      this.invalidateInstalledPackagesCache();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async updatePerlDependency(cpanfilePath: string, packageId: string, newVersion: string): Promise<boolean> {
     try {
       const uri = vscode.Uri.file(cpanfilePath);
       const content = await vscode.workspace.fs.readFile(uri);
       const text = content.toString();
       const escapedId = this.escapeRegex(packageId);
-      const updatedText = text.replace(
+      let updatedText = text.replace(
         new RegExp(`((?:requires|recommends|suggests)\\s+['"]${escapedId}['"]\\s*,\\s*['"])([^'"]+)(['"])`, 'g'),
         `$1${newVersion}$3`
+      );
+      if (updatedText === text) {
+        updatedText = text.replace(
+          new RegExp(`((?:requires|recommends|suggests)\\s+['"]${escapedId}['"])(\\s*;)`, 'g'),
+          `$1, '${newVersion}'$2`
+        );
+      }
+      if (updatedText === text) {
+        return false;
+      }
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(updatedText));
+      this.invalidateInstalledPackagesCache();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async removePerlDependency(cpanfilePath: string, packageId: string): Promise<boolean> {
+    try {
+      const uri = vscode.Uri.file(cpanfilePath);
+      const content = await vscode.workspace.fs.readFile(uri);
+      const text = content.toString();
+      const escapedId = this.escapeRegex(packageId);
+      const updatedText = text.replace(
+        new RegExp(`^\\s*(?:requires|recommends|suggests)\\s+['"]${escapedId}['"][^\\n]*\\r?\\n?`, 'gm'),
+        ''
       );
       if (updatedText === text) {
         return false;
@@ -2481,11 +3043,28 @@ export class WorkspaceService {
       const uri = vscode.Uri.file(descriptionPath);
       const content = await vscode.workspace.fs.readFile(uri);
       const text = content.toString();
-      const escapedId = this.escapeRegex(packageId);
-      const updatedText = text.replace(
-        new RegExp(`(${escapedId}\\s*\\(\\s*>=\\s*)([^)]+)(\\))`, 'g'),
-        `$1${newVersion}$3`
+      const updatedText = this.rewriteDescriptionDependencyFields(
+        text,
+        packageId,
+        (entry) => ({ ...entry, versionSpecifier: `>= ${newVersion}` })
       );
+      if (updatedText === text) {
+        return false;
+      }
+      await vscode.workspace.fs.writeFile(uri, Buffer.from(updatedText));
+      this.invalidateInstalledPackagesCache();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async removeRDependency(descriptionPath: string, packageId: string): Promise<boolean> {
+    try {
+      const uri = vscode.Uri.file(descriptionPath);
+      const content = await vscode.workspace.fs.readFile(uri);
+      const text = content.toString();
+      const updatedText = this.rewriteDescriptionDependencyFields(text, packageId, () => null);
       if (updatedText === text) {
         return false;
       }
@@ -2509,6 +3088,84 @@ export class WorkspaceService {
    */
   private escapeRegex(str: string): string {
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  private rewriteDescriptionDependencyFields(
+    text: string,
+    packageId: string,
+    rewriter: (
+      entry: { name: string; versionSpecifier?: string }
+    ) => { name: string; versionSpecifier?: string } | null
+  ): string {
+    const fieldPattern = /^(Depends|Imports|LinkingTo|Suggests|Enhances):\s*([^\n]*(?:\n[ \t]+[^\n]*)*)/gim;
+    let changed = false;
+
+    const updatedText = text.replace(fieldPattern, (full, fieldName: string, fieldBody: string) => {
+      const entries = this.parseDescriptionDependencyField(fieldBody);
+      if (entries.length === 0) {
+        return full;
+      }
+
+      let fieldChanged = false;
+      const nextEntries: Array<{ name: string; versionSpecifier?: string }> = [];
+      for (const entry of entries) {
+        if (entry.name.toLowerCase() !== packageId.toLowerCase()) {
+          nextEntries.push(entry);
+          continue;
+        }
+
+        const rewritten = rewriter(entry);
+        if (rewritten) {
+          nextEntries.push(rewritten);
+        }
+        fieldChanged = true;
+      }
+
+      if (!fieldChanged) {
+        return full;
+      }
+
+      changed = true;
+      if (nextEntries.length === 0) {
+        return '';
+      }
+
+      return this.formatDescriptionDependencyField(fieldName, nextEntries);
+    });
+
+    if (!changed) {
+      return text;
+    }
+
+    return updatedText.replace(/\n{3,}/g, '\n\n').trimEnd() + (text.endsWith('\n') ? '\n' : '');
+  }
+
+  private formatDescriptionDependencyField(
+    fieldName: string,
+    entries: Array<{ name: string; versionSpecifier?: string }>
+  ): string {
+    const formattedEntries = entries.map((entry) => {
+      if (!entry.versionSpecifier || entry.versionSpecifier === '*') {
+        return entry.name;
+      }
+      return `${entry.name} (${entry.versionSpecifier})`;
+    });
+
+    if (formattedEntries.length === 1) {
+      return `${fieldName}: ${formattedEntries[0]}`;
+    }
+
+    return `${fieldName}: ${formattedEntries[0]},\n    ${formattedEntries.slice(1).join(',\n    ')}`;
+  }
+
+  private readXmlAttribute(attrs: string, name: string): string | undefined {
+    const match = attrs.match(new RegExp(`\\b${name}\\s*=\\s*"([^"]+)"`, 'i'));
+    return match?.[1]?.trim();
+  }
+
+  private readXmlElementText(body: string, elementName: string): string | undefined {
+    const match = body.match(new RegExp(`<${elementName}>\\s*([^<]+?)\\s*</${elementName}>`, 'i'));
+    return match?.[1]?.trim();
   }
 
   private invalidateInstalledPackagesCache(): void {

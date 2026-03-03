@@ -4,6 +4,20 @@ import type { WebviewToExtensionMessage } from '../types/messages';
 import type { SourceInfoMessage } from '../types/messages';
 import { getInstallTargetSummary, selectInstallTargetManifest } from '../utils/install-target';
 
+function getBuildToolLabel(buildTool?: string): string | undefined {
+  const labels: Record<string, string> = {
+    maven: 'Maven',
+    gradle: 'Gradle',
+    sbt: 'SBT',
+    mill: 'Mill',
+    ivy: 'Ivy',
+    grape: 'Grape',
+    leiningen: 'Leiningen',
+    buildr: 'Buildr',
+  };
+  return buildTool ? (labels[buildTool] || buildTool) : undefined;
+}
+
 /**
  * Manages package details webview panels that open in the editor area
  * Uses React for rendering with @uiw/react-markdown-preview
@@ -178,6 +192,8 @@ export class PackageDetailsPanel {
                 ? await services.workspace.getClojureManifestFiles()
                 : projectType === 'rust' || currentSource === 'crates-io'
                   ? await services.workspace.getCargoManifestFiles()
+                  : projectType === 'go' || currentSource === 'pkg-go-dev'
+                    ? await services.workspace.getGoManifestFiles()
                   : await services.workspace.getPackageJsonFiles();
         if (!targetManifestPath && manifestFiles.length > 1) {
           break;
@@ -369,13 +385,18 @@ export class PackageDetailsPanel {
     }
 
     const isDotNet = projectType === 'dotnet' || currentSource === 'nuget';
+    const isSonatype = projectType === 'maven' || currentSource === 'sonatype';
     const detectedNuGetStyle = isDotNet ? services.install.detectNuGetManagementStyle(activePath) : undefined;
+    const detectedBuildTool = isSonatype ? (await services.install.detectBuildTool()) || undefined : undefined;
+    const detectedCopyFormatLabel = isSonatype ? getBuildToolLabel(detectedBuildTool) : undefined;
 
     const sourceInfo: SourceInfoMessage = {
       type: 'sourceInfo',
       data: {
         currentProjectType: services.getCurrentProjectType(),
         detectedPackageManager,
+        detectedBuildTool,
+        detectedCopyFormatLabel,
         detectedNuGetStyle,
         installTarget: installTarget || undefined,
         currentSource,

@@ -17,79 +17,79 @@ export interface SourceConfig {
 export const DEFAULT_SOURCE_CONFIG: Record<ProjectType, SourceConfig> = {
   npm: {
     primary: 'npm-registry',
-    fallbacks: ['npms-io'], // libraries-io is used as internal fallback, not in fallbacks list
+    fallbacks: ['npms-io', 'libraries-io'],
     sortOptions: ['relevance', 'popularity', 'quality', 'maintenance', 'name'],
     filters: ['author', 'maintainer', 'scope', 'keywords'],
   },
   maven: {
     primary: 'sonatype',
-    fallbacks: [], // libraries-io is used as internal fallback, not in fallbacks list
+    fallbacks: ['libraries-io'],
     sortOptions: ['relevance', 'popularity'],
     filters: ['groupId'],
   },
   go: {
     primary: 'pkg-go-dev',
-    fallbacks: [],
+    fallbacks: ['libraries-io'],
     sortOptions: ['relevance', 'popularity'],
     filters: [],
   },
   dotnet: {
     primary: 'nuget',
-    fallbacks: [],
+    fallbacks: ['libraries-io'],
     sortOptions: ['relevance', 'popularity', 'name'],
     filters: ['author', 'tags', 'packageType'],
   },
   php: {
     primary: 'packagist',
-    fallbacks: [],
+    fallbacks: ['libraries-io'],
     sortOptions: ['relevance', 'popularity', 'name'],
     filters: ['tags', 'type'],
   },
   ruby: {
     primary: 'rubygems',
-    fallbacks: [],
+    fallbacks: ['libraries-io'],
     sortOptions: ['relevance', 'popularity', 'name'],
     filters: [],
   },
   clojure: {
     primary: 'clojars',
-    fallbacks: [],
+    fallbacks: ['libraries-io'],
     sortOptions: ['relevance', 'popularity', 'name'],
     filters: [],
   },
   rust: {
     primary: 'crates-io',
-    fallbacks: [],
+    fallbacks: ['libraries-io'],
     sortOptions: ['relevance', 'popularity', 'name'],
     filters: [],
   },
   perl: {
     primary: 'metacpan',
-    fallbacks: [],
+    fallbacks: ['libraries-io'],
     sortOptions: ['relevance', 'name'],
     filters: [],
   },
   dart: {
     primary: 'pub-dev',
-    fallbacks: [],
+    fallbacks: ['libraries-io'],
     sortOptions: ['relevance', 'popularity', 'quality', 'name'],
     filters: [],
   },
   flutter: {
     primary: 'pub-dev',
-    fallbacks: [],
+    fallbacks: ['libraries-io'],
     sortOptions: ['relevance', 'popularity', 'quality', 'name'],
     filters: [],
   },
   r: {
     primary: 'cran',
-    fallbacks: [],
+    fallbacks: ['libraries-io'],
     sortOptions: ['relevance', 'popularity', 'name'],
     filters: [],
   },
   unknown: {
     primary: 'npm-registry',
-    fallbacks: ['npms-io'], // libraries-io is used as internal fallback, not in fallbacks list
+    fallbacks: ['npms-io', 'libraries-io'],
     sortOptions: ['relevance', 'popularity', 'quality', 'maintenance', 'name'],
     filters: ['author', 'maintainer', 'scope', 'keywords'],
   },

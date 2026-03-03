@@ -1,4 +1,37 @@
 import axios, { AxiosInstance, AxiosError, AxiosRequestConfig } from 'axios';
+import * as vscode from 'vscode';
+
+const USER_AGENT_BASE = 'npm-gallery-vscode/0.0.1 (+https://github.com/BetaVersion-io/npm-gallery)';
+
+export function getUserAgent(): string {
+  const config = vscode.workspace.getConfiguration('npmGallery');
+  const contact = config.get<string>('userAgentContact', '').trim();
+  return contact ? `${USER_AGENT_BASE}; contact=${contact}` : USER_AGENT_BASE;
+}
+
+export function createDefaultRequestHeaders(
+  accept = 'application/json',
+  extra: Record<string, string> = {}
+): Record<string, string> {
+  return {
+    Accept: accept,
+    'User-Agent': getUserAgent(),
+    ...extra,
+  };
+}
+
+export function createFetchRequestInit(
+  options: {
+    accept?: string;
+    headers?: Record<string, string>;
+    signal?: AbortSignal;
+  } = {}
+): RequestInit {
+  return {
+    signal: options.signal,
+    headers: createDefaultRequestHeaders(options.accept, options.headers),
+  };
+}
 
 /**
  * API error types
@@ -39,10 +72,7 @@ export abstract class BaseApiClient {
     this.client = axios.create({
       baseURL,
       timeout,
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'npm-gallery-vscode/1.0.0',
-      },
+      headers: createDefaultRequestHeaders(),
     });
 
     // Response interceptor for error handling

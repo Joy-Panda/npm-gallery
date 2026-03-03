@@ -331,29 +331,68 @@ export class LibrariesIoSourceAdapter extends BaseSourceAdapter {
       throw new CapabilityNotSupportedError(SourceCapability.COPY, this.sourceType);
     }
 
+    const effectiveProjectType = this.getEffectiveProjectType();
+    const { version = 'latest', scope = 'compile', format = 'xml' } = options;
+
+    if (effectiveProjectType === 'npm') {
+      return `npm install ${packageName}@${version}`;
+    }
+
+    if (effectiveProjectType === 'php') {
+      return `composer require ${packageName}:${version}`;
+    }
+
+    if (effectiveProjectType === 'ruby') {
+      return `bundle add ${packageName} --version "${version}"`;
+    }
+
+    if (effectiveProjectType === 'dotnet') {
+      return `dotnet add package ${packageName} --version ${version}`;
+    }
+
+    if (effectiveProjectType === 'rust') {
+      return `${packageName} = "${version}"`;
+    }
+
+    if (effectiveProjectType === 'perl') {
+      return `requires '${packageName}', '${version}';`;
+    }
+
+    if (effectiveProjectType === 'dart' || effectiveProjectType === 'flutter') {
+      return `${packageName}: ^${version}`;
+    }
+
+    if (effectiveProjectType === 'r') {
+      return `${packageName} (>= ${version})`;
+    }
+
+    if (effectiveProjectType === 'clojure') {
+      return `${packageName} {:mvn/version "${version}"}`;
+    }
+
+    if (effectiveProjectType === 'go') {
+      return `go get ${packageName}@${version}`;
+    }
+
     const parsed = this.client.parseMavenCoordinate(packageName);
     if (!parsed) {
-      throw new Error(`Invalid Maven coordinate: ${packageName}. Expected format: groupId:artifactId`);
+      return `${packageName}@${version}`;
     }
 
     const { groupId, artifactId } = parsed;
-    const { version = 'LATEST', scope = 'compile', format = 'xml' } = options;
-
     if (format === 'xml' || format === 'other') {
-      // Maven POM format
       return this.generateMavenSnippet(groupId, artifactId, version, scope);
-    } else if (format === 'gradle') {
-      // Gradle format
+    }
+    if (format === 'gradle') {
       return this.generateGradleSnippet(groupId, artifactId, version, scope);
-    } else if (format === 'sbt') {
-      // SBT format
+    }
+    if (format === 'sbt') {
       return this.generateSbtSnippet(groupId, artifactId, version, scope);
-    } else if (format === 'grape') {
-      // Grape (Groovy) format
+    }
+    if (format === 'grape') {
       return this.generateGrapeSnippet(groupId, artifactId, version, scope);
     }
 
-    // Default to Maven
     return this.generateMavenSnippet(groupId, artifactId, version, scope);
   }
 

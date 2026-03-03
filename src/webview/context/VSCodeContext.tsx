@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from '../../types/messages';
-import type { DependencyType, PackageManager, SearchResult, NuGetManagementStyle } from '../../types/package';
+import type { DependencyType, PackageManager, SearchResult, NuGetManagementStyle, BuildTool } from '../../types/package';
 import { NUGET_MANAGEMENT_STYLE_LABELS } from '../../types/package';
 import type { ProjectType, SourceType } from '../../types/project';
 import { SOURCE_DISPLAY_NAMES, PROJECT_DISPLAY_NAMES } from '../../types/project';
@@ -22,6 +22,8 @@ export interface PersistedSearchState {
 export interface SourceInfo {
   currentProjectType: ProjectType;
   detectedPackageManager: PackageManager;
+  detectedBuildTool?: BuildTool;
+  detectedCopyFormatLabel?: string;
   /** When NuGet: detected management style (Paket, CPM, etc.) */
   detectedNuGetStyle?: NuGetManagementStyle;
   installTarget?: {
@@ -86,6 +88,8 @@ interface VSCodeContextValue {
 const defaultSourceInfo: SourceInfo = {
   currentProjectType: 'npm',
   detectedPackageManager: 'npm',
+  detectedBuildTool: undefined,
+  detectedCopyFormatLabel: undefined,
   installTarget: undefined,
   currentSource: 'npm-registry',
   availableSources: ['npm-registry'],

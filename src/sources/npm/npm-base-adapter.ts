@@ -183,6 +183,11 @@ export abstract class NpmBaseAdapter extends BaseSourceAdapter {
         },
         exactFlag: '--save-exact',
       },
+      go: {
+        command: 'go get',
+        flags: {},
+        exactFlag: '',
+      },
       bun: {
         command: 'bun add',
         flags: {

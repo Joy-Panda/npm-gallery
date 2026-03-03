@@ -6,6 +6,7 @@ import type {
   InstallOptions,
   CopyOptions,
   PackageManager,
+  BuildTool,
   NuGetManagementStyle,
 } from './package';
 import type { ProjectType, SourceType } from './project';
@@ -87,6 +88,8 @@ export interface SourceInfoMessage {
   data: {
     currentProjectType: ProjectType;
     detectedPackageManager: PackageManager;
+    detectedBuildTool?: BuildTool;
+    detectedCopyFormatLabel?: string;
     /** When current source is NuGet: detected style (Paket, CPM, PackageReference, etc.) for copy format default */
     detectedNuGetStyle?: NuGetManagementStyle;
     installTarget?: {
@@ -212,6 +215,8 @@ export interface WebviewState {
   // Source information
   currentProjectType: ProjectType;
   detectedPackageManager: PackageManager;
+  detectedBuildTool?: BuildTool;
+  detectedCopyFormatLabel?: string;
   currentSource: SourceType;
   availableSources: SourceType[];
   supportedSortOptions: string[];
