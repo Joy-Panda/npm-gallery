@@ -1,7 +1,7 @@
 /**
  * Project types supported by the extension
  */
-export type ProjectType = 'npm' | 'maven' | 'go' | 'dotnet' | 'php' | 'ruby' | 'unknown';
+export type ProjectType = 'npm' | 'maven' | 'go' | 'dotnet' | 'php' | 'ruby' | 'clojure' | 'rust' | 'perl' | 'dart' | 'flutter' | 'r' | 'unknown';
 
 /**
  * Source types available for package management
@@ -14,7 +14,12 @@ export type SourceType =
   | 'pkg-go-dev'
   | 'nuget'
   | 'packagist'
-  | 'rubygems';
+  | 'rubygems'
+  | 'clojars'
+  | 'crates-io'
+  | 'metacpan'
+  | 'pub-dev'
+  | 'cran';
 
 /**
  * Information about a detected project
@@ -47,6 +52,12 @@ export const PROJECT_SOURCE_MAP: Record<ProjectType, SourceType[]> = {
   dotnet: ['nuget'],
   php: ['packagist'],
   ruby: ['rubygems'],
+  clojure: ['clojars'],
+  rust: ['crates-io'],
+  perl: ['metacpan'],
+  dart: ['pub-dev'],
+  flutter: ['pub-dev'],
+  r: ['cran'],
   unknown: ['npm-registry'], // Default to npm
 };
 
@@ -61,6 +72,12 @@ export const PROJECT_CONFIG_FILES: Record<ProjectType, string[]> = {
   dotnet: ['.csproj', '.vbproj', '.fsproj', 'packages.config', 'Directory.Packages.props', 'paket.dependencies'],
   php: ['composer.json'],
   ruby: ['Gemfile'],
+  clojure: ['deps.edn', 'project.clj'],
+  rust: ['Cargo.toml'],
+  perl: ['cpanfile'],
+  dart: ['pubspec.yaml'],
+  flutter: ['pubspec.yaml'],
+  r: ['DESCRIPTION', '*.Rproj'],
   unknown: [],
 };
 
@@ -74,6 +91,12 @@ export const PROJECT_DISPLAY_NAMES: Record<ProjectType, string> = {
   dotnet: '.NET',
   php: 'PHP',
   ruby: 'Ruby',
+  clojure: 'Clojure',
+  rust: 'Rust',
+  perl: 'Perl',
+  dart: 'Dart',
+  flutter: 'Flutter',
+  r: 'R',
   unknown: 'Unknown',
 };
 
@@ -89,6 +112,11 @@ export const SOURCE_DISPLAY_NAMES: Record<SourceType, string> = {
   'nuget': 'NuGet',
   'packagist': 'Packagist',
   'rubygems': 'RubyGems',
+  'clojars': 'Clojars',
+  'crates-io': 'crates.io',
+  'metacpan': 'MetaCPAN',
+  'pub-dev': 'pub.dev',
+  'cran': 'CRAN',
 };
 
 /**
@@ -96,5 +124,5 @@ export const SOURCE_DISPLAY_NAMES: Record<SourceType, string> = {
  * Maven/Gradle/SBT use copy snippets; .NET supports both copy (PackageReference, CPM, Paket, Cake, PMC) and CLI install
  */
 export function requiresCopy(projectType: ProjectType): boolean {
-  return projectType === 'maven' || projectType === 'dotnet';
+  return projectType === 'maven' || projectType === 'dotnet' || projectType === 'clojure' || projectType === 'r';
 }

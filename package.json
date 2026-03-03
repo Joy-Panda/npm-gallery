@@ -34,7 +34,14 @@
     "workspaceContains:**/Directory.Packages.props",
     "workspaceContains:**/paket.dependencies",
     "workspaceContains:**/composer.json",
-    "workspaceContains:**/Gemfile"
+    "workspaceContains:**/Gemfile",
+    "workspaceContains:**/cpanfile",
+    "workspaceContains:**/pubspec.yaml",
+    "workspaceContains:**/DESCRIPTION",
+    "workspaceContains:**/*.Rproj",
+    "workspaceContains:**/deps.edn",
+    "workspaceContains:**/project.clj",
+    "workspaceContains:**/Cargo.toml"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -204,7 +211,14 @@
             "dotnet",
             "paket",
             "composer",
-            "bundler"
+            "bundler",
+            "cpanm",
+            "dart",
+            "flutter",
+            "r",
+            "clojure",
+            "leiningen",
+            "cargo"
           ],
           "default": "npm",
           "description": "Preferred package manager"

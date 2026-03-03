@@ -13,6 +13,11 @@ import { LibrariesIoSourceAdapter } from '../sources/libraries-io';
 import { NuGetSourceAdapter } from '../sources/nuget';
 import { PackagistSourceAdapter } from '../sources/packagist';
 import { RubyGemsSourceAdapter } from '../sources/rubygems';
+import { ClojarsSourceAdapter } from '../sources/clojars';
+import { CratesIoSourceAdapter } from '../sources/crates';
+import { MetaCpanSourceAdapter } from '../sources/metacpan';
+import { PubDevSourceAdapter } from '../sources/pubdev';
+import { CranSourceAdapter } from '../sources/cran';
 import { getApiClients } from '../api/clients';
 import type { ProjectType, SourceType } from '../types/project';
 
@@ -118,6 +123,26 @@ export class ServiceContainer {
     // Register RubyGems adapter for Ruby/Bundler packages
     const rubygemsAdapter = new RubyGemsSourceAdapter(clients.rubygems, clients.audit);
     this.sourceRegistry.register('rubygems', rubygemsAdapter);
+
+    // Register Clojars adapter for Clojure dependencies
+    const clojarsAdapter = new ClojarsSourceAdapter(clients.clojars, clients.audit);
+    this.sourceRegistry.register('clojars', clojarsAdapter);
+
+    // Register crates.io adapter for Rust/Cargo dependencies
+    const cratesAdapter = new CratesIoSourceAdapter(clients.cratesIo, clients.audit);
+    this.sourceRegistry.register('crates-io', cratesAdapter);
+
+    // Register MetaCPAN adapter for Perl dependencies
+    const metacpanAdapter = new MetaCpanSourceAdapter(clients.metacpan);
+    this.sourceRegistry.register('metacpan', metacpanAdapter);
+
+    // Register pub.dev adapter for Dart/Flutter packages
+    const pubDevAdapter = new PubDevSourceAdapter(clients.pubDev, clients.audit);
+    this.sourceRegistry.register('pub-dev', pubDevAdapter);
+
+    // Register CRAN adapter backed by r-universe search/package APIs
+    const cranAdapter = new CranSourceAdapter(clients.cran);
+    this.sourceRegistry.register('cran', cranAdapter);
   }
 
   /**

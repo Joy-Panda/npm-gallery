@@ -26,7 +26,7 @@ export class ProjectDetector {
     }
 
     // All detected project types in stable order (workspace-style: show multiple)
-    const order: ProjectType[] = ['npm', 'maven', 'dotnet', 'go', 'php', 'ruby'];
+    const order: ProjectType[] = ['npm', 'maven', 'dotnet', 'go', 'php', 'ruby', 'clojure', 'rust', 'perl', 'dart', 'flutter', 'r'];
     const unique = [...new Set(projects.map(p => p.type))].filter(
       (t): t is ProjectType => t !== 'unknown'
     );
@@ -42,9 +42,19 @@ export class ProjectDetector {
   private async detectProjectsInFolder(folderPath: string): Promise<ProjectInfo[]> {
     const projects: ProjectInfo[] = [];
 
+    const pubspecFiles = await this.findConfigFile(folderPath, 'pubspec.yaml');
+    if (pubspecFiles.length > 0) {
+      const pubspecType = await this.detectPubspecProjectType(pubspecFiles[0]);
+      projects.push({
+        type: pubspecType,
+        configFile: pubspecFiles[0],
+        workspacePath: folderPath,
+      });
+    }
+
     // Check for each project type
     for (const [projectType, configFiles] of Object.entries(PROJECT_CONFIG_FILES)) {
-      if (projectType === 'unknown') {
+      if (projectType === 'unknown' || projectType === 'dart' || projectType === 'flutter') {
         continue;
       }
 
@@ -113,8 +123,38 @@ export class ProjectDetector {
     if (lowerPath.endsWith('gemfile') || lowerPath.endsWith('gemfile.lock')) {
       return 'ruby';
     }
+    if (lowerPath.endsWith('deps.edn') || lowerPath.endsWith('project.clj')) {
+      return 'clojure';
+    }
+    if (lowerPath.endsWith('cargo.toml') || lowerPath.endsWith('cargo.lock')) {
+      return 'rust';
+    }
+    if (lowerPath.endsWith('cpanfile')) {
+      return 'perl';
+    }
+    if (lowerPath.endsWith('pubspec.yaml') || lowerPath.endsWith('pubspec.lock')) {
+      return 'dart';
+    }
+    if (lowerPath.endsWith('description')) {
+      return 'r';
+    }
+    if (lowerPath.endsWith('.rproj')) {
+      return 'r';
+    }
 
     return 'unknown';
+  }
+
+  private async detectPubspecProjectType(pubspecPath: string): Promise<ProjectType> {
+    try {
+      const content = Buffer.from(await vscode.workspace.fs.readFile(vscode.Uri.file(pubspecPath))).toString();
+      if (/\bsdk\s*:\s*flutter\b/m.test(content) || /^\s*flutter\s*:\s*$/m.test(content)) {
+        return 'flutter';
+      }
+    } catch {
+      // Ignore and fall back to dart
+    }
+    return 'dart';
   }
 
   /**

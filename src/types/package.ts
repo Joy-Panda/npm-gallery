@@ -291,6 +291,8 @@ export type NuGetCopyFormat =
   | 'script'            // Copy: Script & Interactive (#r "nuget: ...")
   | 'file-based';       // Copy: File-based Apps (#:package ...)
 
+export type ClojureCopyFormat = 'deps-edn' | 'leiningen';
+
 /** How to apply this format: run in terminal, copy to PMC, or copy to file */
 export type NuGetFormatRunType = 'terminal' | 'pmc' | 'copy';
 
@@ -364,14 +366,14 @@ export const NUGET_MANAGEMENT_STYLE_LABELS: Record<NuGetManagementStyle, string>
 export interface CopyOptions {
   version?: string;
   scope?: 'compile' | 'test' | 'runtime' | 'provided';
-  format?: 'xml' | 'gradle' | 'sbt' | 'grape' | 'other' | NuGetCopyFormat;
+  format?: 'xml' | 'gradle' | 'sbt' | 'grape' | 'other' | NuGetCopyFormat | ClojureCopyFormat;
   buildTool?: BuildTool; // Auto-detect if not provided
 }
 
 /**
  * Package manager type
  */
-export type PackageManager = 'npm' | 'yarn' | 'pnpm' | 'bun' | 'dotnet' | 'paket' | 'composer' | 'bundler';
+export type PackageManager = 'npm' | 'yarn' | 'pnpm' | 'bun' | 'dotnet' | 'paket' | 'composer' | 'bundler' | 'clojure' | 'leiningen' | 'cargo' | 'cpanm' | 'dart' | 'flutter' | 'r';
 
 /**
  * Search result from APIs

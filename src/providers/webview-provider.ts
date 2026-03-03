@@ -104,7 +104,21 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
         );
         const manifestFiles = projectType === 'dotnet' || currentSource === 'nuget'
           ? await services.workspace.getDotNetManifestFiles()
-          : await services.workspace.getPackageJsonFiles();
+          : projectType === 'php' || currentSource === 'packagist'
+            ? await services.workspace.getComposerManifestFiles()
+            : projectType === 'ruby' || currentSource === 'rubygems'
+              ? await services.workspace.getRubyManifestFiles()
+              : projectType === 'perl' || currentSource === 'metacpan'
+                ? await services.workspace.getPerlManifestFiles()
+                : projectType === 'dart' || projectType === 'flutter' || currentSource === 'pub-dev'
+                  ? await services.workspace.getPubManifestFiles()
+                  : projectType === 'r' || currentSource === 'cran'
+                    ? await services.workspace.getRManifestFiles()
+              : projectType === 'clojure' || currentSource === 'clojars'
+                ? await services.workspace.getClojureManifestFiles()
+                : projectType === 'rust' || currentSource === 'crates-io'
+                  ? await services.workspace.getCargoManifestFiles()
+                  : await services.workspace.getPackageJsonFiles();
         if (!targetManifestPath && manifestFiles.length > 1) {
           break;
         }
@@ -195,7 +209,6 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
    */
   private async sendSourceInfo(): Promise<void> {
     const services = getServices();
-    const supportedCapabilities = services.package.getSupportedCapabilities();
     const activePath = vscode.window.activeTextEditor?.document.uri.fsPath;
     const detectedPackageManager = await services.install.detectPackageManager(activePath);
     const projectType = services.getCurrentProjectType();
@@ -207,16 +220,38 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
       projectType,
       currentSource
     );
+    const effectiveManager = (installTarget?.packageManager || detectedPackageManager).toLowerCase();
+    const neilEnabled =
+      (projectType === 'clojure' || currentSource === 'clojars') &&
+      await services.install.canUseNeil(installTarget?.manifestPath || activePath);
+    const supportedCapabilities = services.package.getSupportedCapabilities().filter((cap) => {
+      if (currentSource !== 'clojars' && projectType !== 'clojure') {
+        return true;
+      }
+      if (cap === 'installation') {
+        return neilEnabled;
+      }
+      if (cap === 'copy') {
+        return !neilEnabled || effectiveManager === 'leiningen';
+      }
+      return true;
+    });
     
     // Build capability support map
     const capabilitySupport: Record<string, { capability: string; supported: boolean; reason?: string }> = {};
     for (const cap of supportedCapabilities) {
       const support = services.package.getCapabilitySupport(cap);
       if (support) {
+        const adjustedSupported =
+          cap === 'installation' && (currentSource === 'clojars' || projectType === 'clojure')
+            ? neilEnabled
+            : cap === 'copy' && (currentSource === 'clojars' || projectType === 'clojure')
+              ? (!neilEnabled || effectiveManager === 'leiningen')
+              : support.supported;
         capabilitySupport[cap] = {
           capability: cap,
-          supported: support.supported,
-          reason: support.reason,
+          supported: adjustedSupported,
+          reason: adjustedSupported ? undefined : support.reason,
         };
       }
     }

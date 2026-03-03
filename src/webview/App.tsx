@@ -5,6 +5,7 @@ import { AdvancedSearch } from './components/AdvancedSearch';
 import { useSearch } from './hooks/useSearch';
 import { useVSCode } from './context/VSCodeContext';
 import { buildQuery, extractBaseText, parseQueryToFilters } from './utils/queryParser';
+import { getClojureActionLabel, resolveAdaptiveClojureFormat } from './utils/clojure';
 import { getNuGetActionLabel, resolveAdaptiveNuGetFormat } from './utils/nuget';
 import type { DependencyType, PackageInfo, SearchOptions, SearchSortBy } from '../types/package';
 import { getSortValue } from '../types/package';
@@ -175,9 +176,18 @@ export const App: React.FC = () => {
   const supportedInstallTypes: DependencyType[] =
     sourceInfo.currentProjectType === 'npm'
       ? ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']
-      : sourceInfo.currentProjectType === 'php' || sourceInfo.currentProjectType === 'ruby'
+      : sourceInfo.currentProjectType === 'php' ||
+          sourceInfo.currentProjectType === 'ruby' ||
+          sourceInfo.currentProjectType === 'perl' ||
+          sourceInfo.currentProjectType === 'clojure' ||
+          sourceInfo.currentProjectType === 'dart' ||
+          sourceInfo.currentProjectType === 'flutter'
         ? ['dependencies', 'devDependencies']
-      : ['dependencies'];
+        : sourceInfo.currentProjectType === 'rust'
+          ? ['dependencies', 'devDependencies', 'optionalDependencies']
+          : sourceInfo.currentProjectType === 'r'
+            ? ['dependencies', 'devDependencies']
+            : ['dependencies'];
 
   const handlePackageSelect = (pkg: PackageInfo) => {
     // Send message to extension to open package details in editor panel
@@ -190,6 +200,7 @@ export const App: React.FC = () => {
 
   const handleCopy = (packageName: string, version: string) => {
     const adaptiveNuGet = resolveAdaptiveNuGetFormat(sourceInfo);
+    const adaptiveClojure = resolveAdaptiveClojureFormat(sourceInfo);
     // For Maven/Gradle/SBT packages, send message to extension to get copy snippet
     // The extension will auto-detect build tool and generate appropriate snippet
     postMessage({ 
@@ -198,7 +209,12 @@ export const App: React.FC = () => {
       options: {
         version,
         scope: 'compile',
-        format: adaptiveNuGet.uncertain ? undefined : adaptiveNuGet.format,
+        format:
+          sourceInfo.currentProjectType === 'dotnet' || sourceInfo.currentSource === 'nuget'
+            ? (adaptiveNuGet.uncertain ? undefined : adaptiveNuGet.format)
+            : sourceInfo.currentProjectType === 'clojure' || sourceInfo.currentSource === 'clojars'
+              ? (adaptiveClojure.uncertain ? undefined : adaptiveClojure.format)
+              : undefined,
       }
       // format will be auto-detected by installService based on build tool
     });
@@ -349,14 +365,26 @@ export const App: React.FC = () => {
       {error && <div className="error-message">{error}</div>}
       {(() => {
         const adaptiveNuGet = resolveAdaptiveNuGetFormat(sourceInfo);
+        const adaptiveClojure = resolveAdaptiveClojureFormat(sourceInfo);
         const copyLabel =
           sourceInfo.currentProjectType === 'dotnet' || sourceInfo.currentSource === 'nuget'
             ? getNuGetActionLabel(adaptiveNuGet.format)
-            : 'Copy';
+            : sourceInfo.currentProjectType === 'clojure' || sourceInfo.currentSource === 'clojars'
+              ? getClojureActionLabel(adaptiveClojure.uncertain ? undefined : adaptiveClojure.format)
+              : sourceInfo.currentSource === 'cran'
+                ? 'Copy DESCRIPTION entry'
+                : 'Copy';
         const downloadsTooltipLabel =
-          sourceInfo.currentSource === 'nuget' || sourceInfo.currentSource === 'rubygems'
+          sourceInfo.currentSource === 'nuget' ||
+            sourceInfo.currentSource === 'rubygems' ||
+            sourceInfo.currentSource === 'metacpan' ||
+            sourceInfo.currentSource === 'clojars' ||
+            sourceInfo.currentSource === 'crates-io'
             ? 'total downloads'
-            : sourceInfo.currentSource === 'packagist' || sourceInfo.currentSource === 'npm-registry'
+            : sourceInfo.currentSource === 'packagist' ||
+                sourceInfo.currentSource === 'npm-registry' ||
+                sourceInfo.currentSource === 'pub-dev' ||
+                sourceInfo.currentSource === 'cran'
               ? 'monthly downloads'
               : 'weekly downloads';
         return (

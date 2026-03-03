@@ -156,6 +156,33 @@ export abstract class NpmBaseAdapter extends BaseSourceAdapter {
         },
         exactFlag: '--save-exact',
       },
+      clojure: {
+        command: 'npm install',
+        flags: {
+          peerDependencies: '--save-peer',
+          optionalDependencies: '--save-optional',
+          devDependencies: '--save-dev',
+        },
+        exactFlag: '--save-exact',
+      },
+      leiningen: {
+        command: 'npm install',
+        flags: {
+          peerDependencies: '--save-peer',
+          optionalDependencies: '--save-optional',
+          devDependencies: '--save-dev',
+        },
+        exactFlag: '--save-exact',
+      },
+      cargo: {
+        command: 'npm install',
+        flags: {
+          peerDependencies: '--save-peer',
+          optionalDependencies: '--save-optional',
+          devDependencies: '--save-dev',
+        },
+        exactFlag: '--save-exact',
+      },
       bun: {
         command: 'bun add',
         flags: {
@@ -194,6 +221,30 @@ export abstract class NpmBaseAdapter extends BaseSourceAdapter {
         exactFlag: '',
       },
       composer: {
+        command: 'npm install',
+        flags: {},
+        exactFlag: '--save-exact',
+      },
+      cpanm: {
+        command: 'npm install',
+        flags: {},
+        exactFlag: '--save-exact',
+      },
+      dart: {
+        command: 'npm install',
+        flags: {
+          devDependencies: '--save-dev',
+        },
+        exactFlag: '--save-exact',
+      },
+      flutter: {
+        command: 'npm install',
+        flags: {
+          devDependencies: '--save-dev',
+        },
+        exactFlag: '--save-exact',
+      },
+      r: {
         command: 'npm install',
         flags: {},
         exactFlag: '--save-exact',

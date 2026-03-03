@@ -174,6 +174,27 @@ export const PackageSidebar: React.FC<PackageSidebarProps> = ({
       registryLink = `https://rubygems.org/gems/${details.name}`;
       registryLabel = 'RubyGems';
       break;
+    case 'perl':
+      registryLink = `https://metacpan.org/pod/${details.name}`;
+      registryLabel = 'MetaCPAN';
+      break;
+    case 'dart':
+    case 'flutter':
+      registryLink = `https://pub.dev/packages/${details.name}`;
+      registryLabel = 'pub.dev';
+      break;
+    case 'r':
+      registryLink = `https://cran.r-project.org/package=${details.name}`;
+      registryLabel = 'CRAN';
+      break;
+    case 'clojure':
+      registryLink = `https://clojars.org/${details.name}`;
+      registryLabel = 'Clojars';
+      break;
+    case 'rust':
+      registryLink = `https://crates.io/crates/${details.name}`;
+      registryLabel = 'crates.io';
+      break;
     case 'npm':
     case 'unknown':
     default:

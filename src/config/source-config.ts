@@ -51,6 +51,42 @@ export const DEFAULT_SOURCE_CONFIG: Record<ProjectType, SourceConfig> = {
     sortOptions: ['relevance', 'popularity', 'name'],
     filters: [],
   },
+  clojure: {
+    primary: 'clojars',
+    fallbacks: [],
+    sortOptions: ['relevance', 'popularity', 'name'],
+    filters: [],
+  },
+  rust: {
+    primary: 'crates-io',
+    fallbacks: [],
+    sortOptions: ['relevance', 'popularity', 'name'],
+    filters: [],
+  },
+  perl: {
+    primary: 'metacpan',
+    fallbacks: [],
+    sortOptions: ['relevance', 'name'],
+    filters: [],
+  },
+  dart: {
+    primary: 'pub-dev',
+    fallbacks: [],
+    sortOptions: ['relevance', 'popularity', 'quality', 'name'],
+    filters: [],
+  },
+  flutter: {
+    primary: 'pub-dev',
+    fallbacks: [],
+    sortOptions: ['relevance', 'popularity', 'quality', 'name'],
+    filters: [],
+  },
+  r: {
+    primary: 'cran',
+    fallbacks: [],
+    sortOptions: ['relevance', 'popularity', 'name'],
+    filters: [],
+  },
   unknown: {
     primary: 'npm-registry',
     fallbacks: ['npms-io'], // libraries-io is used as internal fallback, not in fallbacks list

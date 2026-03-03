@@ -112,7 +112,17 @@ export function registerCommands(
           ? await services.workspace.getComposerManifestFiles()
           : projectType === 'ruby' || currentSource === 'rubygems'
             ? await services.workspace.getRubyManifestFiles()
-        : await services.workspace.getPackageJsonFiles();
+            : projectType === 'perl' || currentSource === 'metacpan'
+              ? await services.workspace.getPerlManifestFiles()
+              : projectType === 'dart' || projectType === 'flutter' || currentSource === 'pub-dev'
+                ? await services.workspace.getPubManifestFiles()
+                : projectType === 'r' || currentSource === 'cran'
+                  ? await services.workspace.getRManifestFiles()
+            : projectType === 'clojure' || currentSource === 'clojars'
+              ? await services.workspace.getClojureManifestFiles()
+              : projectType === 'rust' || currentSource === 'crates-io'
+                ? await services.workspace.getCargoManifestFiles()
+                : await services.workspace.getPackageJsonFiles();
       if (!targetManifestPath && manifestFiles.length > 1) {
         return;
       }
@@ -271,6 +281,114 @@ export function registerCommands(
         if (result) {
           vscode.window.showInformationMessage(`Updated ${packageId} (${kind}) to ${newVersion}`);
           const scope = { manifestPath: cakePath };
+          providers.codelens.refresh(scope);
+        } else {
+          vscode.window.showErrorMessage(`Failed to update ${packageId}`);
+        }
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'npmGallery.updateDepsEdnDependency',
+      async (depsPath: string, packageId: string, newVersion: string) => {
+        const result = await services.workspace.updateDepsEdnDependency(depsPath, packageId, newVersion);
+        if (result) {
+          vscode.window.showInformationMessage(`Updated ${packageId} to ${newVersion}`);
+          const scope = { manifestPath: depsPath };
+          await providers.installed.refreshScope(scope);
+          await providers.updates.refreshScope(scope);
+          providers.codelens.refresh(scope);
+        } else {
+          vscode.window.showErrorMessage(`Failed to update ${packageId}`);
+        }
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'npmGallery.updateLeiningenDependency',
+      async (projectPath: string, packageId: string, newVersion: string) => {
+        const result = await services.workspace.updateLeiningenDependency(projectPath, packageId, newVersion);
+        if (result) {
+          vscode.window.showInformationMessage(`Updated ${packageId} to ${newVersion}`);
+          const scope = { manifestPath: projectPath };
+          await providers.installed.refreshScope(scope);
+          await providers.updates.refreshScope(scope);
+          providers.codelens.refresh(scope);
+        } else {
+          vscode.window.showErrorMessage(`Failed to update ${packageId}`);
+        }
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'npmGallery.updateCargoDependency',
+      async (cargoPath: string, packageId: string, newVersion: string) => {
+        const result = await services.workspace.updateCargoDependency(cargoPath, packageId, newVersion);
+        if (result) {
+          vscode.window.showInformationMessage(`Updated ${packageId} to ${newVersion}`);
+          const scope = { manifestPath: cargoPath };
+          await providers.installed.refreshScope(scope);
+          await providers.updates.refreshScope(scope);
+          providers.codelens.refresh(scope);
+        } else {
+          vscode.window.showErrorMessage(`Failed to update ${packageId}`);
+        }
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'npmGallery.updatePerlDependency',
+      async (cpanfilePath: string, packageId: string, newVersion: string) => {
+        const result = await services.workspace.updatePerlDependency(cpanfilePath, packageId, newVersion);
+        if (result) {
+          vscode.window.showInformationMessage(`Updated ${packageId} to ${newVersion}`);
+          const scope = { manifestPath: cpanfilePath };
+          await providers.installed.refreshScope(scope);
+          await providers.updates.refreshScope(scope);
+          providers.codelens.refresh(scope);
+        } else {
+          vscode.window.showErrorMessage(`Failed to update ${packageId}`);
+        }
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'npmGallery.updatePubspecDependency',
+      async (pubspecPath: string, packageId: string, newVersion: string) => {
+        const result = await services.workspace.updatePubspecDependency(pubspecPath, packageId, newVersion);
+        if (result) {
+          vscode.window.showInformationMessage(`Updated ${packageId} to ${newVersion}`);
+          const scope = { manifestPath: pubspecPath };
+          await providers.installed.refreshScope(scope);
+          await providers.updates.refreshScope(scope);
+          providers.codelens.refresh(scope);
+        } else {
+          vscode.window.showErrorMessage(`Failed to update ${packageId}`);
+        }
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      'npmGallery.updateRDependency',
+      async (descriptionPath: string, packageId: string, newVersion: string) => {
+        const result = await services.workspace.updateRDependency(descriptionPath, packageId, newVersion);
+        if (result) {
+          vscode.window.showInformationMessage(`Updated ${packageId} to ${newVersion}`);
+          const scope = { manifestPath: descriptionPath };
+          await providers.installed.refreshScope(scope);
+          await providers.updates.refreshScope(scope);
           providers.codelens.refresh(scope);
         } else {
           vscode.window.showErrorMessage(`Failed to update ${packageId}`);

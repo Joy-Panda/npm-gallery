@@ -4,7 +4,7 @@ import {
   Layers, Loader2, BookOpen,
   GitBranch, Cpu
 } from 'lucide-react';
-import type { DependencyType, NuGetCopyFormat, PackageDetails, Vulnerability } from '../../types/package';
+import type { ClojureCopyFormat, DependencyType, NuGetCopyFormat, PackageDetails, Vulnerability } from '../../types/package';
 import { useVSCode } from '../context/VSCodeContext';
 import { PackageHeader } from './PackageHeader';
 import { PackageSidebar } from './PackageSidebar';
@@ -15,6 +15,7 @@ import { SecurityTab } from './tabs/SecurityTab';
 import { DependentsTab } from './tabs/DependentsTab';
 import { RequirementsTab } from './tabs/RequirementsTab';
 import { FrameworksTab } from './tabs/FrameworksTab';
+import { getClojureActionLabel, getClojureFormatOptions, resolveAdaptiveClojureFormat } from '../utils/clojure';
 import { getNuGetActionLabel, getNuGetFormatOptions, resolveAdaptiveNuGetFormat } from '../utils/nuget';
 
 interface VSCodeAPI {
@@ -42,20 +43,29 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
   const supportsInstallation = sourceInfo.supportedCapabilities.includes('installation');
   const supportsCopy = sourceInfo.supportedCapabilities.includes('copy');
   const isNuGetProject = sourceInfo.currentProjectType === 'dotnet' || sourceInfo.currentSource === 'nuget';
+  const isClojureProject = sourceInfo.currentProjectType === 'clojure' || sourceInfo.currentSource === 'clojars';
   const supportedInstallTypes: DependencyType[] =
     sourceInfo.currentProjectType === 'npm'
       ? ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']
-      : sourceInfo.currentProjectType === 'php' || sourceInfo.currentProjectType === 'ruby'
+      : sourceInfo.currentProjectType === 'php' ||
+          sourceInfo.currentProjectType === 'ruby' ||
+          sourceInfo.currentProjectType === 'perl' ||
+          sourceInfo.currentProjectType === 'clojure' ||
+          sourceInfo.currentProjectType === 'dart' ||
+          sourceInfo.currentProjectType === 'flutter'
         ? ['dependencies', 'devDependencies']
-      : ['dependencies'];
+        : sourceInfo.currentProjectType === 'rust'
+          ? ['dependencies', 'devDependencies', 'optionalDependencies']
+          : sourceInfo.currentProjectType === 'r'
+            ? ['dependencies', 'devDependencies']
+            : ['dependencies'];
   const [isLoading, setIsLoading] = useState(!initialData);
   const [error, setError] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
   const [loadingMoreDependents, setLoadingMoreDependents] = useState(false);
   const adaptiveNuGet = resolveAdaptiveNuGetFormat(sourceInfo);
-  const [selectedNuGetFormat, setSelectedNuGetFormat] = useState<NuGetCopyFormat | ''>(
-    adaptiveNuGet.format || ''
-  );
+  const adaptiveClojure = resolveAdaptiveClojureFormat(sourceInfo);
+  const [selectedCopyFormat, setSelectedCopyFormat] = useState<string>('');
   const [expandedSections, setExpandedSections] = useState<{
     runtime: boolean;
     dev: boolean;
@@ -84,8 +94,16 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
   }, [details?.security?.vulnerabilities]);
 
   useEffect(() => {
-    setSelectedNuGetFormat(adaptiveNuGet.format || '');
-  }, [adaptiveNuGet.format]);
+    if (isNuGetProject) {
+      setSelectedCopyFormat(adaptiveNuGet.format || '');
+      return;
+    }
+    if (isClojureProject) {
+      setSelectedCopyFormat(adaptiveClojure.format || '');
+      return;
+    }
+    setSelectedCopyFormat('');
+  }, [adaptiveClojure.format, adaptiveNuGet.format, isClojureProject, isNuGetProject]);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
@@ -182,7 +200,7 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
     });
   };
 
-  const copyNuGetSnippet = (format?: NuGetCopyFormat) => {
+  const copySnippet = (format?: NuGetCopyFormat | ClojureCopyFormat) => {
     if (!details) return;
     setInstalling(true);
     vscode.postMessage({
@@ -321,6 +339,30 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
 
   const depsCount = details.dependencies ? Object.keys(details.dependencies).length : 0;
   const isSecure = !details.security || details.security.summary.total === 0;
+  const copyFormatOptions =
+    isNuGetProject && supportsCopy && adaptiveNuGet.uncertain
+      ? getNuGetFormatOptions()
+      : isClojureProject && supportsCopy && adaptiveClojure.uncertain
+        ? getClojureFormatOptions()
+        : undefined;
+  const resolvedCopyFormat =
+    isNuGetProject
+      ? adaptiveNuGet.uncertain
+        ? (selectedCopyFormat || undefined) as NuGetCopyFormat | undefined
+        : adaptiveNuGet.format
+      : isClojureProject
+        ? adaptiveClojure.uncertain
+          ? (selectedCopyFormat || undefined) as ClojureCopyFormat | undefined
+          : adaptiveClojure.format
+        : undefined;
+  const copyActionLabel =
+    isNuGetProject
+      ? getNuGetActionLabel(resolvedCopyFormat as NuGetCopyFormat | undefined)
+      : isClojureProject
+        ? getClojureActionLabel(resolvedCopyFormat as ClojureCopyFormat | undefined)
+        : sourceInfo.currentSource === 'cran'
+          ? 'Copy DESCRIPTION entry'
+          : 'Copy snippet';
 
   // Opened from vulnerability CodeLens: only show Security tab (no full package details/tabs/sidebar).
   // Do not require supportsSecurity — package-details webview may not receive sourceInfo, and we already have security data for the installed version.
@@ -360,34 +402,30 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
           details={details}
           installing={installing}
           onInstall={install}
-          onCopyNuGet={
-            isNuGetProject && supportsCopy
-              ? () =>
-                  copyNuGetSnippet(
-                    adaptiveNuGet.uncertain
-                      ? ((selectedNuGetFormat || undefined) as NuGetCopyFormat | undefined)
-                      : adaptiveNuGet.format
-                  )
+          onCopyAction={
+            supportsCopy
+              ? () => copySnippet(resolvedCopyFormat)
               : undefined
           }
-          nugetActionLabel={getNuGetActionLabel(
-            adaptiveNuGet.uncertain ? selectedNuGetFormat || undefined : adaptiveNuGet.format
-          )}
-          nugetFormatOptions={
-            isNuGetProject && supportsCopy && adaptiveNuGet.uncertain
-              ? getNuGetFormatOptions()
-              : undefined
-          }
-          selectedNuGetFormat={selectedNuGetFormat}
-          onNuGetFormatChange={(value) => setSelectedNuGetFormat(value as NuGetCopyFormat)}
+          copyActionLabel={copyActionLabel}
+          copyFormatOptions={copyFormatOptions}
+          selectedCopyFormat={selectedCopyFormat}
+          onCopyFormatChange={setSelectedCopyFormat}
           formatDownloads={formatDownloads}
           formatBytes={formatBytes}
           supportedInstallTypes={supportedInstallTypes}
           showInstall={supportsInstallation}
           downloadsLabel={
-            sourceInfo.currentSource === 'nuget' || sourceInfo.currentSource === 'rubygems'
+            sourceInfo.currentSource === 'nuget' ||
+              sourceInfo.currentSource === 'rubygems' ||
+              sourceInfo.currentSource === 'metacpan' ||
+              sourceInfo.currentSource === 'clojars' ||
+              sourceInfo.currentSource === 'crates-io'
               ? 'total downloads'
-              : sourceInfo.currentSource === 'packagist' || sourceInfo.currentSource === 'npm-registry'
+              : sourceInfo.currentSource === 'packagist' ||
+                  sourceInfo.currentSource === 'npm-registry' ||
+                  sourceInfo.currentSource === 'pub-dev' ||
+                  sourceInfo.currentSource === 'cran'
                 ? 'monthly downloads'
                 : undefined
           }

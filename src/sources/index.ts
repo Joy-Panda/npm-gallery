@@ -3,3 +3,8 @@ export * from './npm';
 export * from './sonatype';
 export * from './packagist';
 export * from './rubygems';
+export * from './clojars';
+export * from './crates';
+export * from './metacpan';
+export * from './pubdev';
+export * from './cran';

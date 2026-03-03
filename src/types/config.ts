@@ -41,6 +41,13 @@ export const API_ENDPOINTS = {
   LIBRARIES_IO: 'https://libraries.io/api',
   PACKAGIST: 'https://packagist.org',
   RUBYGEMS: 'https://rubygems.org',
+  CLOJARS: 'https://clojars.org',
+  CRATES_IO: 'https://crates.io',
+  METACPAN: 'https://fastapi.metacpan.org',
+  PUB_DEV: 'https://pub.dev',
+  R_UNIVERSE: 'https://r-universe.dev',
+  CRAN_UNIVERSE: 'https://cran.r-universe.dev',
+  CRANLOGS: 'https://cranlogs.r-pkg.org',
 } as const;
 
 /**

@@ -8,6 +8,11 @@ import { DepsDevClient } from './deps-dev';
 import { NuGetApiClient } from './nuget-api';
 import { PackagistApiClient } from './packagist-api';
 import { RubyGemsApiClient } from './rubygems-api';
+import { ClojarsApiClient } from './clojars-api';
+import { CratesIoApiClient } from './crates-api';
+import { MetaCpanApiClient } from './metacpan-api';
+import { PubDevApiClient } from './pub-dev-api';
+import { CranApiClient } from './cran-api';
 
 /**
  * All API clients
@@ -23,6 +28,11 @@ export interface ApiClients {
   nuget: NuGetApiClient;
   packagist: PackagistApiClient;
   rubygems: RubyGemsApiClient;
+  clojars: ClojarsApiClient;
+  cratesIo: CratesIoApiClient;
+  metacpan: MetaCpanApiClient;
+  pubDev: PubDevApiClient;
+  cran: CranApiClient;
 }
 
 // Singleton instances
@@ -48,6 +58,11 @@ export function createApiClients(): ApiClients {
       nuget: new NuGetApiClient(),
       packagist: new PackagistApiClient(),
       rubygems: new RubyGemsApiClient(),
+      clojars: new ClojarsApiClient(),
+      cratesIo: new CratesIoApiClient(),
+      metacpan: new MetaCpanApiClient(),
+      pubDev: new PubDevApiClient(),
+      cran: new CranApiClient(),
     };
   }
   return apiClients;

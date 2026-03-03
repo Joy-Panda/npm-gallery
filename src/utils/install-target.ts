@@ -27,12 +27,27 @@ export async function selectInstallTargetManifest(
   const useDotNet = projectType === 'dotnet' || currentSource === 'nuget';
   const usePhp = projectType === 'php' || currentSource === 'packagist';
   const useRuby = projectType === 'ruby' || currentSource === 'rubygems';
+  const useClojure = projectType === 'clojure' || currentSource === 'clojars';
+  const useRust = projectType === 'rust' || currentSource === 'crates-io';
+  const usePerl = projectType === 'perl' || currentSource === 'metacpan';
+  const usePub = projectType === 'dart' || projectType === 'flutter' || currentSource === 'pub-dev';
+  const useR = projectType === 'r' || currentSource === 'cran';
   const manifestUris = useDotNet
     ? await workspaceService.getDotNetManifestFiles()
     : usePhp
       ? await workspaceService.getComposerManifestFiles()
       : useRuby
         ? await workspaceService.getRubyManifestFiles()
+        : useClojure
+          ? await workspaceService.getClojureManifestFiles()
+          : useRust
+            ? await workspaceService.getCargoManifestFiles()
+            : usePerl
+              ? await workspaceService.getPerlManifestFiles()
+              : usePub
+                ? await workspaceService.getPubManifestFiles()
+                : useR
+                  ? await workspaceService.getRManifestFiles()
         : await workspaceService.getPackageJsonFiles();
   const manifestPaths = [...new Set(manifestUris.map((uri) => uri.fsPath))];
 
@@ -56,7 +71,7 @@ export async function selectInstallTargetManifest(
 
   const preferredManifestPath =
     getRememberedInstallTarget(manifestPaths, preferredTargetPath) ||
-    (preferredTargetPath && (preferredTargetPath.endsWith('package.json') || preferredTargetPath.endsWith('composer.json') || preferredTargetPath.endsWith('Gemfile') || preferredTargetPath.endsWith('Directory.Packages.props') || preferredTargetPath.endsWith('.csproj'))
+    (preferredTargetPath && (preferredTargetPath.endsWith('package.json') || preferredTargetPath.endsWith('composer.json') || preferredTargetPath.endsWith('Gemfile') || preferredTargetPath.endsWith('deps.edn') || preferredTargetPath.endsWith('project.clj') || preferredTargetPath.endsWith('Cargo.toml') || preferredTargetPath.endsWith('cpanfile') || preferredTargetPath.endsWith('pubspec.yaml') || preferredTargetPath.endsWith('DESCRIPTION') || preferredTargetPath.endsWith('Directory.Packages.props') || preferredTargetPath.endsWith('.csproj'))
       ? preferredTargetPath
       : getPreferredManifestPath(manifestPaths, useDotNet));
 
@@ -95,6 +110,16 @@ export async function selectInstallTargetManifest(
         ? `Select the target composer.json for ${packageName}`
         : useRuby
           ? `Select the target Gemfile for ${packageName}`
+          : useClojure
+            ? `Select the target Clojure manifest for ${packageName}`
+            : useRust
+              ? `Select the target Cargo.toml for ${packageName}`
+              : usePerl
+                ? `Select the target cpanfile for ${packageName}`
+                : usePub
+                  ? `Select the target pubspec.yaml for ${packageName}`
+                  : useR
+                    ? `Select the target DESCRIPTION for ${packageName}`
         : `Select the target package.json for ${packageName}`,
     title: useDotNet ? 'Copy to which manifest?' : 'Install into which project?',
     matchOnDescription: true,
@@ -115,12 +140,27 @@ export async function getInstallTargetSummary(
   const useDotNet = projectType === 'dotnet' || currentSource === 'nuget';
   const usePhp = projectType === 'php' || currentSource === 'packagist';
   const useRuby = projectType === 'ruby' || currentSource === 'rubygems';
+  const useClojure = projectType === 'clojure' || currentSource === 'clojars';
+  const useRust = projectType === 'rust' || currentSource === 'crates-io';
+  const usePerl = projectType === 'perl' || currentSource === 'metacpan';
+  const usePub = projectType === 'dart' || projectType === 'flutter' || currentSource === 'pub-dev';
+  const useR = projectType === 'r' || currentSource === 'cran';
   const manifestUris = useDotNet
     ? await workspaceService.getDotNetManifestFiles()
     : usePhp
       ? await workspaceService.getComposerManifestFiles()
       : useRuby
         ? await workspaceService.getRubyManifestFiles()
+        : useClojure
+          ? await workspaceService.getClojureManifestFiles()
+          : useRust
+            ? await workspaceService.getCargoManifestFiles()
+            : usePerl
+              ? await workspaceService.getPerlManifestFiles()
+              : usePub
+                ? await workspaceService.getPubManifestFiles()
+                : useR
+                  ? await workspaceService.getRManifestFiles()
         : await workspaceService.getPackageJsonFiles();
   const manifestPaths = [...new Set(manifestUris.map((uri) => uri.fsPath))];
   if (manifestPaths.length === 0) {
@@ -129,7 +169,7 @@ export async function getInstallTargetSummary(
 
   const manifestPath =
     getRememberedInstallTarget(manifestPaths, preferredTargetPath) ||
-    (preferredTargetPath && (preferredTargetPath.endsWith('package.json') || preferredTargetPath.endsWith('composer.json') || preferredTargetPath.endsWith('Gemfile') || preferredTargetPath.endsWith('Directory.Packages.props') || preferredTargetPath.endsWith('.csproj'))
+    (preferredTargetPath && (preferredTargetPath.endsWith('package.json') || preferredTargetPath.endsWith('composer.json') || preferredTargetPath.endsWith('Gemfile') || preferredTargetPath.endsWith('deps.edn') || preferredTargetPath.endsWith('project.clj') || preferredTargetPath.endsWith('Cargo.toml') || preferredTargetPath.endsWith('cpanfile') || preferredTargetPath.endsWith('pubspec.yaml') || preferredTargetPath.endsWith('DESCRIPTION') || preferredTargetPath.endsWith('Directory.Packages.props') || preferredTargetPath.endsWith('.csproj'))
       ? preferredTargetPath
       : getPreferredManifestPath(manifestPaths, useDotNet)) ||
     manifestPaths[0];
@@ -233,7 +273,7 @@ function getPreferredManifestPath(manifestPaths: string[], useDotNet?: boolean):
   const activePath = vscode.window.activeTextEditor?.document.uri.fsPath;
   if (activePath && manifestPaths.includes(activePath)) {
     const lower = activePath.toLowerCase();
-    if (lower.endsWith('package.json') || lower.endsWith('composer.json') || lower.endsWith('gemfile') || lower.endsWith('directory.packages.props') || lower.endsWith('.csproj') || lower.endsWith('.vbproj') || lower.endsWith('.fsproj')) {
+    if (lower.endsWith('package.json') || lower.endsWith('composer.json') || lower.endsWith('gemfile') || lower.endsWith('deps.edn') || lower.endsWith('project.clj') || lower.endsWith('cargo.toml') || lower.endsWith('cpanfile') || lower.endsWith('pubspec.yaml') || lower.endsWith('description') || lower.endsWith('directory.packages.props') || lower.endsWith('.csproj') || lower.endsWith('.vbproj') || lower.endsWith('.fsproj')) {
       return activePath;
     }
   }
@@ -248,7 +288,7 @@ function getPreferredManifestPath(manifestPaths: string[], useDotNet?: boolean):
   return manifestPaths.find((manifestPath) => {
     const relativePath = vscode.workspace.asRelativePath(manifestPath) || manifestPath;
     const normalized = relativePath.replace(/\\/g, '/');
-    return normalized === 'package.json' || normalized === 'composer.json' || normalized === 'Gemfile';
+    return normalized === 'package.json' || normalized === 'composer.json' || normalized === 'Gemfile' || normalized === 'deps.edn' || normalized === 'project.clj' || normalized === 'Cargo.toml' || normalized === 'cpanfile' || normalized === 'pubspec.yaml' || normalized === 'DESCRIPTION';
   });
 }
 

@@ -1,4 +1,6 @@
 import * as vscode from 'vscode';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import type { InstallOptions, CopyOptions, PackageManager, BuildTool, NuGetManagementStyle, NuGetCopyFormat } from '../types/package';
 import { NUGET_STYLE_TO_COPY_FORMAT, NUGET_FORMAT_RUN_TYPE, NUGET_FORMAT_RUN_LABELS, NUGET_COPY_FORMAT_LABELS } from '../types/package';
 import type { SourceSelector } from '../registry/source-selector';
@@ -6,11 +8,15 @@ import type { WorkspaceService } from './workspace-service';
 import type { ProjectType } from '../types/project';
 import { SourceCapability } from '../sources/base/capabilities';
 
+const execFileAsync = promisify(execFile);
+
 /**
  * Service for package installation
  * Delegates command generation to source adapters, only handles execution
  */
 export class InstallService {
+  private neilAvailabilityPromise?: Promise<boolean>;
+
   constructor(
     private sourceSelector?: SourceSelector,
     private workspace?: WorkspaceService
@@ -35,6 +41,30 @@ export class InstallService {
     return this.workspace?.detectNuGetManagementStyle(targetPath) ?? 'packagereference';
   }
 
+  async isNeilAvailable(): Promise<boolean> {
+    if (!this.neilAvailabilityPromise) {
+      this.neilAvailabilityPromise = (async () => {
+        try {
+          await execFileAsync('neil', ['--version']);
+          return true;
+        } catch {
+          return false;
+        }
+      })();
+    }
+
+    return this.neilAvailabilityPromise;
+  }
+
+  async canUseNeil(targetPath?: string): Promise<boolean> {
+    const detectedManager = await this.detectPackageManager(targetPath);
+    if (detectedManager !== 'clojure') {
+      return false;
+    }
+
+    return this.isNeilAvailable();
+  }
+
   /**
    * Install a package
    * Command generation is delegated to the source adapter
@@ -57,6 +87,10 @@ export class InstallService {
 
     try {
       const adapter = this.sourceSelector.selectSource();
+
+      if (adapter.sourceType === 'clojars' && !(await this.canUseNeil(targetPath))) {
+        return { success: false, message: 'Direct install requires neil and a deps.edn target' };
+      }
       
       // Check if installation is supported
       if (!adapter.supportsCapability(SourceCapability.INSTALLATION)) {
@@ -67,8 +101,12 @@ export class InstallService {
         return { success: false, message: 'Install command generation is not supported' };
       }
       
-      const command = adapter.getInstallCommand(packageName, options);
-      const projectType = adapter.projectType;
+      const packageManager = await this.detectPackageManager(targetPath);
+      const command = adapter.getInstallCommand(packageName, {
+        ...options,
+        packageManager,
+      });
+      const projectType = this.sourceSelector?.getCurrentProjectType() ?? adapter.projectType;
 
       const terminal = this.getOrCreateTerminal(projectType, workspaceFolder, executionUri, targetPath);
       terminal.show();
@@ -111,8 +149,8 @@ export class InstallService {
         return { success: false, message: 'Update command generation is not supported' };
       }
       
-      const command = adapter.getUpdateCommand(packageName, version);
-      const projectType = adapter.projectType;
+      const command = adapter.getUpdateCommand(packageName, version || undefined);
+      const projectType = this.sourceSelector?.getCurrentProjectType() ?? adapter.projectType;
       const workspaceFolder = this.resolveWorkspaceFolder(targetPath);
       const executionUri = this.getExecutionUri(targetPath, workspaceFolder);
 
@@ -156,7 +194,7 @@ export class InstallService {
       }
       
       const command = adapter.getRemoveCommand(packageName);
-      const projectType = adapter.projectType;
+      const projectType = this.sourceSelector?.getCurrentProjectType() ?? adapter.projectType;
       const workspaceFolder = this.resolveWorkspaceFolder(targetPath);
       const executionUri = this.getExecutionUri(targetPath, workspaceFolder);
 
@@ -292,6 +330,7 @@ export class InstallService {
       // NuGet/dotnet: use format from options or default (CPM if Directory.Packages.props exists)
       const projectType = this.sourceSelector?.getCurrentProjectType?.() ?? 'unknown';
       const isNuGet = adapter.sourceType === 'nuget' || projectType === 'dotnet';
+      const isClojars = adapter.sourceType === 'clojars' || projectType === 'clojure';
 
       let format: CopyOptions['format'] = 'xml';
       if (isNuGet) {
@@ -302,6 +341,13 @@ export class InstallService {
             vscode.window.activeTextEditor?.document.uri.fsPath
           ) ?? 'packagereference';
           format = NUGET_STYLE_TO_COPY_FORMAT[style] as NuGetCopyFormat;
+        }
+      } else if (isClojars) {
+        if (options.format) {
+          format = options.format;
+        } else {
+          const detectedManager = await this.detectPackageManager(vscode.window.activeTextEditor?.document.uri.fsPath);
+          format = detectedManager === 'leiningen' ? 'leiningen' : 'deps-edn';
         }
       } else {
         // Auto-detect build tool for Maven/Gradle
@@ -334,6 +380,9 @@ export class InstallService {
         const runHint = NUGET_FORMAT_RUN_LABELS[runType];
         const formatLabel = NUGET_COPY_FORMAT_LABELS[format as NuGetCopyFormat] || format;
         message = `Copied ${packageName} (${formatLabel}). ${runType === 'copy' ? 'Paste into your file.' : runHint}`;
+      } else if (isClojars) {
+        const formatLabel = format === 'leiningen' ? 'Leiningen' : 'deps.edn';
+        message = `Copied ${packageName} snippet (${formatLabel}) to clipboard!`;
       } else {
         const formatLabel = isNuGet ? (NUGET_COPY_FORMAT_LABELS[format as NuGetCopyFormat] || format) : (options.buildTool ?? 'maven');
         message = `Copied ${packageName} snippet (${formatLabel}) to clipboard!`;
@@ -393,6 +442,14 @@ export class InstallService {
 
     try {
       const lockFiles: Array<{ file: string; manager: PackageManager }> = [
+        { file: 'Cargo.toml', manager: 'cargo' },
+        { file: 'Cargo.lock', manager: 'cargo' },
+        { file: 'cpanfile', manager: 'cpanm' },
+        { file: 'DESCRIPTION', manager: 'r' },
+        { file: 'deps.edn', manager: 'clojure' },
+        { file: 'project.clj', manager: 'leiningen' },
+        { file: 'pubspec.yaml', manager: 'dart' },
+        { file: 'pubspec.lock', manager: 'dart' },
         { file: 'Gemfile.lock', manager: 'bundler' },
         { file: 'Gemfile', manager: 'bundler' },
         { file: 'composer.lock', manager: 'composer' },
@@ -410,6 +467,9 @@ export class InstallService {
           const lockFilePath = path.join(currentPath, file);
           try {
             if (fs.existsSync(lockFilePath)) {
+              if (file === 'pubspec.yaml' || file === 'pubspec.lock') {
+                return this.detectPubPackageManager(lockFilePath);
+              }
               return manager;
             }
           } catch {
@@ -436,6 +496,24 @@ export class InstallService {
     }
     if (this.sourceSelector?.getCurrentProjectType() === 'ruby') {
       return 'bundler';
+    }
+    if (this.sourceSelector?.getCurrentProjectType() === 'clojure') {
+      return 'clojure';
+    }
+    if (this.sourceSelector?.getCurrentProjectType() === 'rust') {
+      return 'cargo';
+    }
+    if (this.sourceSelector?.getCurrentProjectType() === 'perl') {
+      return 'cpanm';
+    }
+    if (this.sourceSelector?.getCurrentProjectType() === 'dart') {
+      return 'dart';
+    }
+    if (this.sourceSelector?.getCurrentProjectType() === 'flutter') {
+      return 'flutter';
+    }
+    if (this.sourceSelector?.getCurrentProjectType() === 'r') {
+      return 'r';
     }
 
     return this.getConfiguredPackageManager();
@@ -468,6 +546,14 @@ export class InstallService {
 
       // Check for lock files (priority order: pnpm > yarn > npm)
       const lockFiles: Array<{ file: string; manager: PackageManager }> = [
+        { file: 'Cargo.toml', manager: 'cargo' },
+        { file: 'Cargo.lock', manager: 'cargo' },
+        { file: 'cpanfile', manager: 'cpanm' },
+        { file: 'DESCRIPTION', manager: 'r' },
+        { file: 'deps.edn', manager: 'clojure' },
+        { file: 'project.clj', manager: 'leiningen' },
+        { file: 'pubspec.yaml', manager: 'dart' },
+        { file: 'pubspec.lock', manager: 'dart' },
         { file: 'Gemfile.lock', manager: 'bundler' },
         { file: 'Gemfile', manager: 'bundler' },
         { file: 'composer.lock', manager: 'composer' },
@@ -481,6 +567,9 @@ export class InstallService {
         try {
           const lockFilePath = path.join(rootPath, file);
           if (fs.existsSync(lockFilePath)) {
+            if (file === 'pubspec.yaml' || file === 'pubspec.lock') {
+              return this.detectPubPackageManager(lockFilePath);
+            }
             return manager;
           }
         } catch {
@@ -496,6 +585,24 @@ export class InstallService {
     }
     if (this.sourceSelector?.getCurrentProjectType() === 'ruby') {
       return 'bundler';
+    }
+    if (this.sourceSelector?.getCurrentProjectType() === 'clojure') {
+      return 'clojure';
+    }
+    if (this.sourceSelector?.getCurrentProjectType() === 'rust') {
+      return 'cargo';
+    }
+    if (this.sourceSelector?.getCurrentProjectType() === 'perl') {
+      return 'cpanm';
+    }
+    if (this.sourceSelector?.getCurrentProjectType() === 'dart') {
+      return 'dart';
+    }
+    if (this.sourceSelector?.getCurrentProjectType() === 'flutter') {
+      return 'flutter';
+    }
+    if (this.sourceSelector?.getCurrentProjectType() === 'r') {
+      return 'r';
     }
 
     return this.getConfiguredPackageManager();
@@ -522,6 +629,12 @@ export class InstallService {
       dotnet: `NuGet Gallery${workspaceSuffix}${targetSuffix}`,
       php: `Packagist Gallery${workspaceSuffix}${targetSuffix}`,
       ruby: `RubyGems Gallery${workspaceSuffix}${targetSuffix}`,
+      clojure: `Clojars Gallery${workspaceSuffix}${targetSuffix}`,
+      rust: `Cargo Gallery${workspaceSuffix}${targetSuffix}`,
+      perl: `MetaCPAN Gallery${workspaceSuffix}${targetSuffix}`,
+      dart: `pub.dev Gallery${workspaceSuffix}${targetSuffix}`,
+      flutter: `Flutter Gallery${workspaceSuffix}${targetSuffix}`,
+      r: `CRAN Gallery${workspaceSuffix}${targetSuffix}`,
       unknown: `Package Gallery${workspaceSuffix}${targetSuffix}`,
     };
 
@@ -557,6 +670,20 @@ export class InstallService {
     return vscode.window.activeTextEditor
       ? vscode.workspace.getWorkspaceFolder(vscode.window.activeTextEditor.document.uri)
       : vscode.workspace.workspaceFolders?.[0];
+  }
+
+  private detectPubPackageManager(manifestPath: string): PackageManager {
+    try {
+      const fs = require('fs') as typeof import('fs');
+      const content = fs.readFileSync(manifestPath, 'utf8');
+      if (/\bsdk\s*:\s*flutter\b/m.test(content) || /^\s*flutter\s*:\s*$/m.test(content)) {
+        return 'flutter';
+      }
+    } catch {
+      // Ignore and fall back to dart.
+    }
+
+    return 'dart';
   }
 
   private getTargetTerminalSuffix(

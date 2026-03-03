@@ -1,6 +1,6 @@
 import React from 'react';
 import { Copy, Download, Package, Star, Scale, User } from 'lucide-react';
-import type { DependencyType, NuGetCopyFormat, PackageDetails } from '../../types/package';
+import type { DependencyType, PackageDetails } from '../../types/package';
 import { InstallMenuButton } from './InstallMenuButton';
 import { Button } from './ui/button';
 
@@ -13,11 +13,11 @@ interface PackageHeaderProps {
   supportedInstallTypes: DependencyType[];
   showInstall: boolean;
   installTargetLabel?: string;
-  onCopyNuGet?: () => void;
-  nugetActionLabel?: string;
-  nugetFormatOptions?: Array<{ value: string; label: string }>;
-  selectedNuGetFormat?: NuGetCopyFormat | '';
-  onNuGetFormatChange?: (value: string) => void;
+  onCopyAction?: () => void;
+  copyActionLabel?: string;
+  copyFormatOptions?: Array<{ value: string; label: string }>;
+  selectedCopyFormat?: string;
+  onCopyFormatChange?: (value: string) => void;
   downloadsLabel?: string;
 }
 
@@ -120,11 +120,11 @@ export const PackageHeader: React.FC<PackageHeaderProps> = ({
   supportedInstallTypes,
   showInstall,
   installTargetLabel,
-  onCopyNuGet,
-  nugetActionLabel,
-  nugetFormatOptions,
-  selectedNuGetFormat,
-  onNuGetFormatChange,
+  onCopyAction,
+  copyActionLabel,
+  copyFormatOptions,
+  selectedCopyFormat,
+  onCopyFormatChange,
   downloadsLabel,
 }) => {
   const authorName = details.author
@@ -182,7 +182,7 @@ export const PackageHeader: React.FC<PackageHeaderProps> = ({
       <p className="description">{details.description || 'No description available'}</p>
 
       {/* Actions */}
-      {(showInstall || onCopyNuGet) && (
+      {(showInstall || onCopyAction) && (
         <div className="actions">
           {showInstall ? (
             <InstallMenuButton
@@ -192,16 +192,16 @@ export const PackageHeader: React.FC<PackageHeaderProps> = ({
               loading={installing}
               supportedTypes={supportedInstallTypes}
             />
-          ) : onCopyNuGet ? (
+          ) : onCopyAction ? (
             <div className="nuget-actions">
-              {nugetFormatOptions && onNuGetFormatChange && (
+              {copyFormatOptions && onCopyFormatChange && (
                 <select
                   className="nuget-select"
-                  value={selectedNuGetFormat || ''}
-                  onChange={(event) => onNuGetFormatChange(event.target.value)}
+                  value={selectedCopyFormat || ''}
+                  onChange={(event) => onCopyFormatChange(event.target.value)}
                 >
                   <option value="">Select format</option>
-                  {nugetFormatOptions.map((option) => (
+                  {copyFormatOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
@@ -210,11 +210,11 @@ export const PackageHeader: React.FC<PackageHeaderProps> = ({
               )}
               <Button
                 variant="default"
-                onClick={onCopyNuGet}
-                disabled={installing || (nugetFormatOptions ? !selectedNuGetFormat : false)}
+                onClick={onCopyAction}
+                disabled={installing || (copyFormatOptions ? !selectedCopyFormat : false)}
               >
                 <Copy size={14} />
-                <span>{installing ? 'Copying...' : nugetActionLabel || 'Copy snippet'}</span>
+                <span>{installing ? 'Copying...' : copyActionLabel || 'Copy snippet'}</span>
               </Button>
             </div>
           ) : null}
