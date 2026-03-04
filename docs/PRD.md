@@ -11,18 +11,18 @@
 ## 1. Executive Summary
 
 ### 1.1 Product Vision
-NPM Gallery aims to be the definitive npm package management extension for VS Code, providing developers with a seamless, secure, and intelligent way to discover, evaluate, and manage npm packages without leaving their development environment.
+NPM Gallery aims to be the definitive package discovery and dependency management extension for VS Code, providing developers with a seamless, secure, and source-aware way to search, evaluate, and manage packages across multiple ecosystems without leaving their development environment.
 
 ### 1.2 Problem Statement
-Current npm package management workflow requires developers to:
+Current package management workflows across modern projects require developers to:
 - Switch between VS Code and browser to search packages
-- Manually check package security, bundle size, and maintenance status
-- Use terminal for every install/update operation
-- Lack visibility into dependency health across projects
+- Manually check package security, metadata, and maintenance status
+- Use terminal or manifest editing for every install/update/remove operation
+- Lack visibility into dependency health across manifests and ecosystems
 - Miss security vulnerabilities until audit is manually run
 
 ### 1.3 Solution
-A comprehensive VS Code extension that brings the entire npm ecosystem into the editor with enhanced intelligence around security, performance, and package quality.
+A comprehensive VS Code extension that brings source-aware package discovery, details, inline editor assistance, and workspace dependency management into the editor across multiple ecosystems.
 
 ---
 
@@ -31,13 +31,13 @@ A comprehensive VS Code extension that brings the entire npm ecosystem into the 
 ### 2.1 Primary Goals
 | Goal | Success Metric |
 |------|----------------|
-| Reduce context switching | 70% reduction in browser usage for npm searches |
+| Reduce context switching | 70% reduction in browser usage for package searches |
 | Improve security awareness | 100% of installs show security status |
 | Simplify package management | <3 clicks to install any package |
-| Enhance decision making | Bundle size shown for 100% of packages |
+| Enhance decision making | Source-specific metadata shown whenever supported |
 
 ### 2.2 Secondary Goals
-- Become top 5 npm-related extension on VS Code Marketplace
+- Become a top package-management extension on VS Code Marketplace
 - Achieve 4.5+ star rating
 - 50,000+ installs in first 6 months
 - Active community contribution
@@ -70,15 +70,15 @@ A comprehensive VS Code extension that brings the entire npm ecosystem into the 
 
 | Use Case | User Story | Priority |
 |----------|------------|----------|
-| UC-01 | As a developer, I want to search npm packages from VS Code so that I don't need to switch to browser | P0 |
+| UC-01 | As a developer, I want to search packages from VS Code so that I don't need to switch to browser | P0 |
 | UC-02 | As a developer, I want to see package details (readme, versions, downloads) so that I can evaluate packages | P0 |
 | UC-03 | As a developer, I want to install packages with one click so that I save time | P0 |
 | UC-04 | As a developer, I want to see security vulnerabilities before installing so that I keep my project secure | P0 |
 | UC-05 | As a developer, I want to see bundle size impact so that I can make performance-conscious decisions | P1 |
 | UC-06 | As a tech lead, I want to see license information so that I ensure compliance | P1 |
-| UC-07 | As a developer, I want to update outdated packages from package.json so that I stay current | P0 |
+| UC-07 | As a developer, I want to update outdated packages from supported manifests so that I stay current | P0 |
 | UC-08 | As a developer, I want alternative package suggestions so that I choose the best option | P1 |
-| UC-09 | As a developer, I want to manage packages across monorepo so that I maintain consistency | P2 |
+| UC-09 | As a developer, I want to manage packages across multi-manifest workspaces so that I maintain consistency | P2 |
 | UC-10 | As a developer, I want to see package trends so that I avoid dying packages | P2 |
 
 ---
@@ -88,29 +88,28 @@ A comprehensive VS Code extension that brings the entire npm ecosystem into the 
 ### 4.1 Core Features (MVP - P0)
 
 #### F-01: Package Search
-- Full-text search across npm registry
-- Filter by keywords, author, scope
-- Sort by popularity, quality, maintenance
+- Full-text search across the active source
+- Source-specific filters and sorts
 - Recent searches history
 - Autocomplete suggestions
 
 #### F-02: Package Details View
 - Package name, description, version
 - README rendering (markdown)
-- Dependencies and peer dependencies
-- Weekly downloads and trends
-- GitHub repository link
+- Dependencies, requirements, and dependents where supported
+- Source-specific download metrics and trends
+- Registry and repository links
 - Keywords and tags
 
 #### F-03: Package Installation
-- Install to dependencies or devDependencies
-- Version selection (latest, specific, range)
+- Install or copy dependency declarations depending on source/tooling
+- Version selection (latest, specific, range when supported)
 - Installation progress indicator
 - Success/failure notifications
-- Automatic package.json update
+- Automatic manifest update where supported
 
-#### F-04: Package.json Integration
-- Hover information for packages
+#### F-04: Manifest Integration
+- Hover information for supported manifests
 - CodeLens for update availability
 - Quick actions (update, remove)
 - Version comparison (installed vs latest)
@@ -120,7 +119,7 @@ A comprehensive VS Code extension that brings the entire npm ecosystem into the 
 - Severity levels (low, moderate, high, critical)
 - CVE details and links
 - Advisory descriptions
-- Pre-install security check
+- Pre-install security check where supported
 
 ### 4.2 Enhanced Features (P1)
 
@@ -152,8 +151,8 @@ A comprehensive VS Code extension that brings the entire npm ecosystem into the 
 ### 4.3 Advanced Features (P2)
 
 #### F-10: Workspace/Monorepo Support
-- Multi-package.json detection
-- Cross-package dependency sync
+- Multi-manifest detection
+- Cross-project dependency sync where implemented
 - Version alignment tools
 - Workspace-wide updates
 
@@ -183,7 +182,7 @@ A comprehensive VS Code extension that brings the entire npm ecosystem into the 
 | Cache efficiency | 80% hit rate |
 
 ### 5.2 Reliability
-- 99.9% uptime (dependent on npm registry)
+- 99.9% uptime (dependent on external package sources)
 - Graceful degradation when offline
 - Local caching for resilience
 - Error recovery without restart
@@ -191,14 +190,14 @@ A comprehensive VS Code extension that brings the entire npm ecosystem into the 
 ### 5.3 Security
 - No credential storage in plain text
 - Secure communication (HTTPS only)
-- Token handling for private registries
+- Token handling for private registries when supported
 - No telemetry without consent
 
 ### 5.4 Compatibility
 - VS Code version: 1.74.0+
 - Node.js: 16.x, 18.x, 20.x
 - OS: Windows, macOS, Linux
-- Package managers: npm, yarn, pnpm
+- Package managers / build tools: npm, yarn, pnpm, bun, dotnet, paket, composer, bundler, cpanm, dart, flutter, cargo, R tooling, Clojure tooling
 
 ### 5.5 Accessibility
 - Keyboard navigation support
@@ -239,14 +238,14 @@ A comprehensive VS Code extension that brings the entire npm ecosystem into the 
 | npm Intellisense | Autocomplete, lightweight | No search, no security |
 | Version Lens | Version updates | No search, no install |
 | Import Cost | Bundle size | Limited to imports |
-| Search node_modules | File search | Not package management |
+| Search node_modules | File search | Not source-aware package management |
 
 ### 7.2 Our Differentiation
 1. **All-in-one solution** - Search, install, update, security in one place
 2. **Security-first** - Vulnerability data shown by default
-3. **Performance-aware** - Bundle size always visible
+3. **Source-aware** - Adapts behavior to the active ecosystem and source
 4. **Intelligence** - Smart suggestions and alternatives
-5. **Compliance** - License management built-in
+5. **Workspace-aware** - Multi-manifest and multi-project dependency management
 
 ---
 
@@ -254,8 +253,8 @@ A comprehensive VS Code extension that brings the entire npm ecosystem into the 
 
 | Risk | Probability | Impact | Mitigation |
 |------|-------------|--------|------------|
-| npm API rate limiting | Medium | High | Implement caching, request batching |
-| npm API changes | Low | High | Abstract API layer, version monitoring |
+| Source API rate limiting | Medium | High | Implement caching, request batching, fallbacks where possible |
+| Source API changes | Low | High | Abstract API layer, adapter isolation, version monitoring |
 | Performance issues | Medium | Medium | Lazy loading, virtual lists, profiling |
 | Security vulnerabilities | Low | Critical | Security audits, dependency scanning |
 | Low adoption | Medium | High | Marketing, community engagement |
@@ -268,7 +267,7 @@ A comprehensive VS Code extension that brings the entire npm ecosystem into the 
 - Project setup and architecture
 - Basic search and browse
 - Package installation
-- Package.json integration
+- Manifest integration
 
 ### Phase 2: Security & Quality
 - Security scanning integration
@@ -292,10 +291,10 @@ A comprehensive VS Code extension that brings the entire npm ecosystem into the 
 
 ## 10. Open Questions
 
-1. Should we support yarn.lock and pnpm-lock.yaml parsing?
+1. Which ecosystems should get full local dependency analyzer support beyond npm?
 2. What level of offline functionality is expected?
-3. Should we integrate with GitHub for repository insights?
-4. How to handle enterprise/private registry authentication securely?
+3. Which ecosystems need deeper repository insight integrations?
+4. How to handle enterprise/private registry authentication securely across sources?
 5. Should we provide a companion web dashboard?
 
 ---
@@ -303,13 +302,14 @@ A comprehensive VS Code extension that brings the entire npm ecosystem into the 
 ## 11. Appendix
 
 ### 11.1 Glossary
-- **npm**: Node Package Manager
-- **Registry**: Package repository (default: registry.npmjs.org)
-- **Scope**: Namespace for packages (@scope/package)
+- **Ecosystem**: A package-management domain such as npm, NuGet, Composer, Cargo, or CRAN
+- **Registry / Source**: A package repository or metadata source used for search, details, and dependency intelligence
+- **Scope / Namespace**: A source-specific package namespace such as `@scope/package` in npm ecosystems
 - **Semver**: Semantic versioning (major.minor.patch)
 
 ### 11.2 References
-- [npm Registry API](https://github.com/npm/registry/blob/master/docs/REGISTRY-API.md)
 - [VS Code Extension API](https://code.visualstudio.com/api)
-- [npms.io API](https://api-docs.npms.io/)
-- [Bundlephobia API](https://bundlephobia.com/)
+- [OSV.dev](https://osv.dev/)
+- [Packagist API Docs](https://packagist.org/apidoc)
+- [NuGet API Overview](https://learn.microsoft.com/nuget/api/overview)
+- [pub.dev API](https://pub.dev/help/api)

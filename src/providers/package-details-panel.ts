@@ -1,22 +1,10 @@
 import * as vscode from 'vscode';
 import { getServices } from '../services';
 import type { WebviewToExtensionMessage } from '../types/messages';
-import type { SourceInfoMessage } from '../types/messages';
 import { getInstallTargetSummary, selectInstallTargetManifest } from '../utils/install-target';
-
-function getBuildToolLabel(buildTool?: string): string | undefined {
-  const labels: Record<string, string> = {
-    maven: 'Maven',
-    gradle: 'Gradle',
-    sbt: 'SBT',
-    mill: 'Mill',
-    ivy: 'Ivy',
-    grape: 'Grape',
-    leiningen: 'Leiningen',
-    buildr: 'Buildr',
-  };
-  return buildTool ? (labels[buildTool] || buildTool) : undefined;
-}
+import { buildSourceInfoMessage } from './source-info';
+import type { SourceType } from '../types/project';
+import { SourceCapability } from '../sources/base/capabilities';
 
 /**
  * Manages package details webview panels that open in the editor area
@@ -32,6 +20,7 @@ export class PackageDetailsPanel {
   private _securityOnly: boolean;
   private _panelKey: string;
   private _installedVersion?: string;
+  private _sourceOverride?: SourceType;
   private _disposables: vscode.Disposable[] = [];
 
   private static getPanelKey(packageName: string, securityOnly: boolean): string {
@@ -41,17 +30,19 @@ export class PackageDetailsPanel {
   public static async createOrShow(
     extensionUri: vscode.Uri,
     packageName: string,
-    options?: { installedVersion?: string; securityOnly?: boolean }
+    options?: { installedVersion?: string; securityOnly?: boolean; source?: SourceType }
   ): Promise<void> {
     const column = vscode.ViewColumn.One;
     const securityOnly = !!options?.securityOnly;
     const installedVersion = options?.installedVersion;
+    const sourceOverride = options?.source;
     const key = PackageDetailsPanel.getPanelKey(packageName, securityOnly);
 
     // Check if we already have a panel for this package + mode
     const existingPanel = PackageDetailsPanel.currentPanels.get(key);
     if (existingPanel) {
       existingPanel.setInstalledVersion(installedVersion);
+      existingPanel.setSourceOverride(sourceOverride);
       await existingPanel.loadPackageDetails();
       existingPanel._panel.reveal(column);
       return;
@@ -75,7 +66,8 @@ export class PackageDetailsPanel {
       packageName,
       securityOnly,
       key,
-      installedVersion
+      installedVersion,
+      sourceOverride
     );
     PackageDetailsPanel.currentPanels.set(key, detailsPanel);
     // Panel will load data when React app sends 'ready' message
@@ -87,7 +79,8 @@ export class PackageDetailsPanel {
     packageName: string,
     securityOnly: boolean,
     panelKey: string,
-    installedVersion?: string
+    installedVersion?: string,
+    sourceOverride?: SourceType
   ) {
     this._panel = panel;
     this._extensionUri = extensionUri;
@@ -95,6 +88,7 @@ export class PackageDetailsPanel {
     this._securityOnly = securityOnly;
     this._panelKey = panelKey;
     this._installedVersion = installedVersion;
+    this._sourceOverride = sourceOverride;
 
     // Set initial HTML with React app
     this._panel.webview.html = this.getHtmlContent();
@@ -114,12 +108,18 @@ export class PackageDetailsPanel {
     this._installedVersion = version;
   }
 
+  public setSourceOverride(source?: SourceType): void {
+    this._sourceOverride = source;
+  }
+
   private async loadPackageDetails(): Promise<void> {
     try {
       const services = getServices();
-      const details = await services.package.getEnrichedPackageDetails(this._packageName, {
-        installedVersion: this._installedVersion,
-      });
+      const details = this._sourceOverride
+        ? await this.getEnrichedPackageDetailsFromSource(this._sourceOverride)
+        : await services.package.getEnrichedPackageDetails(this._packageName, {
+            installedVersion: this._installedVersion,
+          });
 
       // When opened in security-only mode, tell webview to render only Security tab
       const securityOnlyView = this._securityOnly;
@@ -240,7 +240,20 @@ export class PackageDetailsPanel {
 
       case 'copySnippet': {
         try {
-          const result = await services.install.copySnippet(message.packageName, message.options);
+          const projectType = services.getCurrentProjectType();
+          const currentSource = services.getCurrentSourceType();
+          const installTarget = await getInstallTargetSummary(
+            services.workspace,
+            services.install,
+            vscode.window.activeTextEditor?.document.uri.fsPath,
+            projectType,
+            currentSource
+          );
+          const result = await services.install.copySnippet(
+            message.packageName,
+            message.options,
+            installTarget?.manifestPath
+          );
           if (result.success) {
             this._panel.webview.postMessage({
               type: 'copySuccess',
@@ -294,6 +307,42 @@ export class PackageDetailsPanel {
     }
   }
 
+  private async getEnrichedPackageDetailsFromSource(sourceType: SourceType) {
+    const services = getServices();
+    const adapter = services.sourceRegistry.getAdapter(sourceType);
+    if (!adapter) {
+      throw new Error(`Source adapter not found: ${sourceType}`);
+    }
+
+    const details = await adapter.getPackageDetails(this._packageName, this._installedVersion);
+
+    const [dependents, requirements, installedVersionSecurity] = await Promise.all([
+      adapter.supportsCapability(SourceCapability.DEPENDENTS) && adapter.getDependents
+        ? adapter.getDependents(this._packageName, details.version)
+        : Promise.resolve(null),
+      adapter.supportsCapability(SourceCapability.REQUIREMENTS) && adapter.getRequirements
+        ? adapter.getRequirements(this._packageName, details.version)
+        : Promise.resolve(null),
+      this._installedVersion && adapter.supportsCapability(SourceCapability.SECURITY) && adapter.getSecurityInfo
+        ? adapter.getSecurityInfo(this._packageName, details.version)
+        : Promise.resolve(null),
+    ]);
+
+    if (dependents) {
+      details.dependents = dependents;
+    }
+
+    if (requirements) {
+      details.requirements = requirements;
+    }
+
+    if (installedVersionSecurity) {
+      details.security = installedVersionSecurity;
+    }
+
+    return details;
+  }
+
   private getHtmlContent(): string {
     const webview = this._panel.webview;
     const nonce = this.getNonce();
@@ -337,79 +386,7 @@ export class PackageDetailsPanel {
   }
 
   private async sendSourceInfo(): Promise<void> {
-    const services = getServices();
-    const activePath = vscode.window.activeTextEditor?.document.uri.fsPath;
-    const detectedPackageManager = await services.install.detectPackageManager(activePath);
-    const projectType = services.getCurrentProjectType();
-    const currentSource = services.getCurrentSourceType();
-    const installTarget = await getInstallTargetSummary(
-      services.workspace,
-      services.install,
-      activePath,
-      projectType,
-      currentSource
-    );
-    const effectiveManager = (installTarget?.packageManager || detectedPackageManager).toLowerCase();
-    const neilEnabled =
-      (projectType === 'clojure' || currentSource === 'clojars') &&
-      await services.install.canUseNeil(installTarget?.manifestPath || activePath);
-    const supportedCapabilities = services.package.getSupportedCapabilities().filter((cap) => {
-      if (currentSource !== 'clojars' && projectType !== 'clojure') {
-        return true;
-      }
-      if (cap === 'installation') {
-        return neilEnabled;
-      }
-      if (cap === 'copy') {
-        return !neilEnabled || effectiveManager === 'leiningen';
-      }
-      return true;
-    });
-
-    const capabilitySupport: Record<string, { capability: string; supported: boolean; reason?: string }> = {};
-    for (const cap of supportedCapabilities) {
-      const support = services.package.getCapabilitySupport(cap);
-      if (support) {
-        const adjustedSupported =
-          cap === 'installation' && (currentSource === 'clojars' || projectType === 'clojure')
-            ? neilEnabled
-            : cap === 'copy' && (currentSource === 'clojars' || projectType === 'clojure')
-              ? (!neilEnabled || effectiveManager === 'leiningen')
-              : support.supported;
-        capabilitySupport[cap] = {
-          capability: cap,
-          supported: adjustedSupported,
-          reason: adjustedSupported ? undefined : support.reason,
-        };
-      }
-    }
-
-    const isDotNet = projectType === 'dotnet' || currentSource === 'nuget';
-    const isSonatype = projectType === 'maven' || currentSource === 'sonatype';
-    const detectedNuGetStyle = isDotNet ? services.install.detectNuGetManagementStyle(activePath) : undefined;
-    const detectedBuildTool = isSonatype ? (await services.install.detectBuildTool()) || undefined : undefined;
-    const detectedCopyFormatLabel = isSonatype ? getBuildToolLabel(detectedBuildTool) : undefined;
-
-    const sourceInfo: SourceInfoMessage = {
-      type: 'sourceInfo',
-      data: {
-        currentProjectType: services.getCurrentProjectType(),
-        detectedPackageManager,
-        detectedBuildTool,
-        detectedCopyFormatLabel,
-        detectedNuGetStyle,
-        installTarget: installTarget || undefined,
-        currentSource,
-        detectedProjectTypes: services.getDetectedProjectTypes(),
-        availableSources: services.getAvailableSources(),
-        supportedSortOptions: services.getSupportedSortOptions(),
-        supportedFilters: services.getSupportedFilters(),
-        supportedCapabilities: supportedCapabilities.map((c) => c.toString()),
-        capabilitySupport,
-      },
-    };
-
-    this._panel.webview.postMessage(sourceInfo);
+    this._panel.webview.postMessage(await buildSourceInfoMessage());
   }
 
   private escapeHtml(text: string): string {

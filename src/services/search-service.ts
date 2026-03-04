@@ -34,14 +34,7 @@ export class SearchService {
     }
 
     const sourceType = this.sourceSelector.getCurrentSourceType();
-    const cacheKey = [
-      sourceType,
-      query.trim(),
-      options.exactName || '',
-      options.from || 0,
-      options.size || 20,
-      options.sortBy || 'relevance',
-    ].join(':');
+    const cacheKey = this.buildSearchCacheKey(sourceType, options);
     const cached = this.searchCache.get<SearchResult>(cacheKey);
     if (cached) {
       return cached;
@@ -53,6 +46,42 @@ export class SearchService {
     );
     this.searchCache.set(cacheKey, result, 5 * 60 * 1000);
     return result;
+  }
+
+  private buildSearchCacheKey(sourceType: string, options: SearchOptions): string {
+    const normalized = {
+      sourceType,
+      query: options.query.trim(),
+      exactName: options.exactName?.trim() || '',
+      from: options.from || 0,
+      size: options.size || 20,
+      sortBy: typeof options.sortBy === 'string'
+        ? options.sortBy
+        : options.sortBy?.value || 'relevance',
+      filters: this.normalizeFilters(options.filters),
+    };
+
+    return JSON.stringify(normalized);
+  }
+
+  private normalizeFilters(filters?: SearchOptions['filters']): Record<string, unknown> | null {
+    if (!filters || typeof filters !== 'object') {
+      return null;
+    }
+
+    const normalizedEntries = Object.entries(filters)
+      .filter(([, value]) => value !== undefined && value !== null && value !== '')
+      .map(([key, value]) => [
+        key,
+        Array.isArray(value)
+          ? [...value].sort()
+          : value,
+      ] as const)
+      .sort(([a], [b]) => a.localeCompare(b));
+
+    return normalizedEntries.length > 0
+      ? Object.fromEntries(normalizedEntries)
+      : null;
   }
 
   /**

@@ -120,7 +120,7 @@ npm-gallery/
 {
   "name": "npm-gallery",
   "displayName": "NPM Gallery",
-  "description": "Browse, search, and manage npm packages from VS Code",
+  "description": "Browse, search, and manage packages from multiple ecosystems in VS Code",
   "version": "0.1.0",
   "publisher": "your-publisher",
   "engines": {
@@ -130,7 +130,10 @@ npm-gallery/
   "activationEvents": [
     "onView:npmGallery.searchView",
     "onCommand:npmGallery.openPanel",
-    "workspaceContains:package.json"
+    "workspaceContains:**/package.json",
+    "workspaceContains:**/pom.xml",
+    "workspaceContains:**/composer.json",
+    "workspaceContains:**/Cargo.toml"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -475,7 +478,7 @@ suite('Extension Integration Tests', () => {
     const commands = await vscode.commands.getCommands();
 
     assert.ok(commands.includes('npmGallery.openPanel'));
-    assert.ok(commands.includes('npmGallery.search'));
+    assert.ok(commands.includes('npmGallery.searchPackages'));
     assert.ok(commands.includes('npmGallery.installPackage'));
   });
 
@@ -611,7 +614,7 @@ log('API request failed', 'error');
 # Check for build errors
 npm run build
 
-# Verify package.json activationEvents
+# Verify activationEvents in package.json
 # Ensure main field points to correct file
 ```
 
@@ -918,7 +921,7 @@ git push origin v1.0.0
 - [VS Code Extension Samples](https://github.com/microsoft/vscode-extension-samples)
 - [VS Code Webview API](https://code.visualstudio.com/api/extension-guides/webview)
 
-### npm APIs
+### Representative Package Source APIs
 - [npm Registry API](https://github.com/npm/registry/blob/master/docs/REGISTRY-API.md)
 - [npms.io API](https://api-docs.npms.io/)
 

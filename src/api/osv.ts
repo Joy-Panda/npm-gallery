@@ -206,34 +206,11 @@ export class OSVClient extends BaseApiClient {
       }
     }
 
-    // Get CVE ID from aliases first, then from id field
-    const cveId = vuln.aliases?.find((alias) => alias.startsWith('CVE-')) || 
-                  (vuln.id.startsWith('CVE-') ? vuln.id : undefined);
     const osvId = vuln.id;
 
-    // Get reference URL (prefer security advisory, then CVE link, then first reference)
-    let url: string | undefined;
-    if (vuln.references && vuln.references.length > 0) {
-      // Prefer security advisory URLs (GitHub security advisories, etc.)
-      const advisoryRef = vuln.references.find(
-        (r) => r.type === 'ADVISORY' || 
-               r.url.includes('security/advisories') || 
-               r.url.includes('advisories')
-      );
-      if (advisoryRef) {
-        url = advisoryRef.url;
-      } else {
-        // Fall back to first WEB reference, then any reference
-        const webRef = vuln.references.find((r) => r.type === 'WEB');
-        url = webRef?.url || vuln.references[0].url;
-      }
-    }
-    if (!url && cveId) {
-      url = `https://cve.mitre.org/cgi-bin/cvename.cgi?name=${cveId}`;
-    }
-    if (!url) {
-      url = `https://osv.dev/vulnerability/${osvId}`;
-    }
+    // Prefer the canonical OSV page. Third-party advisory URLs are inconsistent
+    // and may return 404/405 even when the vulnerability exists in OSV.
+    const url = `https://osv.dev/vulnerability/${osvId}`;
 
     // Build recommendation
     let recommendation: string | undefined;

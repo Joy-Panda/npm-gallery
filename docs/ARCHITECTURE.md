@@ -25,58 +25,35 @@ This document describes the technical architecture, design decisions, and compon
 ### 1.1 Architecture Overview
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                         VS Code Extension Host                       │
+│                         VS Code Extension Host                      │
 ├─────────────────────────────────────────────────────────────────────┤
-│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐ │
-│  │   Extension     │  │    Webview      │  │    Language         │ │
-│  │   Activation    │  │    Provider     │  │    Features         │ │
-│  │                 │  │                 │  │                     │ │
-│  │  - Commands     │  │  - React UI     │  │  - Hover Provider   │ │
-│  │  - Events       │  │  - Search       │  │  - CodeLens         │ │
-│  │  - Lifecycle    │  │  - Details      │  │  - Completion       │ │
-│  └────────┬────────┘  └────────┬────────┘  │  - Diagnostics      │ │
-│           │                    │           └──────────┬──────────┘ │
-│           └──────────┬─────────┘                      │            │
-│                      │                                │            │
-│           ┌──────────▼────────────────────────────────▼──────────┐ │
-│           │                   Core Services                       │ │
-│           ├───────────────────────────────────────────────────────┤ │
-│           │  ┌─────────────┐  ┌─────────────┐  ┌───────────────┐ │ │
-│           │  │ Package     │  │ Security    │  │ Bundle        │ │ │
-│           │  │ Service     │  │ Service     │  │ Service       │ │ │
-│           │  └─────────────┘  └─────────────┘  └───────────────┘ │ │
-│           │  ┌─────────────┐  ┌─────────────┐  ┌───────────────┐ │ │
-│           │  │ Search      │  │ Install     │  │ Workspace     │ │ │
-│           │  │ Service     │  │ Service     │  │ Service       │ │ │
-│           │  └─────────────┘  └─────────────┘  └───────────────┘ │ │
-│           └───────────────────────────┬───────────────────────────┘ │
-│                                       │                             │
-│           ┌───────────────────────────▼───────────────────────────┐ │
-│           │                   API Layer                            │ │
-│           ├────────────────────────────────────────────────────────┤ │
-│           │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ │ │
-│           │  │ npm      │ │ npms.io  │ │ Bundle   │ │ GitHub   │ │ │
-│           │  │ Registry │ │ API      │ │ phobia   │ │ API      │ │ │
-│           │  └──────────┘ └──────────┘ └──────────┘ └──────────┘ │ │
-│           └───────────────────────────┬───────────────────────────┘ │
-│                                       │                             │
-│           ┌───────────────────────────▼───────────────────────────┐ │
-│           │                   Cache Layer                          │ │
-│           │  ┌─────────────────────┐  ┌─────────────────────────┐ │ │
-│           │  │   Memory Cache      │  │   Persistent Cache      │ │ │
-│           │  │   (LRU, 5 min TTL)  │  │   (globalState, 1hr)    │ │ │
-│           │  └─────────────────────┘  └─────────────────────────┘ │ │
-│           └────────────────────────────────────────────────────────┘ │
+│  ┌────────────────┐  ┌────────────────┐  ┌─────────────────────┐  │
+│  │ Extension      │  │ Webview + Tree │  │ Editor integrations │  │
+│  │ activation     │  │ providers      │  │ Hover / CodeLens    │  │
+│  └────────┬───────┘  └────────┬───────┘  └──────────┬──────────┘  │
+│           └───────────────────┴──────────────────────┘             │
+│                               │                                    │
+│   ┌───────────────────────────▼─────────────────────────────────┐  │
+│   │                    Core services                             │  │
+│   │ Package / Search / Install / Workspace / SourceContext      │  │
+│   │ PackageQuery / NpmLocal                                     │  │
+│   └───────────────────────────┬─────────────────────────────────┘  │
+│                               │                                    │
+│   ┌───────────────────────────▼─────────────────────────────────┐  │
+│   │                Source infrastructure                         │  │
+│   │ SourceConfig / ProjectDetector / SourceRegistry / Selector   │  │
+│   └───────────────────────────┬─────────────────────────────────┘  │
+│                               │                                    │
+│   ┌───────────────────────────▼─────────────────────────────────┐  │
+│   │                    Source adapters                           │  │
+│   │ npm / npms / sonatype / nuget / packagist / rubygems / ...  │  │
+│   └───────────────────────────┬─────────────────────────────────┘  │
+│                               │                                    │
+│   ┌───────────────────────────▼─────────────────────────────────┐  │
+│   │                     API clients                              │  │
+│   │ npm-registry / deps.dev / osv / sonatype / nuget / ...      │  │
+│   └──────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────┘
-                                    │
-                                    ▼
-                        ┌───────────────────────┐
-                        │    External APIs      │
-                        │  - registry.npmjs.org │
-                        │  - api.npms.io        │
-                        │  - bundlephobia.com   │
-                        │  - api.github.com     │
-                        └───────────────────────┘
 ```
 
 ### 1.2 Layer Responsibilities
@@ -84,11 +61,11 @@ This document describes the technical architecture, design decisions, and compon
 | Layer | Responsibility |
 |-------|----------------|
 | **Extension Host** | VS Code integration, activation, commands |
-| **Webview** | Rich UI for search and package details |
-| **Language Features** | package.json integration |
-| **Core Services** | Business logic and orchestration |
-| **API Layer** | External API communication |
-| **Cache Layer** | Response caching and optimization |
+| **Webview / Trees** | Search UI, details panel, installed and updates trees |
+| **Editor Integrations** | Manifest-aware hover and CodeLens routing |
+| **Core Services** | Search, package queries, install, workspace orchestration, source context |
+| **Source Infrastructure** | Project detection, source registration, source selection |
+| **Source Adapters / APIs** | Ecosystem-specific capabilities and external API communication |
 
 ---
 
@@ -122,21 +99,24 @@ npm-gallery/
 │   │
 │   ├── services/             # Business logic services
 │   │   ├── index.ts
+│   │   ├── container.ts
 │   │   ├── package-service.ts
 │   │   ├── search-service.ts
 │   │   ├── install-service.ts
-│   │   ├── security-service.ts
-│   │   ├── bundle-service.ts
-│   │   ├── license-service.ts
-│   │   └── workspace-service.ts
+│   │   ├── source-context-service.ts
+│   │   ├── workspace-service.ts
+│   │   ├── package/          # Package query + npm-local helpers
+│   │   ├── source-context/   # Source-specific context strategies
+│   │   └── workspace/        # Discovery, scope, parsers, editors
 │   │
 │   ├── providers/            # VS Code providers
 │   │   ├── index.ts
 │   │   ├── hover-provider.ts
 │   │   ├── codelens-provider.ts
-│   │   ├── completion-provider.ts
-│   │   ├── diagnostic-provider.ts
-│   │   └── webview-provider.ts
+│   │   ├── webview-provider.ts
+│   │   ├── package-details-panel.ts
+│   │   ├── hover/            # Per-ecosystem hover handlers
+│   │   └── codelens/         # Per-ecosystem CodeLens handlers
 │   │
 │   ├── commands/             # Command handlers
 │   │   ├── index.ts
@@ -153,7 +133,7 @@ npm-gallery/
 │   │
 │   ├── utils/                # Utility functions
 │   │   ├── index.ts
-│   │   ├── package-json.ts
+│   │   ├── package-json.ts   # npm-specific helpers
 │   │   ├── semver.ts
 │   │   ├── url-parser.ts
 │   │   └── formatters.ts
@@ -215,28 +195,36 @@ npm-gallery/
 ```typescript
 // src/extension.ts
 import * as vscode from 'vscode';
-import { ServiceContainer } from './services';
+import { createApiClients } from './api';
 import { registerCommands } from './commands';
-import { registerProviders } from './providers';
-import { initializeCache } from './cache';
+import { initServices } from './services';
+import {
+  InstalledPackagesProvider,
+  PackageCodeLensProvider,
+  PackageHoverProvider,
+  SearchViewProvider,
+  UpdatesProvider,
+} from './providers';
 
 export async function activate(context: vscode.ExtensionContext) {
   console.log('NPM Gallery: Activating...');
 
-  // Initialize cache with extension context
-  const cache = initializeCache(context);
+  createApiClients();
+  const services = await initServices();
+  const workspaceDisposables = services.workspace.initialize();
+  context.subscriptions.push(...workspaceDisposables);
 
-  // Create service container
-  const services = new ServiceContainer(cache, context);
+  const hoverProvider = new PackageHoverProvider();
+  const codeLensProvider = new PackageCodeLensProvider();
+  const searchViewProvider = new SearchViewProvider(context.extensionUri);
+  const installedProvider = new InstalledPackagesProvider();
+  const updatesProvider = new UpdatesProvider();
 
-  // Register all commands
-  registerCommands(context, services);
-
-  // Register language providers
-  registerProviders(context, services);
-
-  // Initialize workspace watcher
-  services.workspace.initialize();
+  registerCommands(context, {
+    codelens: codeLensProvider,
+    installed: installedProvider,
+    updates: updatesProvider,
+  });
 
   console.log('NPM Gallery: Activated successfully');
 }
@@ -249,206 +237,166 @@ export function deactivate() {
 ### 3.2 Service Container
 
 ```typescript
-// src/services/index.ts
-import { ExtensionContext } from 'vscode';
-import { CacheManager } from '../cache';
+// src/services/container.ts
 import { PackageService } from './package-service';
 import { SearchService } from './search-service';
 import { InstallService } from './install-service';
-import { SecurityService } from './security-service';
-import { BundleService } from './bundle-service';
 import { WorkspaceService } from './workspace-service';
+import { SourceContextService } from './source-context-service';
+import { initSourceConfigManager } from '../config/source-config';
+import { initSourceRegistry } from '../registry/source-registry';
+import { getProjectDetector } from '../registry/project-detector';
+import { initSourceSelector } from '../registry/source-selector';
 
 export class ServiceContainer {
-  public readonly package: PackageService;
-  public readonly search: SearchService;
-  public readonly install: InstallService;
-  public readonly security: SecurityService;
-  public readonly bundle: BundleService;
-  public readonly workspace: WorkspaceService;
+  readonly package: PackageService;
+  readonly search: SearchService;
+  readonly install: InstallService;
+  readonly workspace: WorkspaceService;
+  readonly sourceContext: SourceContextService;
 
-  constructor(cache: CacheManager, context: ExtensionContext) {
-    // Initialize API clients
-    const apiClients = createApiClients(cache);
+  readonly configManager = initSourceConfigManager();
+  readonly sourceRegistry = initSourceRegistry();
+  readonly projectDetector = getProjectDetector();
+  readonly sourceSelector = initSourceSelector(
+    this.sourceRegistry,
+    this.projectDetector,
+    this.configManager
+  );
 
-    // Initialize services with dependencies
-    this.package = new PackageService(apiClients);
-    this.search = new SearchService(apiClients);
-    this.security = new SecurityService(apiClients.audit);
-    this.bundle = new BundleService(apiClients.bundlephobia);
-    this.install = new InstallService(context);
-    this.workspace = new WorkspaceService(context);
+  constructor() {
+    this.workspace = new WorkspaceService();
+    this.package = new PackageService(this.sourceSelector);
+    this.search = new SearchService(this.sourceSelector);
+    this.install = new InstallService(this.sourceSelector, this.workspace);
+    this.sourceContext = new SourceContextService({
+      workspace: this.workspace,
+      install: this.install,
+      package: this.package,
+      search: this.search,
+      getCurrentProjectType: () => this.getCurrentProjectType(),
+      getCurrentSourceType: () => this.getCurrentSourceType(),
+      getDetectedProjectTypes: () => this.getDetectedProjectTypes(),
+      getAvailableSources: () => this.getAvailableSources(),
+      getSupportedSortOptions: () => this.getSupportedSortOptions(),
+      getSupportedFilters: () => this.getSupportedFilters(),
+    });
   }
 }
 ```
+
+Current role split:
+
+- `ServiceContainer`: wires source registry, project detection, source selection, and core services.
+- `WorkspaceService`: owns manifest discovery, scope resolution, installed/update parsing, manifest edits, and refresh orchestration.
+- `PackageService`: façade over source-facing queries and npm-local dependency analysis.
+- `SourceContextService`: builds the `sourceInfo` payload shared by the sidebar and details panel.
 
 ### 3.3 API Client Base Class
 
 ```typescript
 // src/api/base-client.ts
-import { CacheManager } from '../cache';
-import { ApiError, ApiErrorType } from '../types';
+import axios, { AxiosInstance, AxiosError, AxiosHeaders } from 'axios';
+import * as vscode from 'vscode';
 
 export abstract class BaseApiClient {
-  constructor(
-    protected baseUrl: string,
-    protected cache: CacheManager,
-    protected serviceName: string
-  ) {}
+  protected client: AxiosInstance;
 
-  protected async request<T>(
-    endpoint: string,
-    options: RequestOptions = {}
-  ): Promise<T> {
-    const url = `${this.baseUrl}${endpoint}`;
-    const cacheKey = options.cacheKey || `${this.serviceName}:${endpoint}`;
-
-    // Check cache
-    if (options.useCache !== false) {
-      const cached = await this.cache.get<T>(cacheKey);
-      if (cached) {
-        return cached;
-      }
-    }
-
-    try {
-      const response = await fetch(url, {
-        method: options.method || 'GET',
-        headers: {
-          'Accept': 'application/json',
-          'User-Agent': 'npm-gallery-vscode',
-          ...options.headers
-        },
-        body: options.body ? JSON.stringify(options.body) : undefined,
-        signal: AbortSignal.timeout(options.timeout || 10000)
+  constructor(baseURL: string, serviceName: string, timeout = 10000) {
+    this.client = axios.create({ baseURL, timeout });
+    this.client.interceptors.request.use((config) => {
+      config.headers = AxiosHeaders.from({
+        Accept: 'application/json',
+        'User-Agent': getUserAgent(),
+        ...(config.headers || {}),
       });
-
-      if (!response.ok) {
-        throw this.handleErrorResponse(response);
+      return config;
+    });
+    this.client.interceptors.response.use(
+      (response) => response,
+      (error: AxiosError) => {
+        throw this.handleAxiosError(error);
       }
-
-      const data = await response.json() as T;
-
-      // Cache successful response
-      if (options.cacheTtl) {
-        await this.cache.set(cacheKey, data, options.cacheTtl);
-      }
-
-      return data;
-    } catch (error) {
-      if (error instanceof ApiError) throw error;
-      throw new ApiError(ApiErrorType.NETWORK_ERROR, undefined, error);
-    }
+    );
   }
 
-  private handleErrorResponse(response: Response): ApiError {
-    switch (response.status) {
-      case 404:
-        return new ApiError(ApiErrorType.NOT_FOUND, response.status);
-      case 429:
-        const retryAfter = parseInt(response.headers.get('Retry-After') || '60');
-        return new ApiError(ApiErrorType.RATE_LIMITED, response.status, retryAfter);
-      default:
-        return new ApiError(ApiErrorType.SERVER_ERROR, response.status);
-    }
+  protected async get<T>(endpoint: string) {
+    const response = await this.client.get<T>(endpoint);
+    return response.data;
   }
-}
 
-interface RequestOptions {
-  method?: 'GET' | 'POST';
-  headers?: Record<string, string>;
-  body?: unknown;
-  timeout?: number;
-  useCache?: boolean;
-  cacheKey?: string;
-  cacheTtl?: number;
+  protected async post<T>(endpoint: string, data?: unknown) {
+    const response = await this.client.post<T>(endpoint, data);
+    return response.data;
+  }
 }
 ```
+
+Notes:
+
+- shared request metadata such as `User-Agent` is injected dynamically at request time
+- cache policy is not owned by `BaseApiClient`; source-level or service-level caches sit above the transport layer
+- some APIs also use shared `fetch` helpers, but they follow the same header strategy
 
 ### 3.4 Package Service
 
 ```typescript
 // src/services/package-service.ts
-import { NpmRegistryClient } from '../api/npm-registry';
-import { NpmsClient } from '../api/npms-api';
-import { PackageInfo, PackageDetails, VersionInfo } from '../types';
+import { NpmLocalService } from './package/npm-local-service';
+import { PackageQueryService } from './package/package-query-service';
+import type { SourceSelector } from '../registry/source-selector';
 
 export class PackageService {
-  constructor(
-    private npmRegistry: NpmRegistryClient,
-    private npmsApi: NpmsClient
-  ) {}
+  private npmLocalService = new NpmLocalService();
+  private queryService: PackageQueryService;
 
-  async getPackageInfo(name: string): Promise<PackageInfo> {
-    // Try npms.io first for enhanced data
-    try {
-      const analysis = await this.npmsApi.getPackage(name);
-      return this.transformNpmsResponse(analysis);
-    } catch {
-      // Fallback to npm registry
-      const npmData = await this.npmRegistry.getPackage(name);
-      return this.transformNpmResponse(npmData);
-    }
+  constructor(sourceSelector?: SourceSelector) {
+    this.queryService = new PackageQueryService(sourceSelector);
   }
 
-  async getPackageDetails(name: string): Promise<PackageDetails> {
-    // Fetch data from multiple sources in parallel
-    const [npmData, downloads, analysis] = await Promise.all([
-      this.npmRegistry.getPackage(name),
-      this.npmRegistry.getDownloads(name, 'last-week'),
-      this.npmsApi.getPackage(name).catch(() => null)
-    ]);
-
-    return {
-      ...this.transformNpmResponse(npmData),
-      readme: npmData.readme,
-      versions: this.extractVersions(npmData),
-      weeklyDownloads: downloads.downloads,
-      score: analysis?.score
-    };
+  async getPackageInfo(name: string) {
+    return this.queryService.getPackageInfo(name);
   }
 
-  async getVersions(name: string): Promise<VersionInfo[]> {
-    const npmData = await this.npmRegistry.getPackage(name);
-    return this.extractVersions(npmData);
+  async getPackageDetails(name: string, version?: string) {
+    return this.queryService.getPackageDetails(name, version);
   }
 
-  private extractVersions(npmData: NpmPackageInfo): VersionInfo[] {
-    return Object.entries(npmData.versions)
-      .map(([version, data]) => ({
-        version,
-        publishedAt: npmData.time[version],
-        deprecated: !!data.deprecated,
-        tag: this.getVersionTag(version, npmData['dist-tags'])
-      }))
-      .sort((a, b) => semver.rcompare(a.version, b.version));
+  async getLatestVersion(name: string) {
+    return this.queryService.getLatestVersion(name);
   }
 
-  private getVersionTag(
-    version: string,
-    distTags: Record<string, string>
-  ): string | undefined {
-    return Object.entries(distTags)
-      .find(([, v]) => v === version)?.[0];
+  async getDependencyAnalyzerData(manifestPath: string) {
+    return this.npmLocalService.getDependencyAnalyzerData(
+      manifestPath,
+      (name, version, targetPath) => this.getPackageDependencies(name, version, targetPath)
+    );
   }
 }
 ```
+
+Current role split:
+
+- `PackageService` is now a thin façade.
+- `PackageQueryService` owns latest-version caching, security queries, requirements/dependents, and capability-aware source access.
+- `NpmLocalService` owns npm-local dependency tree loading and the dependency analyzer path.
 
 ### 3.5 Webview Provider
 
 ```typescript
 // src/providers/webview-provider.ts
 import * as vscode from 'vscode';
-import { ServiceContainer } from '../services';
+import { getServices } from '../services';
+import { buildSourceInfoMessage } from './source-info';
+import { PackageDetailsPanel } from './package-details-panel';
 
-export class NpmGalleryWebviewProvider implements vscode.WebviewViewProvider {
+export class SearchViewProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'npmGallery.searchView';
   private _view?: vscode.WebviewView;
+  private searchRequestId = 0;
+  private searchAbortController?: AbortController;
 
-  constructor(
-    private readonly extensionUri: vscode.Uri,
-    private readonly services: ServiceContainer
-  ) {}
+  constructor(private readonly extensionUri: vscode.Uri) {}
 
   resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -464,97 +412,38 @@ export class NpmGalleryWebviewProvider implements vscode.WebviewViewProvider {
 
     webviewView.webview.html = this.getHtmlContent(webviewView.webview);
 
-    // Handle messages from webview
     webviewView.webview.onDidReceiveMessage(async (message) => {
-      switch (message.type) {
-        case 'search':
-          await this.handleSearch(message.query);
-          break;
-        case 'getPackageDetails':
-          await this.handleGetPackageDetails(message.name);
-          break;
-        case 'install':
-          await this.handleInstall(message.package, message.options);
-          break;
-      }
+      await this.handleMessage(message);
     });
   }
 
-  private async handleSearch(query: string) {
-    try {
-      const results = await this.services.search.search(query);
-      this.postMessage({ type: 'searchResults', data: results });
-    } catch (error) {
-      this.postMessage({ type: 'error', message: error.message });
+  private async handleMessage(message: WebviewToExtensionMessage): Promise<void> {
+    const services = getServices();
+    switch (message.type) {
+      case 'search':
+        await services.search.search({ query: message.query, sortBy: message.sortBy });
+        break;
+      case 'openPackageDetails':
+        await PackageDetailsPanel.createOrShow(this.extensionUri, message.packageName);
+        break;
+      case 'getSourceInfo':
+        this.postMessage(await buildSourceInfoMessage());
+        break;
+      case 'changeSource':
+        services.setSelectedSource(message.source);
+        this.postMessage(await buildSourceInfoMessage());
+        break;
     }
-  }
-
-  private async handleGetPackageDetails(name: string) {
-    try {
-      const [details, bundleSize, security] = await Promise.all([
-        this.services.package.getPackageDetails(name),
-        this.services.bundle.getSize(name),
-        this.services.security.checkPackage(name)
-      ]);
-
-      this.postMessage({
-        type: 'packageDetails',
-        data: { ...details, bundleSize, security }
-      });
-    } catch (error) {
-      this.postMessage({ type: 'error', message: error.message });
-    }
-  }
-
-  private async handleInstall(
-    packageName: string,
-    options: InstallOptions
-  ) {
-    try {
-      await this.services.install.install(packageName, options);
-      this.postMessage({ type: 'installSuccess', package: packageName });
-      vscode.window.showInformationMessage(
-        `Successfully installed ${packageName}`
-      );
-    } catch (error) {
-      this.postMessage({ type: 'installError', message: error.message });
-      vscode.window.showErrorMessage(
-        `Failed to install ${packageName}: ${error.message}`
-      );
-    }
-  }
-
-  private postMessage(message: unknown) {
-    this._view?.webview.postMessage(message);
-  }
-
-  private getHtmlContent(webview: vscode.Webview): string {
-    const scriptUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview.js')
-    );
-    const styleUri = webview.asWebviewUri(
-      vscode.Uri.joinPath(this.extensionUri, 'dist', 'webview.css')
-    );
-
-    return `
-      <!DOCTYPE html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src ${webview.cspSource};">
-        <link href="${styleUri}" rel="stylesheet">
-        <title>NPM Gallery</title>
-      </head>
-      <body>
-        <div id="root"></div>
-        <script src="${scriptUri}"></script>
-      </body>
-      </html>
-    `;
   }
 }
 ```
+
+Current provider split:
+
+- `SearchViewProvider`: sidebar search webview and source/search/install/copy messages.
+- `PackageDetailsPanel`: editor-area details panel with richer package actions.
+- `InstalledPackagesProvider` / `UpdatesProvider`: native tree views.
+- `PackageHoverProvider` / `PackageCodeLensProvider`: thin routers over per-ecosystem handlers.
 
 ---
 
@@ -562,217 +451,136 @@ export class NpmGalleryWebviewProvider implements vscode.WebviewViewProvider {
 
 ### 4.1 Search Flow
 ```
-┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
-│  User    │───▶│ Webview  │───▶│ Search   │───▶│ npms.io  │
-│  Types   │    │  UI      │    │ Service  │    │ API      │
-└──────────┘    └──────────┘    └──────────┘    └──────────┘
-                     │               │               │
-                     │               │               │
-                     ▼               ▼               ▼
-              ┌──────────┐    ┌──────────┐    ┌──────────┐
-              │ Display  │◀───│ Transform│◀───│ Cache    │
-              │ Results  │    │ Data     │    │ Response │
-              └──────────┘    └──────────┘    └──────────┘
+┌──────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+│  User    │───▶│ Search View  │───▶│ Search       │───▶│ Source       │
+│  Types   │    │  Webview     │    │ Service      │    │ Selector     │
+└──────────┘    └──────────────┘    └──────────────┘    └──────┬───────┘
+                                                                │
+                                                                ▼
+                                                         ┌──────────────┐
+                                                         │ Active source│
+                                                         │ adapter/API  │
+                                                         └──────┬───────┘
+                                                                │
+                               ┌────────────────────────────────┴─────────────────────────┐
+                               ▼                                                          ▼
+                        ┌──────────────┐                                           ┌──────────────┐
+                        │ 5-minute     │                                           │ Search       │
+                        │ search cache │                                           │ results      │
+                        └──────────────┘                                           └──────────────┘
 ```
 
 ### 4.2 Install Flow
 ```
-┌────────────────────────────────────────────────────────────────┐
-│                        Install Flow                             │
-├────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│   ┌─────────┐   ┌─────────────┐   ┌──────────────┐            │
-│   │ User    │──▶│ Pre-install │──▶│ Security     │            │
-│   │ Click   │   │ Checks      │   │ Check        │            │
-│   └─────────┘   └─────────────┘   └──────┬───────┘            │
-│                                          │                     │
-│                        ┌─────────────────┼─────────────────┐   │
-│                        │                 │                 │   │
-│                        ▼                 ▼                 ▼   │
-│                 ┌──────────┐     ┌──────────┐     ┌─────────┐ │
-│                 │ License  │     │ Size     │     │ Confirm │ │
-│                 │ Check    │     │ Warning  │     │ Dialog  │ │
-│                 └────┬─────┘     └────┬─────┘     └────┬────┘ │
-│                      │                │                │      │
-│                      └────────────────┼────────────────┘      │
-│                                       ▼                       │
-│                              ┌────────────────┐               │
-│                              │ Execute npm    │               │
-│                              │ install        │               │
-│                              └────────┬───────┘               │
-│                                       │                       │
-│                              ┌────────▼───────┐               │
-│                              │ Update         │               │
-│                              │ package.json   │               │
-│                              └────────┬───────┘               │
-│                                       │                       │
-│                              ┌────────▼───────┐               │
-│                              │ Show           │               │
-│                              │ Notification   │               │
-│                              └────────────────┘               │
-└────────────────────────────────────────────────────────────────┘
+┌─────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+│ User    │───▶│ Search/details│───▶│ Install      │───▶│ Install      │
+│ Click   │    │ webview       │    │ target       │    │ service      │
+└─────────┘    └──────────────┘    │ resolution    │    └──────┬───────┘
+                                   └──────┬───────┘           │
+                                          │                   ▼
+                                          │            ┌──────────────┐
+                                          │            │ Source adapter│
+                                          │            │ command/copy  │
+                                          │            └──────┬───────┘
+                                          │                   │
+                                          ▼                   ▼
+                                   ┌──────────────┐    ┌──────────────┐
+                                   │ Manifest path│    │ Terminal or  │
+                                   │ and package  │    │ manifest edit│
+                                   │ manager      │    └──────┬───────┘
+                                   └──────────────┘           │
+                                                              ▼
+                                                       ┌──────────────┐
+                                                       │ Refresh      │
+                                                       │ source info /│
+                                                       │ trees / UI   │
+                                                       └──────────────┘
 ```
 
-### 4.3 Package.json Hover Flow
+### 4.3 Hover Flow
 ```
-┌──────────┐    ┌──────────────┐    ┌──────────────┐
-│ User     │───▶│ Hover        │───▶│ Package      │
-│ Hovers   │    │ Provider     │    │ Service      │
-└──────────┘    └──────────────┘    └──────────────┘
-                      │                    │
-                      │                    ▼
-                      │             ┌──────────────┐
-                      │             │ Parallel     │
-                      │             │ Fetch:       │
-                      │             │ - Package    │
-                      │             │ - Security   │
-                      │             │ - Bundle     │
-                      │             └──────┬───────┘
-                      │                    │
-                      ▼                    ▼
-               ┌──────────────┐    ┌──────────────┐
-               │ Display      │◀───│ Build        │
-               │ Hover Card   │    │ Markdown     │
-               └──────────────┘    └──────────────┘
+┌──────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+│ User     │───▶│ Hover        │───▶│ Route table  │───▶│ Ecosystem    │
+│ Hovers   │    │ Provider     │    │ by manifest  │    │ hover handler│
+└──────────┘    └──────────────┘    └──────────────┘    └──────┬───────┘
+                                                                │
+                                                                ▼
+                                                         ┌──────────────┐
+                                                         │ Package      │
+                                                         │ service /    │
+                                                         │ source query │
+                                                         └──────┬───────┘
+                                                                │
+                                                                ▼
+                                                         ┌──────────────┐
+                                                         │ Markdown     │
+                                                         │ hover result │
+                                                         └──────────────┘
 ```
 
 ---
 
 ## 5. State Management
 
-### 5.1 Extension State
+### 5.1 Extension Runtime State
 
 ```typescript
-// src/state/extension-state.ts
-import * as vscode from 'vscode';
+// There is no single generic StateManager anymore.
+// Runtime state is split across focused services and providers.
 
-interface ExtensionState {
-  // User preferences
-  preferences: {
-    defaultRegistry: string;
-    packageManager: 'npm' | 'yarn' | 'pnpm';
-    showBundleSize: boolean;
-    licenseWhitelist: string[];
-  };
+WorkspaceService:
+- manifest discovery caches
+- installed package cache
+- refresh debounce/coalescing state
 
-  // Runtime state
-  runtime: {
-    activeWorkspace?: vscode.WorkspaceFolder;
-    packageJsonFiles: vscode.Uri[];
-    cachedPackages: Map<string, PackageInfo>;
-  };
+PackageQueryService:
+- latest-version cache
+- in-flight latest-version promise de-duplication
 
-  // UI state
-  ui: {
-    searchQuery: string;
-    selectedPackage?: string;
-    filterOptions: FilterOptions;
-  };
-}
+PackageCodeLensProvider:
+- per-document CodeLens cache
+- security summary cache
 
-export class StateManager {
-  private state: ExtensionState;
-  private onStateChange: vscode.EventEmitter<keyof ExtensionState>;
-
-  constructor(context: vscode.ExtensionContext) {
-    this.state = this.loadState(context);
-    this.onStateChange = new vscode.EventEmitter();
-  }
-
-  get<K extends keyof ExtensionState>(key: K): ExtensionState[K] {
-    return this.state[key];
-  }
-
-  set<K extends keyof ExtensionState>(
-    key: K,
-    value: ExtensionState[K]
-  ): void {
-    this.state[key] = value;
-    this.onStateChange.fire(key);
-  }
-
-  subscribe(
-    key: keyof ExtensionState,
-    callback: () => void
-  ): vscode.Disposable {
-    return this.onStateChange.event((changedKey) => {
-      if (changedKey === key) callback();
-    });
-  }
-}
+SearchViewProvider:
+- active webview instance
+- in-flight search abort controller
 ```
 
 ### 5.2 Webview State
 
 ```typescript
-// src/webview/context/AppContext.tsx
-import React, { createContext, useReducer, useContext } from 'react';
-
-interface AppState {
-  searchQuery: string;
-  searchResults: PackageInfo[];
-  selectedPackage: PackageDetails | null;
-  isLoading: boolean;
-  error: string | null;
-  filters: FilterOptions;
+// src/webview/context/VSCodeContext.tsx
+export interface PersistedSearchState {
+  searchQuery?: string;
+  filters?: Record<string, unknown>;
+  sortBy?: string;
 }
 
-type Action =
-  | { type: 'SET_SEARCH_QUERY'; payload: string }
-  | { type: 'SET_SEARCH_RESULTS'; payload: PackageInfo[] }
-  | { type: 'SET_SELECTED_PACKAGE'; payload: PackageDetails | null }
-  | { type: 'SET_LOADING'; payload: boolean }
-  | { type: 'SET_ERROR'; payload: string | null }
-  | { type: 'SET_FILTERS'; payload: FilterOptions };
-
-const initialState: AppState = {
-  searchQuery: '',
-  searchResults: [],
-  selectedPackage: null,
-  isLoading: false,
-  error: null,
-  filters: { sortBy: 'relevance' }
-};
-
-function reducer(state: AppState, action: Action): AppState {
-  switch (action.type) {
-    case 'SET_SEARCH_QUERY':
-      return { ...state, searchQuery: action.payload };
-    case 'SET_SEARCH_RESULTS':
-      return { ...state, searchResults: action.payload, isLoading: false };
-    case 'SET_SELECTED_PACKAGE':
-      return { ...state, selectedPackage: action.payload };
-    case 'SET_LOADING':
-      return { ...state, isLoading: action.payload };
-    case 'SET_ERROR':
-      return { ...state, error: action.payload, isLoading: false };
-    case 'SET_FILTERS':
-      return { ...state, filters: action.payload };
-    default:
-      return state;
-  }
-}
-
-const AppContext = createContext<{
-  state: AppState;
-  dispatch: React.Dispatch<Action>;
-} | null>(null);
-
-export function AppProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initialState);
-  return (
-    <AppContext.Provider value={{ state, dispatch }}>
-      {children}
-    </AppContext.Provider>
-  );
-}
-
-export function useApp() {
-  const context = useContext(AppContext);
-  if (!context) throw new Error('useApp must be used within AppProvider');
-  return context;
+export interface SourceInfo {
+  currentProjectType: ProjectType;
+  detectedPackageManager: PackageManager;
+  detectedBuildTool?: BuildTool;
+  detectedCopyFormatLabel?: string;
+  detectedNuGetStyle?: NuGetManagementStyle;
+  installTarget?: {
+    manifestPath: string;
+    label: string;
+    description: string;
+    packageManager: string;
+  };
+  currentSource: SourceType;
+  availableSources: SourceType[];
+  supportedSortOptions: string[];
+  supportedFilters: string[];
+  supportedCapabilities: string[];
 }
 ```
+
+Current behavior:
+
+- `retainContextWhenHidden` keeps the sidebar webview alive during normal hide/show.
+- persisted webview state stores only lightweight query/filter/sort inputs.
+- actual search results remain in live React state and can also be re-served by the 5-minute `SearchService` cache after a real webview recreation.
 
 ---
 
@@ -780,7 +588,7 @@ export function useApp() {
 
 ### 6.1 Commands
 ```typescript
-// package.json contribution points
+// package.json contribution points (representative subset)
 {
   "contributes": {
     "commands": [
@@ -790,7 +598,7 @@ export function useApp() {
         "category": "NPM Gallery"
       },
       {
-        "command": "npmGallery.search",
+        "command": "npmGallery.searchPackages",
         "title": "Search Packages",
         "category": "NPM Gallery"
       },
@@ -805,8 +613,28 @@ export function useApp() {
         "category": "NPM Gallery"
       },
       {
-        "command": "npmGallery.runAudit",
+        "command": "npmGallery.updateAllPackages",
+        "title": "Update All Packages",
+        "category": "NPM Gallery"
+      },
+      {
+        "command": "npmGallery.removePackage",
+        "title": "Remove Package",
+        "category": "NPM Gallery"
+      },
+      {
+        "command": "npmGallery.runSecurityAudit",
         "title": "Run Security Audit",
+        "category": "NPM Gallery"
+      },
+      {
+        "command": "npmGallery.showPackageDetails",
+        "title": "Show Package Details",
+        "category": "NPM Gallery"
+      },
+      {
+        "command": "npmGallery.openDependencyAnalyzer",
+        "title": "Open with NPM Gallery (Text + Dependency Analyzer)",
         "category": "NPM Gallery"
       }
     ]
@@ -858,29 +686,39 @@ export function useApp() {
         "npmGallery.defaultRegistry": {
           "type": "string",
           "default": "https://registry.npmjs.org",
-          "description": "Default npm registry URL"
+          "description": "Default registry URL for npm-oriented sources"
         },
         "npmGallery.packageManager": {
           "type": "string",
-          "enum": ["npm", "yarn", "pnpm"],
+          "enum": ["npm", "yarn", "pnpm", "bun", "dotnet", "paket", "composer", "bundler", "cpanm", "dart", "flutter", "r", "clojure", "leiningen", "cargo"],
           "default": "npm",
-          "description": "Preferred package manager"
+          "description": "Preferred package manager or build tool fallback"
+        },
+        "npmGallery.userAgentContact": {
+          "type": "string",
+          "default": "",
+          "description": "Optional contact appended to the HTTP User-Agent header"
         },
         "npmGallery.showBundleSize": {
           "type": "boolean",
           "default": true,
-          "description": "Show bundle size in search results"
+          "description": "Show bundle size in search results and hover"
         },
-        "npmGallery.securityScanEnabled": {
+        "npmGallery.showSecurityInfo": {
           "type": "boolean",
           "default": true,
-          "description": "Enable automatic security scanning"
+          "description": "Show security vulnerability information"
+        },
+        "npmGallery.autoCheckUpdates": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically check for package updates on startup"
         },
         "npmGallery.licenseWhitelist": {
           "type": "array",
           "items": { "type": "string" },
-          "default": ["MIT", "Apache-2.0", "ISC", "BSD-3-Clause"],
-          "description": "Allowed licenses"
+          "default": ["MIT", "Apache-2.0", "ISC", "BSD-2-Clause", "BSD-3-Clause"],
+          "description": "Allowed licenses (warn if package uses different license)"
         }
       }
     }
@@ -936,19 +774,21 @@ async function storeToken(
 
 ## 8. Performance Optimization
 
-### 8.1 Lazy Loading
+### 8.1 Runtime Caching and Deferral
 ```typescript
-// Load services on demand
-class LazyServiceLoader {
-  private securityService?: SecurityService;
+// Current performance-critical layers rely on focused caches instead of one lazy service registry.
 
-  getSecurityService(): SecurityService {
-    if (!this.securityService) {
-      this.securityService = new SecurityService();
-    }
-    return this.securityService;
-  }
-}
+SearchService:
+- 5-minute search-result cache
+- stable structured cache keys
+
+PackageQueryService:
+- latest-version cache
+- in-flight latest-version promise deduplication
+
+WorkspaceService:
+- debounced manifest refresh events
+- scope coalescing before Installed / Updates / CodeLens refresh
 ```
 
 ### 8.2 Virtual Scrolling
@@ -974,55 +814,25 @@ function SearchResults({ results }: { results: PackageInfo[] }) {
 }
 ```
 
-### 8.3 Request Batching
+### 8.3 Request De-duplication
 ```typescript
-class BatchedApiClient {
-  private pending: Map<string, Promise<unknown>> = new Map();
-  private batchTimeout?: NodeJS.Timeout;
-  private batchQueue: string[] = [];
+class PackageQueryService {
+  private latestVersionCache = new Map<string, string | null>();
+  private latestVersionPromises = new Map<string, Promise<string | null>>();
 
-  async getPackage(name: string): Promise<PackageInfo> {
-    // Check if request is already pending
-    if (this.pending.has(name)) {
-      return this.pending.get(name) as Promise<PackageInfo>;
+  async getLatestVersion(name: string): Promise<string | null> {
+    if (this.latestVersionCache.has(name)) {
+      return this.latestVersionCache.get(name) ?? null;
     }
 
-    // Add to batch queue
-    this.batchQueue.push(name);
-
-    // Schedule batch execution
-    if (!this.batchTimeout) {
-      this.batchTimeout = setTimeout(() => this.executeBatch(), 50);
+    const pending = this.latestVersionPromises.get(name);
+    if (pending) {
+      return pending;
     }
 
-    // Create and store promise
-    const promise = new Promise<PackageInfo>((resolve, reject) => {
-      // Store resolvers for later
-      this.resolvers.set(name, { resolve, reject });
-    });
-
-    this.pending.set(name, promise);
+    const promise = this.resolveLatestVersion(name);
+    this.latestVersionPromises.set(name, promise);
     return promise;
-  }
-
-  private async executeBatch() {
-    const names = [...this.batchQueue];
-    this.batchQueue = [];
-    this.batchTimeout = undefined;
-
-    // Use npms.io bulk endpoint
-    const results = await this.npmsApi.getPackages(names);
-
-    for (const name of names) {
-      const resolver = this.resolvers.get(name);
-      if (results[name]) {
-        resolver?.resolve(results[name]);
-      } else {
-        resolver?.reject(new Error(`Package ${name} not found`));
-      }
-      this.pending.delete(name);
-      this.resolvers.delete(name);
-    }
   }
 }
 ```
@@ -1088,10 +898,10 @@ suite('Extension Integration Tests', () => {
 
   test('Search command should be registered', async () => {
     const commands = await vscode.commands.getCommands();
-    assert.ok(commands.includes('npmGallery.search'));
+    assert.ok(commands.includes('npmGallery.searchPackages'));
   });
 
-  test('Hover provider should work in package.json', async () => {
+  test('Hover provider should work in a supported manifest', async () => {
     const doc = await vscode.workspace.openTextDocument({
       language: 'json',
       content: '{"dependencies": {"lodash": "^4.17.21"}}'
@@ -1129,7 +939,7 @@ describe('Search Flow E2E', () => {
     await page.keyboard.press('Control+Shift+P');
 
     // Type command
-    await page.keyboard.type('NPM Gallery: Search');
+    await page.keyboard.type('NPM Gallery: Search Packages');
     await page.keyboard.press('Enter');
 
     // Wait for webview
@@ -1171,20 +981,20 @@ describe('Search Flow E2E', () => {
 - Vue: Less TypeScript integration
 - Svelte: Smaller community, less VS Code examples
 
-### 10.2 Decision Record: npms.io as Primary Search
+### 10.2 Decision Record: Source Selector with Adapter Fallbacks
 
-**Context**: Need fast, relevant search results with quality metrics.
+**Context**: The extension now supports multiple ecosystems and sources rather than a single-ecosystem search path.
 
-**Decision**: Use npms.io API as primary search, npm registry as fallback.
+**Decision**: Route package operations through `SourceSelector` and per-source adapters, with ecosystem-specific fallbacks where implemented.
 
 **Rationale**:
-- Better search relevance
-- Quality/popularity/maintenance scores included
-- npm registry as reliable fallback
+- Keeps search/details/install behavior source-aware
+- Allows one workspace to expose multiple project types and source choices
+- Supports primary/fallback behavior without hardcoding one ecosystem's flow into core services
 
 **Trade-offs**:
-- Additional dependency on third-party service
-- Need fallback handling
+- More adapter complexity
+- Capability differences must be surfaced clearly in UI and source context
 
 ### 10.3 Decision Record: In-Extension Caching
 
@@ -1207,56 +1017,60 @@ describe('Search Flow E2E', () => {
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                        NPM Gallery Extension                         │
+│                        NPM Gallery Extension                        │
 ├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
+│                                                                     │
 │   ┌─────────────────────────────────────────────────────────────┐   │
-│   │                     User Interface Layer                     │   │
+│   │                      UI Layer                               │   │
 │   ├─────────────────────────────────────────────────────────────┤   │
 │   │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │   │
-│   │  │   Webview    │  │   Tree View  │  │  Status Bar      │  │   │
-│   │  │   (React)    │  │   Providers  │  │  Items           │  │   │
+│   │  │ Search View  │  │ Package      │  │ Installed /      │  │   │
+│   │  │ Webview      │  │ Details Panel│  │ Updates Trees    │  │   │
 │   │  └──────────────┘  └──────────────┘  └──────────────────┘  │   │
 │   └─────────────────────────────────────────────────────────────┘   │
-│                                  │                                   │
+│                                  │                                  │
 │   ┌─────────────────────────────────────────────────────────────┐   │
-│   │                    VS Code Integration Layer                 │   │
+│   │                 VS Code Provider Layer                      │   │
 │   ├─────────────────────────────────────────────────────────────┤   │
-│   │  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌──────────┐ │   │
-│   │  │  Hover     │ │  CodeLens  │ │ Completion │ │Diagnostic│ │   │
-│   │  │  Provider  │ │  Provider  │ │ Provider   │ │ Provider │ │   │
-│   │  └────────────┘ └────────────┘ └────────────┘ └──────────┘ │   │
+│   │  ┌────────────┐ ┌────────────┐ ┌──────────────┐ ┌────────┐ │   │
+│   │  │ Hover      │ │ CodeLens   │ │ Search view  │ │ Trees  │ │   │
+│   │  │ router     │ │ router     │ │ provider     │ │ providers│ │  │
+│   │  └────────────┘ └────────────┘ └──────────────┘ └────────┘ │   │
 │   └─────────────────────────────────────────────────────────────┘   │
-│                                  │                                   │
+│                                  │                                  │
 │   ┌─────────────────────────────────────────────────────────────┐   │
-│   │                      Service Layer                           │   │
+│   │                    Core Service Layer                       │   │
 │   ├─────────────────────────────────────────────────────────────┤   │
-│   │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────────┐   │   │
-│   │  │ Package  │ │ Search   │ │ Security │ │   Install    │   │   │
-│   │  │ Service  │ │ Service  │ │ Service  │ │   Service    │   │   │
-│   │  └──────────┘ └──────────┘ └──────────┘ └──────────────┘   │   │
-│   │  ┌──────────┐ ┌──────────┐ ┌──────────────────────────┐   │   │
-│   │  │ Bundle   │ │ License  │ │     Workspace Service     │   │   │
-│   │  │ Service  │ │ Service  │ │                          │   │   │
-│   │  └──────────┘ └──────────┘ └──────────────────────────┘   │   │
+│   │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐       │   │
+│   │  │ Package      │ │ Search       │ │ Install      │       │   │
+│   │  │ Service      │ │ Service      │ │ Service      │       │   │
+│   │  └──────────────┘ └──────────────┘ └──────────────┘       │   │
+│   │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐       │   │
+│   │  │ Workspace    │ │ SourceContext│ │ PackageQuery │       │   │
+│   │  │ Service      │ │ Service      │ │ / NpmLocal   │       │   │
+│   │  └──────────────┘ └──────────────┘ └──────────────┘       │   │
 │   └─────────────────────────────────────────────────────────────┘   │
-│                                  │                                   │
+│                                  │                                  │
 │   ┌─────────────────────────────────────────────────────────────┐   │
-│   │                        API Layer                             │   │
+│   │                Source Infrastructure Layer                  │   │
 │   ├─────────────────────────────────────────────────────────────┤   │
-│   │  ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────┐   │   │
-│   │  │    npm    │ │  npms.io  │ │  Bundle   │ │  GitHub   │   │   │
-│   │  │  Registry │ │   API     │ │  phobia   │ │   API     │   │   │
-│   │  └───────────┘ └───────────┘ └───────────┘ └───────────┘   │   │
+│   │  ┌──────────────┐ ┌──────────────┐ ┌────────────────────┐  │   │
+│   │  │ SourceConfig │ │ Project      │ │ SourceSelector /   │  │   │
+│   │  │ Manager      │ │ Detector     │ │ SourceRegistry     │  │   │
+│   │  └──────────────┘ └──────────────┘ └────────────────────┘  │   │
 │   └─────────────────────────────────────────────────────────────┘   │
-│                                  │                                   │
+│                                  │                                  │
 │   ┌─────────────────────────────────────────────────────────────┐   │
-│   │                    Infrastructure Layer                      │   │
+│   │                  Source Adapter Layer                       │   │
 │   ├─────────────────────────────────────────────────────────────┤   │
-│   │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────┐ │   │
-│   │  │  Cache Manager  │  │  Rate Limiter   │  │   Logger    │ │   │
-│   │  └─────────────────┘  └─────────────────┘  └─────────────┘ │   │
+│   │ npm │ npms │ sonatype │ nuget │ packagist │ rubygems │ ...│   │
 │   └─────────────────────────────────────────────────────────────┘   │
-│                                                                      │
+│                                  │                                  │
+│   ┌─────────────────────────────────────────────────────────────┐   │
+│   │                    API Client Layer                         │   │
+│   ├─────────────────────────────────────────────────────────────┤   │
+│   │ npm-registry │ deps.dev │ osv/audit │ sonatype │ nuget │...│   │
+│   └─────────────────────────────────────────────────────────────┘   │
+│                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
 ```

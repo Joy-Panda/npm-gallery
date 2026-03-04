@@ -1,23 +1,10 @@
 import * as vscode from 'vscode';
 import { getServices } from '../services';
-import type { WebviewToExtensionMessage, SourceInfoMessage } from '../types/messages';
+import type { WebviewToExtensionMessage } from '../types/messages';
 import type { SourceType } from '../types/project';
 import { PackageDetailsPanel } from './package-details-panel';
 import { getInstallTargetSummary, selectInstallTargetManifest } from '../utils/install-target';
-
-function getBuildToolLabel(buildTool?: string): string | undefined {
-  const labels: Record<string, string> = {
-    maven: 'Maven',
-    gradle: 'Gradle',
-    sbt: 'SBT',
-    mill: 'Mill',
-    ivy: 'Ivy',
-    grape: 'Grape',
-    leiningen: 'Leiningen',
-    buildr: 'Buildr',
-  };
-  return buildTool ? (labels[buildTool] || buildTool) : undefined;
-}
+import { buildSourceInfoMessage } from './source-info';
 
 /**
  * Provides the search webview panel
@@ -41,7 +28,6 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: [this.extensionUri],
-      retainContextWhenHidden: true,
     } as vscode.WebviewOptions;
 
     // 若是同一 view 再次展开（已有内容），不再设置 html，避免重新加载导致的 1～2 秒空白
@@ -174,7 +160,20 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
 
       case 'copySnippet': {
         try {
-          const result = await services.install.copySnippet(message.packageName, message.options);
+          const projectType = services.getCurrentProjectType();
+          const currentSource = services.getCurrentSourceType();
+          const installTarget = await getInstallTargetSummary(
+            services.workspace,
+            services.install,
+            vscode.window.activeTextEditor?.document.uri.fsPath,
+            projectType,
+            currentSource
+          );
+          const result = await services.install.copySnippet(
+            message.packageName,
+            message.options,
+            installTarget?.manifestPath
+          );
           if (result.success) {
             vscode.window.showInformationMessage(result.message);
           } else {
@@ -222,94 +221,7 @@ export class SearchViewProvider implements vscode.WebviewViewProvider {
    * Send source information to webview
    */
   private async sendSourceInfo(): Promise<void> {
-    const services = getServices();
-    const activePath = vscode.window.activeTextEditor?.document.uri.fsPath;
-    const detectedPackageManager = await services.install.detectPackageManager(activePath);
-    const projectType = services.getCurrentProjectType();
-    const currentSource = services.getCurrentSourceType();
-    const installTarget = await getInstallTargetSummary(
-      services.workspace,
-      services.install,
-      activePath,
-      projectType,
-      currentSource
-    );
-    const effectiveManager = (installTarget?.packageManager || detectedPackageManager).toLowerCase();
-    const neilEnabled =
-      (projectType === 'clojure' || currentSource === 'clojars') &&
-      await services.install.canUseNeil(installTarget?.manifestPath || activePath);
-    const supportedCapabilities = services.package.getSupportedCapabilities().filter((cap) => {
-      if (currentSource !== 'clojars' && projectType !== 'clojure') {
-        return true;
-      }
-      if (cap === 'installation') {
-        return neilEnabled;
-      }
-      if (cap === 'copy') {
-        return !neilEnabled || effectiveManager === 'leiningen';
-      }
-      return true;
-    });
-    
-    // Build capability support map
-    const capabilitySupport: Record<string, { capability: string; supported: boolean; reason?: string }> = {};
-    for (const cap of supportedCapabilities) {
-      const support = services.package.getCapabilitySupport(cap);
-      if (support) {
-        const adjustedSupported =
-          cap === 'installation' && (currentSource === 'clojars' || projectType === 'clojure')
-            ? neilEnabled
-            : cap === 'copy' && (currentSource === 'clojars' || projectType === 'clojure')
-              ? (!neilEnabled || effectiveManager === 'leiningen')
-              : support.supported;
-        capabilitySupport[cap] = {
-          capability: cap,
-          supported: adjustedSupported,
-          reason: adjustedSupported ? undefined : support.reason,
-        };
-      }
-    }
-    
-    const sortOptionsWithLabels = services.search.getSupportedSortOptionsWithLabels();
-    const filterOptionsWithLabels = services.search.getSupportedFiltersWithLabels();
-    const isDotNet = projectType === 'dotnet' || currentSource === 'nuget';
-    const isSonatype = projectType === 'maven' || currentSource === 'sonatype';
-    const detectedNuGetStyle = isDotNet ? services.install.detectNuGetManagementStyle(activePath) : undefined;
-    const detectedBuildTool = isSonatype ? (await services.install.detectBuildTool()) || undefined : undefined;
-    const detectedCopyFormatLabel = isSonatype ? getBuildToolLabel(detectedBuildTool) : undefined;
-
-    const sourceInfo: SourceInfoMessage = {
-      type: 'sourceInfo',
-      data: {
-        currentProjectType: services.getCurrentProjectType(),
-        detectedPackageManager,
-        detectedBuildTool,
-        detectedCopyFormatLabel,
-        detectedNuGetStyle,
-        installTarget: installTarget || undefined,
-        currentSource,
-        detectedProjectTypes: services.getDetectedProjectTypes(),
-        availableSources: services.getAvailableSources(),
-        supportedSortOptions: services.getSupportedSortOptions(), // For backward compatibility
-        supportedSortOptionsWithLabels: sortOptionsWithLabels.map(opt => {
-          if (typeof opt === 'string') {
-            return { value: opt, label: opt.charAt(0).toUpperCase() + opt.slice(1) };
-          }
-          return { value: opt.value, label: opt.label };
-        }),
-        supportedFilters: services.getSupportedFilters(), // For backward compatibility
-        supportedFiltersWithLabels: filterOptionsWithLabels.map(filter => {
-          if (typeof filter === 'string') {
-            return { value: filter, label: filter.charAt(0).toUpperCase() + filter.slice(1) };
-          }
-          return { value: filter.value, label: filter.label, placeholder: filter.placeholder };
-        }),
-        supportedCapabilities: supportedCapabilities.map(c => c.toString()),
-        capabilitySupport,
-      },
-    };
-    
-    this.postMessage(sourceInfo);
+    this.postMessage(await buildSourceInfoMessage());
   }
 
   /**

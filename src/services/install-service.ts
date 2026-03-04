@@ -324,8 +324,8 @@ export class InstallService {
    * Detect build tool from workspace
    * Checks for build files to determine which build tool is being used
    */
-  async detectBuildTool(): Promise<BuildTool | null> {
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+  async detectBuildTool(startPath?: string): Promise<BuildTool | null> {
+    const workspaceFolder = this.resolveWorkspaceFolder(startPath);
     if (!workspaceFolder) {
       return null;
     }
@@ -334,8 +334,8 @@ export class InstallService {
     
     try {
       // Use require for synchronous file system access in Node.js
-      const fs = require('fs');
-      const path = require('path');
+      const fs = require('fs') as typeof import('fs');
+      const path = require('path') as typeof import('path');
 
       // Check for build files (priority order)
       // Note: All of these build tools (maven, gradle, sbt, mill, ivy, grape, leiningen, buildr)
@@ -352,23 +352,47 @@ export class InstallService {
         { file: 'pom.xml', tool: 'maven' }, // Maven last as it's most common
       ];
 
-      // First check for standard build files
-      for (const { file, tool } of buildFiles) {
-        try {
-          const buildFilePath = path.join(rootPath, file);
-          if (fs.existsSync(buildFilePath)) {
-            return tool;
+      const explicitTool = this.getBuildToolForPath(startPath);
+      if (explicitTool) {
+        return explicitTool;
+      }
+
+      let currentDir = startPath
+        ? (fs.existsSync(startPath) && fs.statSync(startPath).isFile() ? path.dirname(startPath) : startPath)
+        : rootPath;
+
+      while (currentDir) {
+        for (const { file, tool } of buildFiles) {
+          try {
+            const buildFilePath = path.join(currentDir, file);
+            if (fs.existsSync(buildFilePath)) {
+              return tool;
+            }
+          } catch {
+            // Continue checking
           }
-        } catch {
-          // Continue checking
         }
+
+        if (currentDir === rootPath) {
+          break;
+        }
+
+        const parentDir = path.dirname(currentDir);
+        if (parentDir === currentDir || !this.isWithinWorkspace(parentDir, rootPath, path)) {
+          break;
+        }
+        currentDir = parentDir;
       }
 
       // Check for Grape (Groovy dependency management)
       // Look for .groovy files (grapeConfig.xml is already checked in buildFiles above)
       // Only return grape if no other build tool is detected
       try {
-        const groovyFiles = await vscode.workspace.findFiles('**/*.groovy', null, 1);
+        const groovyFiles = await vscode.workspace.findFiles(
+          new vscode.RelativePattern(workspaceFolder, '**/*.groovy'),
+          null,
+          1
+        );
         if (groovyFiles.length > 0) {
           return 'grape';
         }
@@ -390,7 +414,8 @@ export class InstallService {
    */
   async copySnippet(
     packageName: string,
-    options: CopyOptions
+    options: CopyOptions,
+    targetPath?: string
   ): Promise<{ success: boolean; message: string }> {
     if (!this.sourceSelector) {
       return { success: false, message: 'InstallService not initialized: SourceSelector is required' };
@@ -419,7 +444,7 @@ export class InstallService {
           format = options.format;
         } else {
           const style = this.workspace?.detectNuGetManagementStyle(
-            vscode.window.activeTextEditor?.document.uri.fsPath
+            targetPath || vscode.window.activeTextEditor?.document.uri.fsPath
           ) ?? 'packagereference';
           format = NUGET_STYLE_TO_COPY_FORMAT[style] as NuGetCopyFormat;
         }
@@ -427,14 +452,18 @@ export class InstallService {
         if (options.format) {
           format = options.format;
         } else {
-          const detectedManager = await this.detectPackageManager(vscode.window.activeTextEditor?.document.uri.fsPath);
+          const detectedManager = await this.detectPackageManager(
+            targetPath || vscode.window.activeTextEditor?.document.uri.fsPath
+          );
           format = detectedManager === 'leiningen' ? 'leiningen' : 'deps-edn';
         }
       } else {
         // Auto-detect build tool for Maven/Gradle
         let buildTool = options.buildTool;
         if (!buildTool) {
-          buildTool = await this.detectBuildTool() || 'maven';
+          buildTool = await this.detectBuildTool(
+            targetPath || vscode.window.activeTextEditor?.document.uri.fsPath
+          ) || 'maven';
         }
         if (buildTool === 'gradle') {
           format = 'gradle';
@@ -757,6 +786,45 @@ export class InstallService {
     }
 
     return workspaceFolder?.uri;
+  }
+
+  private getBuildToolForPath(targetPath?: string): BuildTool | null {
+    if (!targetPath) {
+      return null;
+    }
+
+    const normalized = targetPath.replace(/\\/g, '/').toLowerCase();
+    const fileName = normalized.split('/').pop();
+    switch (fileName) {
+      case 'pom.xml':
+        return 'maven';
+      case 'build.gradle':
+      case 'build.gradle.kts':
+        return 'gradle';
+      case 'build.sbt':
+        return 'sbt';
+      case 'build.sc':
+        return 'mill';
+      case 'ivy.xml':
+        return 'ivy';
+      case 'project.clj':
+        return 'leiningen';
+      case 'buildfile':
+        return 'buildr';
+      case 'grapeconfig.xml':
+        return 'grape';
+      default:
+        return null;
+    }
+  }
+
+  private isWithinWorkspace(
+    candidatePath: string,
+    workspaceRoot: string,
+    pathModule: typeof import('path')
+  ): boolean {
+    const relative = pathModule.relative(workspaceRoot, candidatePath);
+    return relative === '' || (!relative.startsWith('..') && !pathModule.isAbsolute(relative));
   }
 
   private resolveWorkspaceFolder(targetPath?: string): vscode.WorkspaceFolder | undefined {

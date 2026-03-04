@@ -176,7 +176,6 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
       packageName: details.name,
       options: { type, version },
     });
-    setTimeout(() => setInstalling(false), 2000);
   };
 
   const openExternal = (url: string) => {
@@ -211,7 +210,6 @@ export const PackageDetailsView: React.FC<PackageDetailsViewProps> = ({ vscode, 
         format,
       },
     });
-    setTimeout(() => setInstalling(false), 2000);
   };
 
   const toggleVulnerability = (vulnId: number) => {

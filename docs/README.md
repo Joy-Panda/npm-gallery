@@ -1,127 +1,127 @@
-# NPM Gallery - VS Code Extension
+# NPM Gallery - Documentation Overview
 
-> A powerful VS Code extension for browsing, searching, and managing npm packages directly from your editor.
+> A VS Code extension for browsing, searching, and managing packages across multiple ecosystems directly from the editor.
 
 ## Overview
 
-NPM Gallery transforms how developers interact with npm packages by bringing the entire npm ecosystem into VS Code. No more switching between browser and editor - search, evaluate, and install packages without leaving your development environment.
+NPM Gallery is no longer limited to npm package browsing. The extension now provides a unified package workflow across multiple sources and project types, including:
 
-## Key Features
+- npm / pnpm / yarn / bun
+- Maven / Gradle
+- NuGet
+- Composer / Packagist
+- RubyGems
+- Cargo
+- Dart / Flutter
+- CRAN
+- Clojars
+- MetaCPAN
+- Go modules
 
-- **Smart Package Search** - Search npm's entire registry with intelligent filtering
-- **One-Click Installation** - Install packages directly into your project
-- **Version Management** - Update outdated packages from package.json
-- **Security Scanning** - Real-time vulnerability detection before installation
-- **Bundle Analysis** - Preview bundle size impact before adding dependencies
-- **Alternative Suggestions** - Discover lighter, better-maintained alternatives
-- **License Compliance** - Ensure dependency licenses match your project requirements
+Core goals:
 
-## Documentation
+- search packages without leaving VS Code
+- inspect package details, versions, requirements, dependents, and security data
+- manage installed dependencies from workspace manifests
+- surface package information inline through hover and CodeLens
+- keep source-specific behavior explicit instead of forcing one single-ecosystem model onto every ecosystem
+
+## Core Capabilities
+
+- **Source-aware Search**
+  Search through the currently selected source with source-specific filters and sort options.
+
+- **Package Details**
+  Open rich package details with header, sidebar, README, versions, dependencies, requirements, dependents, and security tabs where supported.
+
+- **Workspace Package Management**
+  View installed packages and available updates across supported manifests in the current workspace.
+
+- **Inline Editor Assistance**
+  Use hover and CodeLens in supported manifests to inspect versions, vulnerabilities, and available updates.
+
+- **Install / Copy / Update / Remove**
+  Execute direct package-manager commands where supported, or generate source-appropriate dependency snippets when command execution is not the right UX.
+
+- **Multi-Source Architecture**
+  Route operations through `SourceSelector` and source adapters instead of hardcoding a single registry workflow.
+
+## Main User Flows
+
+### Search and Inspect
+
+1. Open the NPM Gallery sidebar
+2. Choose the current project type and source
+3. Search for a package
+4. Open package details from the result list
+
+### Manage Workspace Dependencies
+
+1. Open `Installed Packages` or `Available Updates`
+2. Navigate by workspace or manifest group
+3. Open package details, update, or remove packages
+
+### Work Inline in a Manifest
+
+1. Open a supported manifest such as `package.json`, `composer.json`, `Cargo.toml`, `pom.xml`, or `pubspec.yaml`
+2. Use hover for package metadata
+3. Use CodeLens for update and security actions where supported
+
+## Primary Documentation
 
 | Document | Description |
 |----------|-------------|
-| [Product Requirements (PRD)](./PRD.md) | Product vision, goals, and requirements |
-| [Features Specification](./FEATURES.md) | Detailed feature descriptions and specifications |
-| [Architecture](./ARCHITECTURE.md) | Technical architecture and design decisions |
-| [API Integration](./API.md) | npm API integration details |
-| [UI/UX Specifications](./UI-UX.md) | User interface design and user experience |
-| [Development Guide](./DEVELOPMENT.md) | Setup, development, and contribution guide |
+| [PRD.md](./PRD.md) | Product goals and high-level requirements |
+| [FEATURES.md](./FEATURES.md) | Feature-level behavior and UX expectations |
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | Current technical architecture and service/provider structure |
+| [API.md](./API.md) | Source and external API integration notes |
+| [UI-UX.md](./UI-UX.md) | UI and UX guidance |
+| [DEVELOPMENT.md](./DEVELOPMENT.md) | Local development workflow |
+| [SOURCE_CAPABILITIES.md](./SOURCE_CAPABILITIES.md) | Shared capability model and tooling matrix |
+| [SOURCE_CAPABILITIES_TODO.md](./SOURCE_CAPABILITIES_TODO.md) | Source-by-source support gaps and status |
+| [OPTIMIZATION_REVIEW.md](./OPTIMIZATION_REVIEW.md) | Optimization findings, refactor notes, and validation checklist |
 
-## Quick Links
+## Configuration Themes
 
-- [Installation](#installation)
-- [Usage](#usage)
-- [Configuration](#configuration)
-- [Contributing](#contributing)
+Important settings include:
 
-## Installation
+- `npmGallery.defaultRegistry`
+- `npmGallery.packageManager`
+- `npmGallery.userAgentContact`
+- `npmGallery.showBundleSize`
+- `npmGallery.showSecurityInfo`
+- `npmGallery.autoCheckUpdates`
+- `npmGallery.licenseWhitelist`
 
-### From VS Code Marketplace
-1. Open VS Code
-2. Go to Extensions (`Ctrl+Shift+X`)
-3. Search for "NPM Gallery"
-4. Click Install
+Refer to [../README.md](../README.md) and [FEATURES.md](./FEATURES.md) for current user-facing configuration details.
 
-### From VSIX
-```bash
-code --install-extension npm-gallery-x.x.x.vsix
-```
+## Architectural Notes
 
-## Usage
+Current implementation is organized around:
 
-### Opening NPM Gallery
-- **Command Palette**: `Ctrl+Shift+P` → "NPM Gallery: Open"
-- **Activity Bar**: Click the NPM Gallery icon
-- **Keyboard Shortcut**: `Ctrl+Alt+N` (customizable)
+- `ServiceContainer` for service and source wiring
+- `SourceSelector` + source adapters for ecosystem-aware behavior
+- `WorkspaceService` for manifest discovery, installed packages, updates, and manifest edits
+- `PackageService` / `PackageQueryService` for source-facing package queries
+- `SearchViewProvider`, `PackageDetailsPanel`, tree providers, hover router, and CodeLens router for VS Code integration
 
-### Searching Packages
-1. Open NPM Gallery
-2. Type package name in search bar
-3. Use filters for size, popularity, maintenance score
-4. Click on package for details
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the current structure.
 
-### Installing Packages
-1. Search and select a package
-2. Choose version (latest recommended)
-3. Select dependency type (dependencies/devDependencies)
-4. Click "Install"
+## Validation and Maintenance
 
-### Updating Packages
-1. Open any `package.json` file
-2. Hover over package names to see update availability
-3. Click "Update" or use CodeLens actions
-4. Bulk update available via command palette
+Recent refactors introduced:
 
-## Configuration
+- manifest-centric refresh behavior
+- per-ecosystem hover and CodeLens handlers
+- source-context unification
+- route-table based provider wiring
 
-```json
-{
-  "npmGallery.defaultRegistry": "https://registry.npmjs.org",
-  "npmGallery.showBundleSize": true,
-  "npmGallery.securityScanEnabled": true,
-  "npmGallery.licenseWhitelist": ["MIT", "Apache-2.0", "ISC"],
-  "npmGallery.autoCheckUpdates": true,
-  "npmGallery.cacheTimeout": 3600
-}
-```
+Use [OPTIMIZATION_REVIEW.md](./OPTIMIZATION_REVIEW.md) for:
 
-## Unique Selling Points (USPs)
-
-### 1. Security-First Approach
-Unlike other extensions, NPM Gallery prioritizes security by showing vulnerability data upfront, before you install any package.
-
-### 2. Bundle Impact Preview
-See exactly how a package will affect your bundle size before adding it to your project.
-
-### 3. Smart Alternatives
-Get intelligent suggestions for lighter, faster, or better-maintained alternatives to popular packages.
-
-### 4. License Guardian
-Automatic license compatibility checking prevents legal issues before they start.
-
-### 5. Workspace Intelligence
-Full monorepo support with cross-package dependency management.
-
-## Tech Stack
-
-- **Language**: TypeScript
-- **Framework**: VS Code Extension API
-- **APIs**: npm Registry API, npms.io API, Bundlephobia API
-- **UI**: VS Code Webview with React
+- regression checklist
+- manual validation run sheet
+- optimization history and status
 
 ## Contributing
 
-We welcome contributions! Please see our [Development Guide](./DEVELOPMENT.md) for setup instructions and contribution guidelines.
-
-## License
-
-MIT License - see [LICENSE](../LICENSE) for details.
-
-## Support
-
-- **Issues**: [GitHub Issues](https://github.com/your-org/npm-gallery/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-org/npm-gallery/discussions)
-
----
-
-Made with care for the developer community.
+For development setup, commands, and contribution workflow, use [DEVELOPMENT.md](./DEVELOPMENT.md).

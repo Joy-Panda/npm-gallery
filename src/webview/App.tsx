@@ -59,6 +59,33 @@ const defaultFilters: FilterState = {
   boostExact: true, // Default to true (boost exact matches)
 };
 
+function pruneFiltersForSource(filters: FilterState, supportedFilters: string[]): FilterState {
+  const supports = (filter: string) => supportedFilters.includes(filter);
+
+  return {
+    ...defaultFilters,
+    boostExact: filters.boostExact,
+    author: supports('author') ? filters.author : '',
+    maintainer: supports('maintainer') ? filters.maintainer : '',
+    scope: supports('scope') ? filters.scope : '',
+    keywords: supports('keywords') ? filters.keywords : '',
+    groupId: supports('groupId') ? filters.groupId : '',
+    artifactId: supports('artifactId') ? filters.artifactId : '',
+    version: supports('version') ? filters.version : '',
+    tags: supports('tags') ? filters.tags : '',
+    type: supports('type') ? filters.type : '',
+    languages: supports('languages') ? filters.languages : '',
+    licenses: supports('licenses') ? filters.licenses : '',
+    platforms: supports('platforms') ? filters.platforms : '',
+    excludeDeprecated: supports('deprecated') ? filters.excludeDeprecated : false,
+    includeDeprecated: supports('deprecated') ? filters.includeDeprecated : false,
+    excludeUnstable: supports('unstable') ? filters.excludeUnstable : false,
+    excludeInsecure: supports('insecure') ? filters.excludeInsecure : false,
+    includeUnstable: supports('unstable') ? filters.includeUnstable : false,
+    includeInsecure: supports('insecure') ? filters.includeInsecure : false,
+  };
+}
+
 export const App: React.FC = () => {
   const { installPackage, postMessage, persistedSearchState, persistSearchState } = useVSCode();
   const [isAdvancedSearchOpen, setIsAdvancedSearchOpen] = useState(false);
@@ -84,26 +111,27 @@ export const App: React.FC = () => {
     supportedSortOptions,
     supportedFilters,
   } = useSearch();
+  const supportedFilterValues = sourceInfo.supportedFilters;
+  const availableSortOptions = supportedSortOptions as SearchSortBy[];
   
   // Track previous source to detect source changes
   const previousSourceRef = useRef<string | undefined>(sourceInfo.currentSource);
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const stateToPersistRef = useRef({ searchQuery, filters, sortBy, searchResults });
+  const stateToPersistRef = useRef({ searchQuery, filters, sortBy });
 
   // Keep ref in sync so we can persist on hide
   useEffect(() => {
-    stateToPersistRef.current = { searchQuery, filters, sortBy, searchResults };
-  }, [searchQuery, filters, sortBy, searchResults]);
+    stateToPersistRef.current = { searchQuery, filters, sortBy };
+  }, [searchQuery, filters, sortBy]);
 
   // Persist when page is about to be hidden (sidebar closed) so state survives if webview is recreated
   useEffect(() => {
     const persist = () => {
-      const { searchQuery: q, filters: f, sortBy: s, searchResults: r } = stateToPersistRef.current;
+      const { searchQuery: q, filters: f, sortBy: s } = stateToPersistRef.current;
       persistSearchState({
         searchQuery: q,
         filters: { ...f },
         sortBy: typeof s === 'string' ? s : (s as { value?: string })?.value,
-        searchResults: r ?? undefined,
       });
     };
     const onHide = () => persist();
@@ -127,13 +155,12 @@ export const App: React.FC = () => {
         searchQuery,
         filters: { ...filters },
         sortBy: typeof sortBy === 'string' ? sortBy : (sortBy as { value?: string })?.value,
-        searchResults: searchResults ?? undefined,
       });
     }, 200);
     return () => {
       if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
     };
-  }, [searchQuery, filters, sortBy, searchResults, persistSearchState]);
+  }, [searchQuery, filters, sortBy, persistSearchState]);
 
   // Clear filters and search input when source changes, then trigger search
   useEffect(() => {
@@ -142,31 +169,49 @@ export const App: React.FC = () => {
     
     // If source has changed (and it's not the initial mount)
     if (previousSource !== undefined && previousSource !== currentSource) {
-      // Clear filters
-      setFilters(defaultFilters);
-      
-      // Clear filter parts from search input, keep only base query text
-      // Example: "spring artifactId:guice" -> "spring"
       const baseText = extractBaseText(searchQuery);
-      setSearchQuery(baseText);
-      
-      // Reset sort to default
-      setSortBy('relevance');
-      
-      // Trigger search with the base query if it's not empty
+      const nextFilters = pruneFiltersForSource(filters, supportedFilterValues);
+      const nextQuery = buildQuery({
+        baseQuery: baseText,
+        author: nextFilters.author,
+        maintainer: nextFilters.maintainer,
+        scope: nextFilters.scope,
+        keywords: nextFilters.keywords,
+        groupId: nextFilters.groupId,
+        artifactId: nextFilters.artifactId,
+        version: nextFilters.version,
+        tags: nextFilters.tags,
+        type: nextFilters.type,
+        languages: nextFilters.languages,
+        licenses: nextFilters.licenses,
+        platforms: nextFilters.platforms,
+        excludeDeprecated: nextFilters.excludeDeprecated,
+        includeDeprecated: nextFilters.includeDeprecated,
+        excludeUnstable: nextFilters.excludeUnstable,
+        excludeInsecure: nextFilters.excludeInsecure,
+        includeUnstable: nextFilters.includeUnstable,
+        includeInsecure: nextFilters.includeInsecure,
+        boostExact: nextFilters.boostExact,
+      });
+      const nextSort = availableSortOptions.includes(sortBy)
+        ? sortBy
+        : (availableSortOptions[0] || 'relevance');
+
+      setFilters(nextFilters);
+      setSearchQuery(nextQuery);
+      setSortBy(nextSort);
+
       if (baseText.trim()) {
-        // Use setTimeout to ensure state updates are applied before triggering search
         setTimeout(() => {
-          triggerSearch('relevance');
+          triggerSearch(nextSort);
         }, 0);
       }
     }
     
     // Update previous source reference
     previousSourceRef.current = currentSource;
-  }, [sourceInfo.currentSource, searchQuery, setSearchQuery, triggerSearch]);
+  }, [availableSortOptions, filters, searchQuery, setSearchQuery, sortBy, sourceInfo.currentSource, supportedFilters, triggerSearch]);
 
-  const availableSortOptions = supportedSortOptions as SearchSortBy[];
   const sourceHint = buildSourceHint(
     sourceInfo.detectedPackageManager,
     sourceInfo.installTarget,

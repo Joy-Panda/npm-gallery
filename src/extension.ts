@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { createApiClients } from './api';
 import { initServices } from './services';
+import type { WorkspacePackageScope } from './types/package';
 import {
   PackageHoverProvider,
   PackageCodeLensProvider,
@@ -302,21 +303,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider(
-      { scheme: 'file', pattern: '**/Gemfile.lock' },
-      codeLensProvider
-    )
-  );
-
-  context.subscriptions.push(
-    vscode.languages.registerCodeLensProvider(
       { scheme: 'file', pattern: '**/cpanfile' },
-      codeLensProvider
-    )
-  );
-
-  context.subscriptions.push(
-    vscode.languages.registerCodeLensProvider(
-      { scheme: 'file', pattern: '**/cpanfile.snapshot' },
       codeLensProvider
     )
   );
@@ -330,21 +317,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider(
-      { scheme: 'file', pattern: '**/pubspec.lock' },
-      codeLensProvider
-    )
-  );
-
-  context.subscriptions.push(
-    vscode.languages.registerCodeLensProvider(
       { scheme: 'file', pattern: '**/DESCRIPTION' },
-      codeLensProvider
-    )
-  );
-
-  context.subscriptions.push(
-    vscode.languages.registerCodeLensProvider(
-      { language: 'json', pattern: '**/composer.lock' },
       codeLensProvider
     )
   );
@@ -379,13 +352,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider(
-      { scheme: 'file', pattern: '**/Cargo.lock' },
-      codeLensProvider
-    )
-  );
-
-  context.subscriptions.push(
-    vscode.languages.registerCodeLensProvider(
       { scheme: 'file', pattern: '**/go.mod' },
       codeLensProvider
     )
@@ -395,7 +361,10 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(
       SearchViewProvider.viewType,
-      searchViewProvider
+      searchViewProvider,
+      {
+        webviewOptions: { retainContextWhenHidden: true },
+      }
     )
   );
 
@@ -426,27 +395,68 @@ export async function activate(context: vscode.ExtensionContext) {
     updates: updatesProvider,
   });
 
-  // Listen for workspace changes
-  services.workspace.onDidChangePackages(async (scope) => {
-    if (!scope) {
-      services.package.invalidateLocalDependencyTreeCache();
-      services.package.invalidateLatestVersionCache();
-      await installedProvider.refresh();
-      await updatesProvider.refresh();
-      codeLensProvider.refresh();
-      return;
+  const pendingRefreshScopes = new Map<string, WorkspacePackageScope | undefined>();
+  let pendingRefreshTimer: ReturnType<typeof setTimeout> | undefined;
+  let refreshQueue = Promise.resolve();
+  const queueRefresh = (scope?: WorkspacePackageScope) => {
+    const key = scope?.manifestPath || (scope?.workspaceFolderPath ? `workspace:${scope.workspaceFolderPath}` : 'all');
+    pendingRefreshScopes.set(key, scope);
+
+    if (pendingRefreshTimer) {
+      clearTimeout(pendingRefreshTimer);
     }
 
-    const scopedInstalledPackages = await services.workspace.refreshInstalledPackages(scope);
-    const registryPackageNames = scopedInstalledPackages
-      .filter((pkg) => pkg.isRegistryResolvable !== false)
-      .map((pkg) => pkg.name);
+    pendingRefreshTimer = setTimeout(() => {
+      pendingRefreshTimer = undefined;
+      const scopes = [...pendingRefreshScopes.values()];
+      pendingRefreshScopes.clear();
+      refreshQueue = refreshQueue
+        .then(async () => {
+          if (scopes.some((item) => !item)) {
+            services.package.invalidateLocalDependencyTreeCache();
+            services.package.invalidateLatestVersionCache();
+            await installedProvider.refresh();
+            await updatesProvider.refresh();
+            codeLensProvider.refresh();
+            return;
+          }
 
-    services.package.invalidateLocalDependencyTreeCache(scope);
-    services.package.invalidateLatestVersionCache(registryPackageNames);
-    await installedProvider.refreshScope(scope, true);
-    await updatesProvider.refreshScope(scope, true);
-    codeLensProvider.refresh(scope);
+          const uniqueScopes = new Map<string, WorkspacePackageScope>();
+          for (const item of scopes) {
+            if (!item) {
+              continue;
+            }
+            const scopeKey = item.manifestPath || `workspace:${item.workspaceFolderPath || ''}`;
+            uniqueScopes.set(scopeKey, item);
+          }
+
+          for (const item of uniqueScopes.values()) {
+            const scopedInstalledPackages = await services.workspace.refreshInstalledPackages(item);
+            const registryPackageNames = scopedInstalledPackages
+              .filter((pkg) => pkg.isRegistryResolvable !== false)
+              .map((pkg) => pkg.name);
+
+            services.package.invalidateLocalDependencyTreeCache(item);
+            services.package.invalidateLatestVersionCache(registryPackageNames);
+            await installedProvider.refreshScope(item, true);
+            await updatesProvider.refreshScope(item, true);
+            codeLensProvider.refresh(item);
+          }
+        })
+        .catch((error) => {
+          console.error('NPM Gallery: Failed to refresh package views', error);
+        });
+    }, 200);
+  };
+  context.subscriptions.push(new vscode.Disposable(() => {
+    if (pendingRefreshTimer) {
+      clearTimeout(pendingRefreshTimer);
+    }
+  }));
+
+  // Listen for workspace changes
+  services.workspace.onDidChangePackages((scope) => {
+    queueRefresh(scope);
   });
 
   // Initial check for updates (if enabled)

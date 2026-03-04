@@ -2,6 +2,7 @@ import { PackageService } from './package-service';
 import { SearchService } from './search-service';
 import { InstallService } from './install-service';
 import { WorkspaceService } from './workspace-service';
+import { SourceContextService } from './source-context-service';
 import { SourceRegistry, initSourceRegistry } from '../registry/source-registry';
 import { ProjectDetector, getProjectDetector } from '../registry/project-detector';
 import { SourceSelector, initSourceSelector } from '../registry/source-selector';
@@ -31,6 +32,7 @@ export class ServiceContainer {
   readonly search: SearchService;
   readonly install: InstallService;
   readonly workspace: WorkspaceService;
+  readonly sourceContext: SourceContextService;
   
   // Source infrastructure
   readonly sourceRegistry: SourceRegistry;
@@ -58,6 +60,18 @@ export class ServiceContainer {
     this.package = new PackageService(this.sourceSelector);
     this.search = new SearchService(this.sourceSelector);
     this.install = new InstallService(this.sourceSelector, this.workspace);
+    this.sourceContext = new SourceContextService({
+      workspace: this.workspace,
+      install: this.install,
+      package: this.package,
+      search: this.search,
+      getCurrentProjectType: () => this.getCurrentProjectType(),
+      getCurrentSourceType: () => this.getCurrentSourceType(),
+      getDetectedProjectTypes: () => this.getDetectedProjectTypes(),
+      getAvailableSources: () => this.getAvailableSources(),
+      getSupportedSortOptions: () => this.getSupportedSortOptions(),
+      getSupportedFilters: () => this.getSupportedFilters(),
+    });
 
     // Register source adapters
     this.registerAdapters();

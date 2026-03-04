@@ -1372,7 +1372,7 @@ export function registerCommands(
       'npmGallery.showPackageDetails',
       async (
         arg?: string | { pkg?: { name: string } },
-        options?: string | { installedVersion?: string; securityOnly?: boolean }
+        options?: string | { installedVersion?: string; securityOnly?: boolean; source?: import('../types/project').SourceType }
       ) => {
         let packageName: string | undefined;
         const normalizedOptions =

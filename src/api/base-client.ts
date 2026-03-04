@@ -1,12 +1,24 @@
-import axios, { AxiosInstance, AxiosError, AxiosRequestConfig } from 'axios';
+import axios, { AxiosInstance, AxiosError, AxiosHeaders, AxiosRequestConfig } from 'axios';
 import * as vscode from 'vscode';
 
-const USER_AGENT_BASE = 'npm-gallery-vscode/0.0.1 (+https://github.com/BetaVersion-io/npm-gallery)';
+const EXTENSION_ID = 'BetaVersion.npm-gallery';
+const USER_AGENT_REPOSITORY = 'https://github.com/BetaVersion-io/npm-gallery';
+
+function getExtensionVersion(): string {
+  const extension = vscode.extensions.getExtension(EXTENSION_ID);
+  const version = extension?.packageJSON?.version;
+  return typeof version === 'string' && version.trim() ? version : '0.0.1';
+}
+
+function getUserAgentBase(): string {
+  return `npm-gallery-vscode/${getExtensionVersion()} (+${USER_AGENT_REPOSITORY})`;
+}
 
 export function getUserAgent(): string {
   const config = vscode.workspace.getConfiguration('npmGallery');
   const contact = config.get<string>('userAgentContact', '').trim();
-  return contact ? `${USER_AGENT_BASE}; contact=${contact}` : USER_AGENT_BASE;
+  const userAgentBase = getUserAgentBase();
+  return contact ? `${userAgentBase}; contact=${contact}` : userAgentBase;
 }
 
 export function createDefaultRequestHeaders(
@@ -31,6 +43,16 @@ export function createFetchRequestInit(
     signal: options.signal,
     headers: createDefaultRequestHeaders(options.accept, options.headers),
   };
+}
+
+export function attachDynamicRequestHeaders(client: AxiosInstance, accept = 'application/json'): void {
+  client.interceptors.request.use((config) => {
+    config.headers = AxiosHeaders.from({
+      ...createDefaultRequestHeaders(accept),
+      ...(config.headers || {}),
+    });
+    return config;
+  });
 }
 
 /**
@@ -72,8 +94,9 @@ export abstract class BaseApiClient {
     this.client = axios.create({
       baseURL,
       timeout,
-      headers: createDefaultRequestHeaders(),
     });
+
+    attachDynamicRequestHeaders(this.client);
 
     // Response interceptor for error handling
     this.client.interceptors.response.use(

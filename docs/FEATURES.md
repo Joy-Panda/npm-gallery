@@ -10,7 +10,7 @@ This document provides detailed specifications for all features of the NPM Galle
 1. [Package Search](#1-package-search)
 2. [Package Details View](#2-package-details-view)
 3. [Package Installation](#3-package-installation)
-4. [Package.json Integration](#4-packagejson-integration)
+4. [Manifest Integration](#4-manifest-integration)
 5. [Security Scanning](#5-security-scanning)
 6. [Bundle Size Analysis](#6-bundle-size-analysis)
 7. [License Management](#7-license-management)
@@ -23,7 +23,7 @@ This document provides detailed specifications for all features of the NPM Galle
 ## 1. Package Search
 
 ### 1.1 Overview
-Enable developers to search the npm registry without leaving VS Code.
+Enable developers to search the current package source without leaving VS Code.
 
 ### 1.2 Functional Requirements
 
@@ -43,12 +43,12 @@ Enable developers to search the npm registry without leaving VS Code.
 #### Search Results
 | Field | Description | Source |
 |-------|-------------|--------|
-| Package name | Full package name with scope | npm API |
-| Description | Short description (max 150 chars) | npm API |
-| Version | Latest version | npm API |
-| Downloads | Weekly download count | npm API |
-| Score | Quality/popularity score | npms.io |
-| Bundle size | Minified + gzipped size | Bundlephobia |
+| Package name | Full package name | Active source |
+| Description | Short description (max 150 chars) | Active source |
+| Version | Selected/latest version | Active source |
+| Downloads | Source-specific download metric | Active source |
+| Score | Quality/popularity score when available | Active source |
+| Bundle size | Minified + gzipped size when available | Bundlephobia or active source |
 
 #### Filters & Sorting Options
 **按当前 Source 自适应**：筛选与排序均只展示当前数据源支持的维度。
@@ -60,25 +60,26 @@ Enable developers to search the npm registry without leaving VS Code.
 ### 1.3 User Interface
 ```
 ┌─────────────────────────────────────────────┐
-│ 🔍 Search npm packages...          [Filters]│
+│ 🔍 Search packages...              [Filters]│
 ├─────────────────────────────────────────────┤
 │ Sort: Relevance ▼  │ Results: 1,234         │
 ├─────────────────────────────────────────────┤
 │ ┌─────────────────────────────────────────┐ │
 │ │ 📦 lodash                    v4.17.21  │ │
 │ │ A modern JavaScript utility library... │ │
-│ │ ⬇️ 45M/week  📊 98  📦 72KB           │ │
+│ │ ⬇️ 14.5M/month  📊 98  📦 72KB        │ │
 │ └─────────────────────────────────────────┘ │
 │ ┌─────────────────────────────────────────┐ │
 │ │ 📦 express                    v4.18.2  │ │
 │ │ Fast, unopinionated web framework...   │ │
-│ │ ⬇️ 28M/week  📊 97  📦 54KB           │ │
+│ │ ⬇️ 11.2M/month  📊 97  📦 54KB        │ │
 │ └─────────────────────────────────────────┘ │
 └─────────────────────────────────────────────┘
 ```
 
 ### 1.4 Technical Implementation
-- 支持 npms 与 npm-registry 两种搜索源，默认使用 npm-registry，用户可切换
+- Search is routed through the current source selected by `SourceSelector`
+- Sources may implement internal fallback behavior, and `libraries-io` can also be used as a cross-ecosystem fallback source
 - Implement local caching (5 min TTL)
 - Cancel pending requests on new search
 
@@ -96,14 +97,14 @@ Display comprehensive package information to help developers make informed decis
 - 作者、License、下载量、Bundle size、Score（以 stat 标签形式展示）
 - 安装按钮（含依赖类型选择）
 
-最新版本、发布时间以及 npm / Homepage / Repository / Issues 链接**不在** Header 内，位于右侧**侧栏**。
+最新版本、发布时间以及 Registry / Homepage / Repository / Issues 链接**不在** Header 内，位于右侧**侧栏**。
 
 #### 侧栏（Resources / Info 等）
 | 区块 | 内容 |
 |------|------|
 | Version | 当前展示的版本号 |
 | Security | 漏洞数量与简要状态 |
-| Resources | npm、Homepage、Repository、Issues 等外链 |
+| Resources | Registry、Homepage、Repository、Issues 等外链 |
 | Info | Published（发布时间）、Package Manager、Dependencies 数量、Unpacked Size、Maintainers 等 |
 | Keywords | 关键词列表（若有） |
 
@@ -159,8 +160,8 @@ Display comprehensive package information to help developers make informed decis
 │ A modern JavaScript utility library delivering        │ Security        │
 │ modularity, performance & extras.                     │ ✓ No vulns      │
 │                                                       ├─────────────────┤
-│ [Author] [⬇️ 45M/week] [📦 72KB] [⭐ 98] [MIT]        │ Resources       │
-│                                                       │ npm · Repo · …  │
+│ [Author] [⬇️ 14.5M/month] [📦 72KB] [⭐ 98] [MIT]     │ Resources       │
+│                                                       │ Registry · Repo │
 │ [Install ▼]  Install target: …                        ├─────────────────┤
 ├──────────────────────────────────────────────────────┤ Info            │
 │ [README] [Versions] [Dependencies] [Dependents] …     │ Published: 2y ago│
@@ -171,29 +172,30 @@ Display comprehensive package information to help developers make informed decis
 └──────────────────────────────────────────────────────┴─────────────────┘
     主区域（Header + Tabs 内容）                              侧栏
 ```
-主区域 Header 仅含包名、描述、统计标签（作者/下载量/bundle size/score/license）与安装按钮；最新版本、发布时间、npm/Repository 等在右侧侧栏。
+主区域 Header 仅含包名、描述、统计标签（作者/下载量/bundle size/score/license）与安装按钮；最新版本、发布时间、Registry/Repository 等在右侧侧栏。
 
 ---
 
 ## 3. Package Installation
 
 ### 3.1 Overview
-One-click package installation with version and type selection.
+One-click package installation or copy-snippet generation with version and type selection.
 
 ### 3.2 Installation Options
 
 #### Dependency Type
-- `dependencies` - Production dependencies
-- `devDependencies` - Development only
-- `peerDependencies` - Peer requirements
-- `optionalDependencies` - Optional packages
+- Available dependency/save types depend on the current ecosystem
+- Examples:
+  - npm: `dependencies`, `devDependencies`, `peerDependencies`, `optionalDependencies`
+  - Composer/Ruby/Perl/Dart/R/Clojure: typically `dependencies` / `devDependencies`
+  - Cargo: `dependencies`, `devDependencies`, `optionalDependencies`
 
-#### Package Manager Detection
-- Auto-detect package manager from workspace lockfiles
-- Supported package managers: npm, yarn, pnpm, bun
-- Show detected package manager in the UI
-- Adapt install/update/remove commands to the detected tool automatically
-- In multi-project workspaces, prompt for the target `package.json` before install
+#### Package Manager / Build Tool Detection
+- Auto-detect package manager or build/declaration format from workspace manifest context
+- Supported direct command tools and copy formats depend on the current source
+- Show detected package manager/build tool in the UI
+- Adapt install/update/remove/copy actions to the detected target automatically
+- In multi-project workspaces, prompt for the target manifest before install
 - Sort target project suggestions by editor context:
   - currently viewed project
   - opened but not currently viewed project
@@ -221,37 +223,38 @@ One-click package installation with version and type selection.
 5. Display success/error notification
 ```
 
-### 3.4 Pre-Installation Checks
-1. **Security scan** - Show warning if vulnerabilities exist
-2. **License check** - Warn if license not in whitelist
-3. **Size warning** - Alert if package > configured threshold
-4. **Duplicate check** - Warn if similar package exists
-
-### 3.5 Post-Installation Actions
-- Refresh package.json view
+### 3.4 Post-Installation Actions
+- Refresh the affected manifest view
 - Update dependency tree
 - Show changelog for new installs
 - Suggest related packages (optional)
 
-### 3.6 Package Manager Support
-| Manager | Command | Lock File |
-|---------|---------|-----------|
-| npm | `npm install` | package-lock.json |
-| yarn | `yarn add` | yarn.lock |
-| pnpm | `pnpm add` | pnpm-lock.yaml |
-| bun | `bun add` | bun.lock / bun.lockb |
+### 3.5 Package Manager / Tooling Support
+Representative examples:
 
-Auto-detect based on lock file presence.
+| Ecosystem | Tool / Format | Action Type |
+|-----------|---------------|-------------|
+| npm | `npm` / `yarn` / `pnpm` / `bun` | Direct install/update/remove |
+| Sonatype | `Maven` / `Gradle` / `SBT` / `Mill` / `Ivy` / `Grape` / `Leiningen` / `Buildr` | Copy snippet / source-aware add flow |
+| NuGet | `.NET CLI` / `PackageReference` / `CPM` / `Paket` / `Cake` / `PMC` | Direct command or manifest edit |
+| Composer | `composer` | Direct install/update/remove |
+| Ruby | `bundler` | Direct install/update/remove |
+| Cargo | `cargo` | Direct install/update/remove |
+| Dart / Flutter | `dart pub` / `flutter pub` | Direct install/update/remove |
+| R | `install.packages()` and `DESCRIPTION` editing | Direct install or manifest edit |
+| Clojure | `neil` / `deps.edn` / `Leiningen` | Direct install or copy snippet |
+| Perl | `cpanm` / `cpanfile` | Direct install or manifest edit |
+| Go | `go get` | Direct install/update/remove |
 
 ---
 
-## 4. Package.json Integration
+## 4. Manifest Integration
 
 ### 4.1 Overview
-Enhance the package.json editing experience with inline information and actions.
+Enhance supported manifest editing experiences with inline information and actions.
 
 ### 4.2 Hover Information
-When hovering over a package name in package.json:
+When hovering over a dependency entry in a supported manifest:
 ```
 ┌─────────────────────────────────────────────┐
 │ 📦 lodash                                    │
@@ -259,7 +262,7 @@ When hovering over a package name in package.json:
 ├─────────────────────────────────────────────┤
 │ Installed: 4.17.20                          │
 │ Latest:    4.17.21  ⚠️ Update available     │
-│ Downloads: 45M/week                         │
+│ Downloads: 14.5M/month                      │
 │ Size:      72KB (gzipped)                   │
 │ License:   MIT ✓                            │
 │ Security:  No vulnerabilities ✓             │
@@ -285,26 +288,26 @@ Show VS Code diagnostics for:
 - Security vulnerabilities (red squiggle)
 - Outdated packages (yellow squiggle)
 - Deprecated packages (strikethrough)
-- License issues (info squiggle)
+- License issues (info-level warning where implemented)
 
 ### 4.5 Quick Actions
 Right-click context menu:
 - Update package
 - Update to specific version
 - Remove package
-- View on npm
+- View on registry
 - View package details
 - Copy package name
 
 ### 4.6 Autocomplete
 When typing package names:
-- Suggest from npm registry
+- Suggest from the active source
 - Show version hints
 - Display package info inline
 - Recent/popular packages first
 
 ### 4.7 Custom Editor
-- Open `package.json` with a dedicated custom editor by default
+- Open supported manifests with enhanced text + analyzer experiences where implemented
 - Built-in tabs:
   - `Text`
   - `Dependency Analyzer`
@@ -314,6 +317,9 @@ When typing package names:
   - search/filter by package name or version
   - direct-only mode
   - hide dev root dependencies
+- Current implementation scope:
+  - npm dependency analyzer is fully implemented
+  - other ecosystems rely on package details, hover, CodeLens, and workspace trees rather than a full local analyzer
 
 ---
 
@@ -323,9 +329,9 @@ When typing package names:
 Proactive security analysis to prevent vulnerable dependencies.
 
 ### 5.2 Data Sources
-- **npm audit API** - Official vulnerability database
-- **GitHub Advisory Database** - Additional CVEs
-- **Snyk vulnerability DB** - Extended coverage (optional)
+- **OSV / source advisory APIs** - Primary vulnerability data where supported
+- **Source-specific security endpoints** - Used when an ecosystem provides its own advisory feed
+- Coverage depends on the active source and current package ecosystem
 
 ### 5.3 Vulnerability Display
 
@@ -444,8 +450,8 @@ Configurable thresholds:
 Ensure dependency licenses are compatible with project requirements.
 
 ### 7.2 License Detection
-- Parse from package.json `license` field
-- Fallback to LICENSE file analysis
+- Parse from source/package metadata license fields when available
+- Fallback to available package metadata or linked license information
 - Handle SPDX expressions (MIT OR Apache-2.0)
 
 ### 7.3 License Categories
@@ -459,11 +465,7 @@ Ensure dependency licenses are compatible with project requirements.
 ### 7.4 Configuration
 ```json
 {
-  "npmGallery.licenses": {
-    "whitelist": ["MIT", "ISC", "Apache-2.0", "BSD-3-Clause"],
-    "blacklist": ["GPL-3.0", "AGPL-3.0"],
-    "warnOnUnknown": true
-  }
+  "npmGallery.licenseWhitelist": ["MIT", "ISC", "Apache-2.0", "BSD-3-Clause"]
 }
 ```
 
@@ -606,8 +608,8 @@ Before updating, show relevant changelog:
 ## 10. Workspace Support
 
 ### 10.1 Multi-Manifest Workspaces
-- Support multiple `package.json` files in a single workspace
-- Support multiple `pom.xml` files in a single workspace
+- Support multiple manifests in a single workspace
+- Support multiple manifest types in a single workspace
 - In multi-root VS Code workspaces, group by workspace folder first
 - When only one manifest exists, keep the simple dependency-type grouping
 - When multiple manifests exist, group by manifest path/name before dependency type
@@ -628,13 +630,13 @@ Before updating, show relevant changelog:
 - Detect and label workspace-local/self references in installed package views, hover, and CodeLens
 
 ### 10.4 Workspace Graph And Alignment
-- Build a project graph for workspace manifests
+- Build a project graph for supported workspace manifests where implemented
 - Detect local project-to-project dependencies inside monorepos
 - Detect shared dependency version mismatches across projects
 - Command: `Show Workspace Graph`
 - Command: `Align Workspace Dependency Versions`
 - Open a dedicated `Dependency Analyzer` editor panel
-- For `package.json`, support `Analyzer / package.json` view switching inside the analyzer panel
+- For npm manifests, support `Analyzer / package.json` view switching inside the analyzer panel
 - Support manifest-scoped recursive conflict detection for transitive dependencies
 - Support analyzer filtering:
   - search/filter by package or version
@@ -650,76 +652,6 @@ Before updating, show relevant changelog:
 - Scope local dependency tree invalidation to the affected workspace root
 - Use document-level CodeLens caching with scope-based invalidation
 
-### 10.1 Overview
-Support for monorepos and multi-package workspaces.
-
-### 10.2 Workspace Detection
-Auto-detect workspace configuration:
-- npm workspaces (package.json)
-- yarn workspaces
-- pnpm workspaces
-- Lerna projects
-- Nx workspaces
-- Multiple `package.json` manifests in one workspace
-- Multiple `pom.xml` manifests in one workspace
-
-Discovery sources:
-- Root `package.json` `workspaces`
-- `pnpm-workspace.yaml` `packages`
-- `lerna.json` `packages`
-- `nx.json` with sibling `project.json` / `package.json`
-- `workspace.json` project roots
-- Fallback full manifest scan when no explicit workspace config is present
-
-### 10.3 Multi-Package View
-```
-┌─────────────────────────────────────────────┐
-│ 📁 Workspace: my-monorepo                    │
-├─────────────────────────────────────────────┤
-│ ├── 📦 @my-org/core (14 deps)              │
-│ ├── 📦 @my-org/ui (22 deps)                │
-│ ├── 📦 @my-org/api (18 deps)               │
-│ └── 📦 @my-org/utils (5 deps)              │
-├─────────────────────────────────────────────┤
-│ Shared dependencies: 8                       │
-│ Version mismatches: 2 ⚠️                    │
-│ Total vulnerabilities: 0 ✓                  │
-└─────────────────────────────────────────────┘
-```
-
-Current workspace behavior:
-- Scan all `package.json` and `pom.xml` files in the workspace
-- Treat each manifest as an independent dependency source
-- Support multi-root VS Code workspaces
-- When multiple workspace folders are present, group views by workspace folder first
-- When only one manifest is present, keep the flat dependency-category view
-- When multiple manifests are present, group `Installed Packages` and `Available Updates` by manifest path first, then by dependency type
-- Preserve local dependency specifiers such as `file:`, `workspace:`, relative paths, and git references instead of displaying them as normal versions
-- Resolve install/update/remove commands against the correct workspace root when a package originates from a specific manifest
-
-### 10.4 Version Alignment
-Identify and fix version mismatches:
-```
-┌─────────────────────────────────────────────┐
-│ ⚠️ Version Mismatch: lodash                  │
-├─────────────────────────────────────────────┤
-│ @my-org/core:   ^4.17.20                    │
-│ @my-org/ui:     ^4.17.21                    │
-│ @my-org/api:    ^4.17.19                    │
-├─────────────────────────────────────────────┤
-│ Recommended: Align all to ^4.17.21          │
-│ [Align Versions] [Ignore]                   │
-└─────────────────────────────────────────────┘
-```
-
-### 10.5 Cross-Package Operations
-- Install package to multiple packages at once
-- Update dependency across all packages
-- Remove unused shared dependencies
-- Sync devDependencies to root
-
----
-
 ## Feature Priority Matrix
 
 | Feature | Priority | Complexity | MVP |
@@ -727,7 +659,7 @@ Identify and fix version mismatches:
 | Package Search | P0 | Medium | ✅ |
 | Package Details | P0 | Medium | ✅ |
 | Installation | P0 | Medium | ✅ |
-| Package.json Integration | P0 | High | ✅ |
+| Manifest Integration | P0 | High | ✅ |
 | Security Scanning | P0 | High | ✅ |
 | Bundle Size Analysis | P1 | Medium | ❌ |
 | License Management | P1 | Medium | ❌ |

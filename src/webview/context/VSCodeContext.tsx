@@ -16,7 +16,6 @@ export interface PersistedSearchState {
   searchQuery?: string;
   filters?: Record<string, unknown>;
   sortBy?: string;
-  searchResults?: SearchResult | null;
 }
 
 export interface SourceInfo {
@@ -122,10 +121,7 @@ export const VSCodeProvider: React.FC<VSCodeProviderProps> = ({ vscode, children
   const [persistedSearchState] = useState<PersistedSearchState | null>(() => getInitialPersistedState(vscode));
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [searchResults, setSearchResults] = useState<SearchResult | null>(() => {
-    const init = getInitialPersistedState(vscode);
-    return (init?.searchResults ?? null) as SearchResult | null;
-  });
+  const [searchResults, setSearchResults] = useState<SearchResult | null>(null);
   const [sourceInfo, setSourceInfo] = useState<SourceInfo>(defaultSourceInfo);
 
   // Handle messages from extension

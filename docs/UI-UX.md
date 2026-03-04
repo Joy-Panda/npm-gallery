@@ -2,7 +2,7 @@
 
 ## NPM Gallery - VS Code Extension
 
-This document defines the user interface design, user experience flows, and interaction patterns for the NPM Gallery extension.
+This document defines the user interface design, user experience flows, and interaction patterns for the NPM Gallery extension across multiple package sources and ecosystems.
 
 ---
 
@@ -139,7 +139,7 @@ font-family: var(--vscode-font-family);
 │  📦  │   ┌───────────────────────────────────────────────────┐  │
 │      │   │                NPM Gallery Panel                   │  │
 │ Icon │   ├───────────────────────────────────────────────────┤  │
-│      │   │  🔍 Search npm packages...                        │  │
+│      │   │  🔍 Search packages...                            │  │
 │      │   ├───────────────────────────────────────────────────┤  │
 │      │   │                                                   │  │
 │      │   │              [Search Results]                     │  │
@@ -155,7 +155,7 @@ font-family: var(--vscode-font-family);
 │ NPM Gallery                         [⚙️] │
 ├─────────────────────────────────────────┤
 │ ┌─────────────────────────────────────┐ │
-│ │ 🔍 Search npm packages...     [🔧]  │ │
+│ │ 🔍 Search packages...         [🔧]  │ │
 │ └─────────────────────────────────────┘ │
 ├─────────────────────────────────────────┤
 │ Sort: [Relevance ▼]  Found: 1,234       │
@@ -163,12 +163,12 @@ font-family: var(--vscode-font-family);
 │ ┌─────────────────────────────────────┐ │
 │ │ 📦 lodash               v4.17.21   │ │
 │ │ A modern JavaScript utility...      │ │
-│ │ ⬇️ 45M  📊 98  📦 72KB  🛡️ Safe    │ │
+│ │ ⬇️ 14.5M/month  📊 98  📦 72KB  🛡️ Safe │ │
 │ └─────────────────────────────────────┘ │
 │ ┌─────────────────────────────────────┐ │
 │ │ 📦 lodash-es            v4.17.21   │ │
 │ │ Lodash exported as ES modules...    │ │
-│ │ ⬇️ 12M  📊 85  📦 89KB  🛡️ Safe    │ │
+│ │ ⬇️ 3.2M/month  📊 85  📦 89KB  🛡️ Safe  │ │
 │ └─────────────────────────────────────┘ │
 │                 ...                      │
 └─────────────────────────────────────────┘
@@ -185,14 +185,14 @@ font-family: var(--vscode-font-family);
 │  delivering modularity, performance     │
 │  & extras.                              │
 │                                         │
-│  v4.17.21 • MIT • 2 years ago          │
+│  v4.17.21 • MIT • 2 years ago           │
 │                                         │
-│  ┌─────────────┐ ┌──────┐ ┌──────────┐ │
-│  │  Install ▼  │ │ npm ↗│ │ GitHub ↗ │ │
-│  └─────────────┘ └──────┘ └──────────┘ │
+│  ┌─────────────┐ ┌──────────┐ ┌──────────┐ │
+│  │  Install ▼  │ │ Registry ↗│ │ GitHub ↗ │ │
+│  └─────────────┘ └──────────┘ └──────────┘ │
 │                                         │
 ├─────────────────────────────────────────┤
-│ ⬇️ 45M/week │ ⭐ 57.2K │ 📦 72KB       │
+│ ⬇️ 14.5M/month │ ⭐ 57.2K │ 📦 72KB    │
 │ 🛡️ 0 vulnerabilities                   │
 ├─────────────────────────────────────────┤
 │ [README] [Versions] [Deps] [Security]   │
@@ -206,7 +206,8 @@ font-family: var(--vscode-font-family);
 │                                         │
 │  ## Installation                        │
 │  ```                                    │
-│  npm install lodash                     │
+│  Install or copy the source-aware       │
+│  dependency declaration                 │
 │  ```                                    │
 │                                         │
 └─────────────────────────────────────────┘
@@ -215,7 +216,7 @@ font-family: var(--vscode-font-family);
 ### 3.4 Editor Integration Layout
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│ package.json                                                     │
+│ supported manifest                                               │
 ├─────────────────────────────────────────────────────────────────┤
 │   {                                                              │
 │     "name": "my-project",                                        │
@@ -232,7 +233,7 @@ font-family: var(--vscode-font-family);
 │                    ├────────────────────────────────┤            │
 │                    │ Installed: 4.17.20            │            │
 │                    │ Latest:    4.17.21 ⚠️ Update  │            │
-│                    │ Downloads: 45M/week           │            │
+│                    │ Downloads: 14.5M/month        │            │
 │                    │ Size:      72KB (gzipped)     │            │
 │                    │ License:   MIT ✓              │            │
 │                    │ Security:  No vulnerabilities │            │
@@ -249,7 +250,7 @@ font-family: var(--vscode-font-family);
 ### 4.1 Search Bar
 ```
 ┌──────────────────────────────────────────────────────┐
-│ 🔍 │ Search npm packages...                    │ ⚙️  │
+│ 🔍 │ Search packages...                        │ ⚙️  │
 └──────────────────────────────────────────────────────┘
       ↑                                           ↑
    Icon                                      Filter button
@@ -276,7 +277,7 @@ States:
 │      A modern JavaScript utility library           │
 │      delivering modularity, performance...         │
 │                                                    │
-│      ⬇️ 45M/week  📊 98  📦 72KB  🛡️ Safe         │
+│      ⬇️ 14.5M/month  📊 98  📦 72KB  🛡️ Safe      │
 └─────────────────────────────────────────────────────┘
 
 Hover state:
@@ -286,7 +287,7 @@ Hover state:
 │      A modern JavaScript utility library           │
 │      delivering modularity, performance...         │ ← Quick
 │                                                    │   install
-│      ⬇️ 45M/week  📊 98  📦 72KB  🛡️ Safe         │   button
+│      ⬇️ 14.5M/month  📊 98  📦 72KB  🛡️ Safe      │   button
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -299,7 +300,7 @@ Hover state:
 
 ### 4.3 Metric Badges
 ```
-Downloads:      ⬇️ 45M/week     (icon + formatted number)
+Downloads:      ⬇️ 14.5M/month  (icon + formatted number)
 Score:          📊 98           (icon + 0-100 score)
 Size:           📦 72KB         (icon + formatted size)
 Security:       🛡️ Safe         (icon + status text)
@@ -398,9 +399,9 @@ Color coding by severity:
 │ ● devDependencies                                   │
 │ ○ peerDependencies                                  │
 │                                                     │
-│ Package manager                                     │
+│ Tooling                                             │
 │ ┌─────────────────────────────────────────────────┐│
-│ │ npm (auto-detected)                           ▼ ││
+│ │ Auto-detected format                          ▼ ││
 │ └─────────────────────────────────────────────────┘│
 │                                                     │
 │ ⚠️ This package adds 72KB to your bundle           │
@@ -437,7 +438,7 @@ Color coding by severity:
                     └─────────────┘     └─────────────┘
 ```
 
-### 5.2 Package.json Hover Flow
+### 5.2 Manifest Hover Flow
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
 │   Open      │────▶│   Hover     │────▶│   View      │
@@ -516,7 +517,7 @@ Double click:
 
 Right click:
 - Package card → Context menu
-- package.json package → Context menu
+- dependency entry in a supported manifest → Context menu
 ```
 
 ### 6.3 Drag & Drop
@@ -526,7 +527,7 @@ Drag package from:
 - Installed packages view
 
 Drop onto:
-- package.json file → Add dependency
+- supported manifest file → Add dependency or copy declaration
 - Terminal → Generate install command
 ```
 
@@ -552,7 +553,7 @@ Examples:
 <input
   type="search"
   role="searchbox"
-  aria-label="Search npm packages"
+  aria-label="Search packages"
   aria-describedby="search-hint"
 />
 <span id="search-hint" class="sr-only">
@@ -634,7 +635,7 @@ Narrow panel:
 │ 📦 lodash  v4.17.21│
 │ A modern JavaScript│
 │ utility library... │
-│ ⬇️ 45M   📊 98     │
+│ ⬇️ 14.5M  📊 98    │
 │ 📦 72KB  🛡️ Safe   │
 └─────────────────────┘
 
@@ -643,7 +644,7 @@ Wide panel:
 │ 📦 lodash                                  v4.17.21│
 │ A modern JavaScript utility library delivering     │
 │ modularity, performance & extras.                  │
-│ ⬇️ 45M/week  📊 98  📦 72KB  🛡️ Safe              │
+│ ⬇️ 14.5M/month  📊 98  📦 72KB  🛡️ Safe           │
 └─────────────────────────────────────────────────────┘
 ```
 

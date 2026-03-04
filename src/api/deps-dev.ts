@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { BaseApiClient, createDefaultRequestHeaders } from './base-client';
+import { BaseApiClient, attachDynamicRequestHeaders } from './base-client';
 import type {
   DependentsInfo,
   EcosystemName,
@@ -75,11 +75,11 @@ export class DepsDevClient extends BaseApiClient {
   private webClient = axios.create({
     baseURL: 'https://deps.dev',
     timeout: 10000,
-    headers: createDefaultRequestHeaders(),
   });
 
   constructor() {
     super('https://api.deps.dev', 'deps-dev');
+    attachDynamicRequestHeaders(this.webClient);
   }
 
   buildDependentsWebUrl(system: DepsDevSystem, name: string, version: string): string {

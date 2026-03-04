@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useVSCode, type SourceInfo } from '../context/VSCodeContext';
 import { parseQuery, buildQuery } from '../utils/queryParser';
 import type { SearchResult, SearchSortBy, SearchFilter } from '../../types/package';
@@ -19,13 +19,8 @@ export function useSearch(): {
   supportedSortOptions: SearchSortBy[];
   supportedFilters: SearchFilter[];
 } {
-  const { search, searchResults, isLoading, error, sourceInfo, refreshSourceInfo, persistedSearchState } = useVSCode();
+  const { search, searchResults, isLoading, error, sourceInfo, persistedSearchState } = useVSCode();
   const [searchQuery, setSearchQuery] = useState(() => persistedSearchState?.searchQuery ?? '');
-
-  // Refresh source info on mount
-  useEffect(() => {
-    refreshSourceInfo();
-  }, [refreshSourceInfo]);
 
   // Manual search trigger function
   // sortBy is passed as parameter, not parsed from query string
